@@ -155,6 +155,30 @@ namespace AES_Lacrima.Services
         }
 
         /// <summary>
+        /// Returns navigation to the home screen. Used when restoring full AES mode from mini mode.
+        /// </summary>
+        public void ResetToHomeView()
+        {
+            ShowSettingsOverlay = false;
+
+            if (View is MusicViewModel musicViewModel)
+                musicViewModel.IsActive = false;
+            else if (View is EmulationViewModel emulationViewModel)
+                emulationViewModel.IsActive = false;
+            else if (View is VideoViewModel videoViewModel)
+                videoViewModel.IsActive = false;
+
+            var home = DiLocator.ResolveViewModel<MainContentViewModel>();
+            if (home == null)
+                return;
+
+            home.IsActive = true;
+            _previousViewModel = home;
+            View = home;
+            IsBackEnabled = false;
+        }
+
+        /// <summary>
         /// Initial preparation of the navigation service
         /// </summary>
         public override void Prepare()

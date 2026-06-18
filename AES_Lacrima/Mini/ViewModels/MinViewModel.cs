@@ -8,6 +8,8 @@ using AES_Lacrima.ViewModels;
 using AES_Core.Services;
 using AES_Lacrima.Services;
 using AES_Lacrima.Mini;
+using AES_Lacrima.Settings;
+using App = AES_Lacrima.App;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -322,41 +324,50 @@ namespace AES_Lacrima.Mini.ViewModels
             if (MusicViewModel != null)
                 MusicViewModel.ResetPlaybackOnAlbumSwitch = false;
 
-            AES_Lacrima.App.IsSwitchingMode = true;
+            App.IsSwitchingMode = true;
 
             if (AppLifetime.MainWindow?.DataContext is IViewModelBase vm)
             {
                 try { vm.SaveSettings(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
             }
             DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
+            SettingsBase.FlushPendingSaves();
 
             if (SettingsViewModel != null)
             {
                 SettingsViewModel.AppMode = 0;
                 SettingsViewModel.SaveSettings();
+                SettingsBase.FlushPendingSaves();
             }
 
-            var newWindow = new AES_Lacrima.Views.MainWindow();
-            newWindow.Closing += (s, e) =>
-            {
-                DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
-                if (!AES_Lacrima.App.IsSwitchingMode)
-                {
-                    try { DiLocator.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
-                }
-            };
-
             var oldWindow = AppLifetime.MainWindow;
-            AppLifetime.MainWindow = newWindow;
-            newWindow.Show();
 
-            // refresh taskbar buttons now that the main window has changed
-            var musicVm = DiLocator.ResolveViewModel<MusicViewModel>();
-            musicVm?.InitializeTaskbarButtons();
+            if (App.CachedMainWindow is { } cachedMain)
+            {
+                App.CachedMainWindow = null;
+                AppLifetime.MainWindow = cachedMain;
+                if (Application.Current is App app)
+                    app.ConfigureDesktopMainWindow(cachedMain);
+
+                cachedMain.ResumeFromMiniMode();
+                cachedMain.Show();
+                cachedMain.Activate();
+            }
+            else
+            {
+                App.SkipNextMediaViewWarmup = true;
+
+                var newWindow = new AES_Lacrima.Views.MainWindow();
+                AppLifetime.MainWindow = newWindow;
+                if (Application.Current is App app)
+                    app.ConfigureDesktopMainWindow(newWindow);
+
+                newWindow.ResumeFromMiniMode();
+                newWindow.Show();
+            }
 
             oldWindow?.Close();
-
-            AES_Lacrima.App.IsSwitchingMode = false;
+            App.IsSwitchingMode = false;
         }
 
         [RelayCommand]

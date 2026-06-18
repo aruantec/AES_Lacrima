@@ -9,8 +9,11 @@
     <DisableBuildServer>true</DisableBuildServer>
     <!-- DATAS GC mode is linked to intermittent Roslyn crashes on Linux (dotnet/runtime#104123). -->
     <GarbageCollectionAdaptationMode Condition="'$(OS)' != 'Windows_NT'">0</GarbageCollectionAdaptationMode>
+    <!-- CscEnvironment disables DATAS GC for the Roslyn host on Linux (dotnet/runtime#104123). -->
+    <CscEnvironment Condition="'$(OS)' != 'Windows_NT'">DOTNET_GCDynamicAdaptationMode=0;DOTNET_GCServer=0</CscEnvironment>
     <!-- Serialize project builds on Linux to reduce parallel csc pressure. -->
     <BuildInParallel Condition="'$(OS)' != 'Windows_NT' and '$(Configuration)' == 'Debug'">false</BuildInParallel>
+    <MaxCpuCount Condition="'$(OS)' != 'Windows_NT' and '$(Configuration)' == 'Debug'">1</MaxCpuCount>
   </PropertyGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">

@@ -41,6 +41,16 @@ namespace AES_Lacrima
         // needed by the newly‑created window.
         public static bool IsSwitchingMode { get; set; }
         public static bool IsSelfUpdating { get; set; }
+
+        /// <summary>
+        /// Full AES main window hidden while mini mode is active and re-shown on switch-back.
+        /// </summary>
+        public static MainWindow? CachedMainWindow { get; set; }
+
+        /// <summary>
+        /// Skips media view pre-warm when creating MainWindow from a mini-only session.
+        /// </summary>
+        public static bool SkipNextMediaViewWarmup { get; set; }
         private WindowsGlobalMediaKeyHook? _globalMediaKeyHook;
         private DispatcherTimer? _startupUiProbeTimer;
         private Stopwatch? _startupUiProbeStopwatch;
@@ -111,9 +121,7 @@ namespace AES_Lacrima
                 Logger.Info($"Main window created in {windowCreateSw.ElapsedMilliseconds} ms. type={desktop.MainWindow.GetType().Name}");
 
                 TryInitializeGlobalMediaKeys();
-
-                // Attach closing handler to perform cleanup/save on exit
-                desktop.MainWindow.Closing += MainWindow_Closing;
+                ConfigureDesktopMainWindow(desktop.MainWindow);
 
                 // Finish heavier startup tasks after the window is already available
                 // so release builds don't appear frozen before first render.
@@ -218,16 +226,6 @@ namespace AES_Lacrima
                 }
 
                 return;
-            }
-
-            if (OperatingSystem.IsLinux())
-            {
-                // Tunnel handler catches XF86 media keys before focused controls on X11/Wayland.
-                desktop.MainWindow.AddHandler(
-                    InputElement.KeyDownEvent,
-                    OnMainWindowMediaKeyDown,
-                    RoutingStrategies.Tunnel,
-                    handledEventsToo: true);
             }
         }
 
@@ -412,16 +410,41 @@ namespace AES_Lacrima
         }
 
         /// <summary>
+        /// Attaches shutdown cleanup and Linux media-key routing to a desktop main window.
+        /// </summary>
+        internal void ConfigureDesktopMainWindow(Window window)
+        {
+            PortalWindow.ResetApplicationShuttingDown();
+            if (OperatingSystem.IsLinux())
+                LinuxEmulationLifecycle.IsApplicationExitInProgress = false;
+
+            window.Closing -= MainWindow_Closing;
+            window.Closing += MainWindow_Closing;
+
+            if (OperatingSystem.IsLinux())
+            {
+                window.AddHandler(
+                    InputElement.KeyDownEvent,
+                    OnMainWindowMediaKeyDown,
+                    RoutingStrategies.Tunnel,
+                    handledEventsToo: true);
+            }
+        }
+
+        /// <summary>
         /// Handler invoked when the main window is closing. Attempts to save
         /// application settings via the <see cref="ISettingsService"/> and
         /// disposes the DI scope to ensure graceful shutdown of services.
         /// </summary>
         private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
         {
-            PortalWindow.SetApplicationShuttingDown();
+            if (!IsSwitchingMode)
+            {
+                PortalWindow.SetApplicationShuttingDown();
 
-            if (OperatingSystem.IsLinux())
-                LinuxEmulationLifecycle.IsApplicationExitInProgress = true;
+                if (OperatingSystem.IsLinux())
+                    LinuxEmulationLifecycle.IsApplicationExitInProgress = true;
+            }
 
             if (IsSelfUpdating)
             {
@@ -437,10 +460,13 @@ namespace AES_Lacrima
                 SettingsBase.FlushPendingSaves();
                 Logger.Info("Settings saved successfully during shutdown");
 
-                DiLocator.ResolveViewModel<EmulationViewModel>()?.ShutdownForApplicationExit();
+                if (!IsSwitchingMode)
+                {
+                    DiLocator.ResolveViewModel<EmulationViewModel>()?.ShutdownForApplicationExit();
 
-                // Dispose platform integrations (MPRIS, etc.) before the DI graph is torn down.
-                DiLocator.ResolveViewModel<MusicViewModel>()?.ShutdownPlatformIntegrations();
+                    // Dispose platform integrations (MPRIS, etc.) before the DI graph is torn down.
+                    DiLocator.ResolveViewModel<MusicViewModel>()?.ShutdownPlatformIntegrations();
+                }
             }
             catch (Exception ex)
             {

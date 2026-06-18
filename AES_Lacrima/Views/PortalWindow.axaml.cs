@@ -24,6 +24,11 @@ public partial class PortalWindow : Window
         _isApplicationShuttingDown = true;
     }
 
+    public static void ResetApplicationShuttingDown()
+    {
+        _isApplicationShuttingDown = false;
+    }
+
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 

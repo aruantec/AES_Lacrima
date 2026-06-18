@@ -484,19 +484,21 @@ namespace AES_Lacrima.ViewModels
 
             // construct new window and make it the lifetime's main window
             var newWindow = new Mini.Views.CustomWindow();
-            newWindow.Closing += (s, e) =>
-            {
-                // Save everything and clean up DI if the app is really shutting down.
-                DiLocator.ResolveViewModel<SettingsService>()?.SaveSettings();
-                SettingsBase.FlushPendingSaves();
-                if (!App.IsSwitchingMode)
-                {
-                    try { DiLocator.Dispose(); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
-                }
-            };
 
             var oldWindow = AppLifetime.MainWindow;
+            if (oldWindow is Views.MainWindow mainWindow)
+            {
+                App.CachedMainWindow = mainWindow;
+                mainWindow.Hide();
+            }
+            else
+            {
+                oldWindow?.Close();
+            }
+
             AppLifetime.MainWindow = newWindow;
+            if (Avalonia.Application.Current is App app)
+                app.ConfigureDesktopMainWindow(newWindow);
             newWindow.Show();
 
             // refresh the taskbar buttons for the music view-model so that thumbnail
@@ -504,8 +506,6 @@ namespace AES_Lacrima.ViewModels
             var musicVm = DiLocator.ResolveViewModel<MusicViewModel>();
             musicVm?.InitializeTaskbarButtons();
 
-            // close old window *after* we've shown the new one, then clear flag
-            oldWindow?.Close();
             App.IsSwitchingMode = false;
         }
 

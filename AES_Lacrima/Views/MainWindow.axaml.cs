@@ -93,6 +93,12 @@ namespace AES_Lacrima.Views
                 if (DataContext is not ViewModels.MainWindowViewModel vm || ContentPresenter == null)
                     return;
 
+                if (App.SkipNextMediaViewWarmup)
+                {
+                    App.SkipNextMediaViewWarmup = false;
+                    return;
+                }
+
                 var views = vm.WarmedViewModels;
                 if (views == null || views.Count == 0)
                     return;
@@ -104,6 +110,19 @@ namespace AES_Lacrima.Views
 
                 _ = FinishMediaViewWarmupAsync(views);
             }, DispatcherPriority.Loaded);
+        }
+
+        /// <summary>
+        /// Restores AES mode UI state after returning from mini mode.
+        /// </summary>
+        public void ResumeFromMiniMode()
+        {
+            if (DataContext is ViewModels.MainWindowViewModel vm)
+                vm.IsShaderToyRenderingPaused = false;
+
+            DiLocator.ResolveViewModel<NavigationService>()?.ResetToHomeView();
+            DiLocator.ResolveViewModel<ViewModels.MusicViewModel>()?.InitializeTaskbarButtons();
+            UpdateMainBorderClip();
         }
 
         private async Task FinishMediaViewWarmupAsync(System.Collections.Generic.List<AES_Core.Interfaces.IViewModelBase> views)
