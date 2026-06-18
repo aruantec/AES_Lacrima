@@ -163,6 +163,12 @@ internal static class PlayerCompositionArmMetrics
 
 public class PlayerCompositionControl : UserControl, IScaleExclusionRenderTarget
 {
+    /// <summary>
+    /// Returns the vinyl disc center (center hole) in widget-local coordinates for the given bounds.
+    /// </summary>
+    public static Point GetDiscCenterInBounds(Size bounds) =>
+        PlayerCompositionArmMetrics.GetDiscLayout(bounds).Center;
+
     private CompositionCustomVisual? _visual;
     private bool _isPressed;
     private long _lastSeekTime;

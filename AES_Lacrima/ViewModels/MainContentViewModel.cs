@@ -1,7 +1,9 @@
 ﻿using System;
 using System.ComponentModel;
+using AES_Controls.Composition;
 using AES_Core.DI;
 using AES_Lacrima.Services;
+using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Text.Json.Nodes;
@@ -105,10 +107,12 @@ namespace AES_Lacrima.ViewModels
 
             PlayerWidth = 250;
             PlayerHeight = 300;
-            PlayerLeft = (containerWidth - PlayerWidth) / 2;
+
+            var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(PlayerWidth, PlayerHeight));
+            PlayerLeft = (containerWidth * 0.5) - discCenter.X;
+            PlayerTop = (containerHeight * 0.5) - discCenter.Y;
 
             var playerInfoTop = containerHeight - MainMenuHeight - DefaultPlayerInfoHeight;
-            PlayerTop = Math.Max(DefaultEdgeMargin, (playerInfoTop - PlayerHeight) / 2);
 
             PlayerInfoLeft = 0;
             PlayerInfoTop = playerInfoTop;

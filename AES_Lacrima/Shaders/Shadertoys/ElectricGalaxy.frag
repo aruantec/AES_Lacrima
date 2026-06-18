@@ -6,6 +6,12 @@
 
 float hash(float n) { return fract(sin(n) * 43758.5453123); }
 
+vec3 coverGradientBackground(vec2 uvScreen) {
+    float blendMid = smoothstep(0.0, 0.55, uvScreen.y);
+    float blendTop = smoothstep(0.45, 1.0, uvScreen.y);
+    return mix(mix(u_primary, u_secondary, blendMid), u_tertiary, blendTop);
+}
+
 float noise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
@@ -28,10 +34,16 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 res = iResolution.xy;
     vec2 uv = (fragCoord - 0.5 * res) / res.y;
+    vec2 uvScreen = fragCoord.xy / res;
+
+    // Soft cover-color gradient background only (~40% opacity).
+    vec3 col = coverGradientBackground(uvScreen) * 0.4;
     
     // --- Circular Spectrum Mapping ---
     float a = atan(uv.y, uv.x);
     float d = length(uv);
+    // Unit direction avoids atan branch-cut seams in spatial noise.
+    vec2 dir = d > 1e-4 ? uv / d : vec2(1.0, 0.0);
 
     // Balanced Mirrored Mapping: ensures symmetry across all quadrants.
     // We shift the mapping by 45 degrees and use a power transform to expand
@@ -46,16 +58,14 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float barHeight = pow(rawHeight, 0.8) * (0.6 + 0.4 * normAngle);
     float bass = texture(iChannel0, vec2(0.05, 0.5)).r;
     
-    // --- Electricity Effect ---
-    vec3 col = vec3(0.0);
-    
+    // --- Electricity Effect (foreground, unchanged palette) ---
     // Create multiple electric arcs
     for (int i = 0; i < 3; i++) {
         float it = float(i);
         float t = iTime * (1.0 + it * 0.2);
         
-        // Jittery polar coordinates
-        float noiseVal = fbm(vec2(a * 3.0 + it, t));
+        // Jittery polar coordinates (use dir, not angle, to avoid the atan seam)
+        float noiseVal = fbm(dir * 3.0 + vec2(0.0, t + it));
         float radius = 0.2 + 0.3 * barHeight + 0.1 * noiseVal;
         
         // Distance to the jittery circle arc
@@ -72,7 +82,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     
     // --- Electric Spikes ---
     // Random radial spikes of electricity
-    float spikes = fbm(vec2(a * 10.0, iTime * 5.0));
+    float spikes = fbm(dir * 10.0 + vec2(iTime * 5.0, iTime * 2.5));
     float spikeIntensity = smoothstep(0.7 - barHeight * 0.3, 1.0, spikes);
     col += u_primary.rgb * spikeIntensity * (0.2 / (d + 0.1)) * (barHeight + 0.2);
     
