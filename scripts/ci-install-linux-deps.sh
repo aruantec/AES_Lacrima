@@ -1,24 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GitHub-hosted Ubuntu runners route apt through azure.archive.ubuntu.com via
-# /etc/apt/apt-mirrors.txt. When those mirrors are slow or unreachable, apt-get
-# update can sit retrying "Ign" entries for a long time before falling back.
-fix_apt_mirrors() {
-  if [[ -f /etc/apt/apt-mirrors.txt ]]; then
-    echo "Removing /etc/apt/apt-mirrors.txt to avoid azure.archive.ubuntu.com stalls..."
-    sudo rm -f /etc/apt/apt-mirrors.txt
-  fi
-
-  for sources_file in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
-    if [[ -f "$sources_file" ]]; then
-      sudo sed -i \
-        -e 's|http://azure\.archive\.ubuntu\.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
-        -e 's|http://security\.ubuntu\.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
-        "$sources_file"
-    fi
-  done
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/fix-apt-mirrors.sh
+source "${SCRIPT_DIR}/lib/fix-apt-mirrors.sh"
 
 APT_OPTS=(
   -o Acquire::Retries=5
