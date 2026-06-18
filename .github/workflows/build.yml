@@ -23,13 +23,11 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev libpipewire-0.3-dev libdbus-1-dev
-
       - name: Ensure scripts are executable
-        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh ./AES_Lacrima/Linux/build-capture-bridge.sh
+        run: chmod +x ./build.sh ./scripts/ci-install-linux-deps.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh ./AES_Lacrima/Linux/build-capture-bridge.sh
+
+      - name: Install dependencies
+        run: ./scripts/ci-install-linux-deps.sh
 
       - name: Restore local tools
         run: dotnet tool restore
@@ -128,16 +126,18 @@ jobs:
 
       - name: Ensure scripts are executable
         if: runner.os != 'Windows'
-        run: chmod +x ./build.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh ./AES_Lacrima/Linux/build-capture-bridge.sh
+        run: chmod +x ./build.sh ./scripts/ci-install-linux-deps.sh ./AES_Lacrima/Mac/publish-macos.sh ./AES_Lacrima/Linux/package-appimage.sh ./AES_Lacrima/Linux/build-capture-bridge.sh
 
       - name: Install dependencies
         if: runner.os == 'Linux'
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev libgl1-mesa-dev \
-            libpipewire-0.3-dev libdbus-1-dev
-          sudo apt-get install -y gamescope || true
+          set -euo pipefail
+          args=(--gamescope)
+          if [[ "${{ matrix.publish_aot }}" == "true" ]]; then
+            args+=(--aot)
+          fi
+          ./scripts/ci-install-linux-deps.sh "${args[@]}"
 
       - name: Restore projects
         shell: bash
@@ -160,12 +160,6 @@ jobs:
             sleep 10
           done
           exit 1
-
-      - name: Install Linux Native AOT prerequisites
-        if: runner.os == 'Linux' && matrix.publish_aot
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang zlib1g-dev
 
       - name: Build WgcBridge (Windows)
         if: matrix.package_type == 'windows'

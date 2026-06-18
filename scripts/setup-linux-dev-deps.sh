@@ -19,6 +19,12 @@ packages=(
 )
 
 echo "Installing Linux native build dependencies..."
-sudo apt-get update
+
+if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+  echo "Removing /etc/apt/apt-mirrors.txt to avoid slow azure.archive.ubuntu.com fallback..."
+  sudo rm -f /etc/apt/apt-mirrors.txt
+fi
+
+sudo apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20
 sudo apt-get install -y "${packages[@]}"
 echo "Done. Rebuild with ./build.sh Compile."
