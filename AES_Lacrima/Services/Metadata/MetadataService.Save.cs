@@ -290,13 +290,14 @@ namespace AES_Lacrima.Services
 
         /// <summary>
         /// Adds a front-cover candidate. Only one <see cref="TagImageKind.Cover"/> is active at a time;
-        /// additional cover picks are stored as <see cref="TagImageKind.BoxArt"/> alternates in metadata.
+        /// additional cover picks are stored as <see cref="TagImageKind.BoxArt"/> alternates until promoted.
         /// </summary>
         private void AddFrontCoverCandidateImage(TagImageModel model)
         {
             if (model.Kind is TagImageKind.Cover or TagImageKind.BoxArt)
             {
                 _coverRemovedInEditor = false;
+
                 if (model.Kind == TagImageKind.Cover && HasActiveFrontCoverImage(Images))
                     model.Kind = TagImageKind.BoxArt;
 
@@ -310,10 +311,10 @@ namespace AES_Lacrima.Services
             }
 
             Images.Add(model);
+            AttachEditorImageHandler(model);
+
             if (model.Kind is TagImageKind.Cover or TagImageKind.BoxArt)
                 NotifyFrontCoverSelectionChanged();
-
-            AttachEditorImageHandler(model);
         }
 
         private void AttachEditorImageHandler(TagImageModel model)

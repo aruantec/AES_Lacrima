@@ -96,7 +96,7 @@ namespace AES_Lacrima.Services
                     await LoadImageAsync(newImage);
                     newImage.RaisePropertyChanged(nameof(Image));
                 }
-                Images.Add(newImage);
+                AddMetadataImage(newImage);
             }
         }
 

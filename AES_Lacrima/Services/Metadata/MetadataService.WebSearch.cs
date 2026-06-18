@@ -30,7 +30,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using TagLib;
+using TagLib;
 using AES_Core.Logging;
 using File = System.IO.File;
 using Path = System.IO.Path;
@@ -584,7 +584,7 @@ namespace AES_Lacrima.Services
                 OnDeleteImage = OnDeleteImage
             };
 
-            Images.Add(model);
+            AddMetadataImage(model);
         }
 
         private static string GuessMimeTypeFromUrl(string url)
