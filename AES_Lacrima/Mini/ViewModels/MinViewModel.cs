@@ -475,6 +475,11 @@ namespace AES_Lacrima.Mini.ViewModels
             if (AppLifetime == null || DiLocator.ResolveViewModel<ISettingsService>() is not { } settingsService)
                 return;
             SaveSettings();
+            SettingsBase.FlushPendingSaves();
+
+            if (Application.Current is App app)
+                app.BeginApplicationShutdown();
+
             AppLifetime.Shutdown();
         }
 

@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using System;
+using System.ComponentModel;
 using AES_Core.DI;
 using AES_Lacrima.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -20,6 +21,13 @@ namespace AES_Lacrima.ViewModels
     [AutoRegister]
     internal partial class MainContentViewModel : ViewModelBase, IMainContentViewModel
     {
+        public const double MainMenuHeight = 160;
+        private const double DefaultEdgeMargin = 24;
+        private const double DefaultPlayerInfoHeight = 160;
+
+        private double _lastWidgetContainerWidth;
+        private double _lastWidgetContainerHeight;
+
         [ObservableProperty]
         private double _playerInfoLeft = double.NaN;
 
@@ -61,7 +69,7 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ClockMenuText))]
-        private bool _showClock;
+        private bool _showClock = true;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlayerInfoMenuText))]
@@ -69,7 +77,44 @@ namespace AES_Lacrima.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlayerMenuText))]
-        private bool _showPlayer;
+        private bool _showPlayer = true;
+
+        /// <summary>
+        /// True when no custom widget coordinates have been saved yet.
+        /// </summary>
+        public bool UsesDefaultWidgetLayout =>
+            double.IsNaN(ClockLeft) && double.IsNaN(ClockTop) &&
+            double.IsNaN(PlayerLeft) && double.IsNaN(PlayerTop) &&
+            double.IsNaN(PlayerInfoLeft) && double.IsNaN(PlayerInfoTop);
+
+        /// <summary>
+        /// Applies the initial home-screen widget layout for first launch or reset.
+        /// </summary>
+        public void ApplyDefaultWidgetLayout(double containerWidth, double containerHeight)
+        {
+            if (containerWidth <= 0 || containerHeight <= 0)
+                return;
+
+            _lastWidgetContainerWidth = containerWidth;
+            _lastWidgetContainerHeight = containerHeight;
+
+            ClockWidth = 250;
+            ClockHeight = 250;
+            ClockLeft = DefaultEdgeMargin;
+            ClockTop = DefaultEdgeMargin;
+
+            PlayerWidth = 250;
+            PlayerHeight = 300;
+            PlayerLeft = (containerWidth - PlayerWidth) / 2;
+
+            var playerInfoTop = containerHeight - MainMenuHeight - DefaultPlayerInfoHeight;
+            PlayerTop = Math.Max(DefaultEdgeMargin, (playerInfoTop - PlayerHeight) / 2);
+
+            PlayerInfoLeft = 0;
+            PlayerInfoTop = playerInfoTop;
+            PlayerInfoWidth = containerWidth;
+            PlayerInfoHeight = DefaultPlayerInfoHeight;
+        }
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(EditModeMenuText))]
@@ -314,18 +359,22 @@ namespace AES_Lacrima.ViewModels
         {
             ClockLeft = double.NaN;
             ClockTop = double.NaN;
-            ClockWidth = 250;
-            ClockHeight = 250;
-
             PlayerLeft = double.NaN;
             PlayerTop = double.NaN;
-            PlayerWidth = 250;
-            PlayerHeight = 300;
-
             PlayerInfoLeft = double.NaN;
             PlayerInfoTop = double.NaN;
-            PlayerInfoWidth = 300;
-            PlayerInfoHeight = double.NaN;
+
+            if (_lastWidgetContainerWidth > 0 && _lastWidgetContainerHeight > 0)
+                ApplyDefaultWidgetLayout(_lastWidgetContainerWidth, _lastWidgetContainerHeight);
+            else
+            {
+                ClockWidth = 250;
+                ClockHeight = 250;
+                PlayerWidth = 250;
+                PlayerHeight = 300;
+                PlayerInfoWidth = 500;
+                PlayerInfoHeight = double.NaN;
+            }
 
             SaveSettings();
         }

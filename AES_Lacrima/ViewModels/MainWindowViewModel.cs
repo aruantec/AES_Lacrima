@@ -418,6 +418,10 @@ namespace AES_Lacrima.ViewModels
             //Save all settings
             settingsService.SaveSettings();
             SettingsBase.FlushPendingSaves();
+
+            if (Avalonia.Application.Current is App app)
+                app.BeginApplicationShutdown();
+
             //Shutdown application
             AppLifetime.Shutdown();
         }

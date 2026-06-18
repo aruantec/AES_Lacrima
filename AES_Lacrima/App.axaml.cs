@@ -431,6 +431,29 @@ namespace AES_Lacrima
             }
         }
 
+        internal void BeginApplicationShutdown()
+        {
+            IsSwitchingMode = false;
+            CloseCachedMainWindow();
+        }
+
+        internal void CloseCachedMainWindow()
+        {
+            if (CachedMainWindow is not { } cached)
+                return;
+
+            CachedMainWindow = null;
+            cached.Closing -= MainWindow_Closing;
+            try
+            {
+                cached.Close();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Failed to close cached main window during shutdown", ex);
+            }
+        }
+
         /// <summary>
         /// Handler invoked when the main window is closing. Attempts to save
         /// application settings via the <see cref="ISettingsService"/> and
@@ -440,6 +463,13 @@ namespace AES_Lacrima
         {
             if (!IsSwitchingMode)
             {
+                if (sender is Window closingWindow &&
+                    CachedMainWindow != null &&
+                    !ReferenceEquals(closingWindow, CachedMainWindow))
+                {
+                    CloseCachedMainWindow();
+                }
+
                 PortalWindow.SetApplicationShuttingDown();
 
                 if (OperatingSystem.IsLinux())

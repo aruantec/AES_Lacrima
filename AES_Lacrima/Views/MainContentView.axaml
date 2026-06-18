@@ -148,7 +148,7 @@
         </Grid.ContextMenu>
 
 		<!-- Widgets -->
-		<Panel Grid.RowSpan="2">
+		<Panel x:Name="WidgetPanel" Grid.RowSpan="2">
             <!-- Clock -->
             <widgets:WidgetControl x:Name="Clock" 
                                    Background="Transparent"
@@ -157,8 +157,8 @@
                                    Top="{Binding ClockTop, Mode=TwoWay}"
                                    Width="{Binding ClockWidth, Mode=TwoWay}"
                                    Height="{Binding ClockHeight, Mode=TwoWay}"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Top"
                                    MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
                                    IsVisible="{Binding ShowClock}">
                 <Interaction.Behaviors>
@@ -206,8 +206,8 @@
 								   Top="{Binding PlayerInfoTop, Mode=TwoWay}"
 								   Width="{Binding PlayerInfoWidth, Mode=TwoWay}"
 								   Height="{Binding PlayerInfoHeight, Mode=TwoWay}"
-								   HorizontalAlignment="Center"
-								   VerticalAlignment="Center"
+								   HorizontalAlignment="Stretch"
+								   VerticalAlignment="Bottom"
 								   MoveResizeEndedCommand="{Binding SaveWidgetSettingsCommand}"
                                    IsVisible="{Binding ShowPlayerInfo}">
                 <Interaction.Behaviors>
