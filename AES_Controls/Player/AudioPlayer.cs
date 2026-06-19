@@ -28,7 +28,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<AudioPlayer>();
 
-    private string? _loadedFile, _waveformLoadedFile, _waveformCacheKey;
+    private string? _loadedFile, _waveformLoadedFile, _waveformCacheKey, _spectrumAnalysisPath;
     private readonly SynchronizationContext? _syncContext;
     private volatile bool _isLoadingMedia, _isSeeking;
     private double _seekTargetPosition;
@@ -1367,7 +1367,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         if (string.IsNullOrEmpty(_loadedFile)) return;
 
         // Start spectrum if playing and enabled
-        if (IsPlaying && EnableSpectrum && !IsSeeking)
+        if (IsPlaying && EnableSpectrum && !IsSeeking && !string.IsNullOrWhiteSpace(_spectrumAnalysisPath))
         {
             _spectrumAnalyzer.SetStartPosition(Position);
             _spectrumAnalyzer.Start();
@@ -1683,6 +1683,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         _waveformLoadedFile = null;
 
         // Ensure analyzer is fully stopped and path is updated before loading new file
+        _spectrumAnalyzer?.Stop();
+        _spectrumAnalysisPath = null;
         InternalStop();
 
         //Set the current media item
@@ -1705,6 +1707,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             try
             {
                 var willUseExternalAudio = video && !string.IsNullOrWhiteSpace(externalAudioUrl);
+                var usedMuxFallback = false;
+                var externalAudioActive = false;
                 await ResetExternalPlaybackAudioAsync(loadVersion, loadToken).ConfigureAwait(false);
                 if (!IsPlaybackLoadCurrent(loadVersion, loadToken))
                     return;
@@ -1738,6 +1742,11 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                         await ResetExternalPlaybackAudioAsync(loadVersion, loadToken).ConfigureAwait(false);
                         var muxedTarget = ToMpvLoadTarget(item.MuxedStreamFallbackUrl);
                         await RunCommandAsync(["loadfile", muxedTarget, "replace"], loadToken).ConfigureAwait(false);
+                        usedMuxFallback = true;
+                    }
+                    else
+                    {
+                        externalAudioActive = hasAudio;
                     }
                 }
 
@@ -1750,11 +1759,14 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                 // Resume only after the replacement source has been handed to mpv.
                 InvokeOnMpvThread(() => { SetProperty("pause", false); return true; });
 
-                if (EnableSpectrum)
-                {
-                    _spectrumAnalyzer.SetPath(fileToPlay);
-                    _spectrumAnalyzer.Start();
-                }
+                var spectrumPath = ResolveSpectrumAnalysisPath(
+                    fileToPlay,
+                    video,
+                    externalAudioUrl,
+                    item.MuxedStreamFallbackUrl,
+                    usedMuxFallback,
+                    externalAudioActive);
+                StartSpectrumAnalysis(spectrumPath);
             }
             catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
             catch (Exception ex)
@@ -1775,6 +1787,40 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         // Use PostToMpvThread instead of UpdateAf to avoid blocking during Load
         PostToMpvThread(UpdateAf);
         IsPlaying = true;
+    }
+
+    internal static string ResolveSpectrumAnalysisPath(
+        string playbackPath,
+        bool video,
+        string? externalAudioUrl,
+        string? muxedFallbackUrl,
+        bool usedMuxFallback,
+        bool externalAudioActive)
+    {
+        if (!video)
+            return playbackPath;
+
+        if (usedMuxFallback && !string.IsNullOrWhiteSpace(muxedFallbackUrl))
+            return muxedFallbackUrl;
+
+        if (externalAudioActive && !string.IsNullOrWhiteSpace(externalAudioUrl))
+            return externalAudioUrl;
+
+        return playbackPath;
+    }
+
+    private void StartSpectrumAnalysis(string? spectrumPath)
+    {
+        if (!EnableSpectrum || string.IsNullOrWhiteSpace(spectrumPath))
+        {
+            _spectrumAnalysisPath = null;
+            return;
+        }
+
+        _spectrumAnalysisPath = spectrumPath;
+        _spectrumAnalyzer.SetPath(spectrumPath);
+        _spectrumAnalyzer.SetStartPosition(Position);
+        _spectrumAnalyzer.Start();
     }
 
 
@@ -2515,6 +2561,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         // it can later be restarted cleanly.
         _spectrumAnalyzer?.Stop();
         ResetSpectrumImmediate();
+        _spectrumAnalysisPath = null;
 
         InternalStop();
         Duration = 0;
