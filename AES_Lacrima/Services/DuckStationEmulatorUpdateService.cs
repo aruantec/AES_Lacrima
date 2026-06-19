@@ -162,6 +162,7 @@ public partial class DuckStationEmulatorUpdateService
             {
                 var destinationPath = Path.Combine(emulatorDirectory, Path.GetFileName(downloadedAssetPath));
                 File.Copy(downloadedAssetPath, destinationPath, overwrite: true);
+                TryMarkLinuxExecutable(destinationPath);
             }
 
             PrepareUpdateDirectory(updateDirectory);
@@ -359,36 +360,41 @@ public partial class DuckStationEmulatorUpdateService
 
         if (OperatingSystem.IsWindows())
         {
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("x64", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("release", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("sse2", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("arm64", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("release", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+            static bool IsDuckStationWindowsReleaseArchive(ReleaseAsset asset)
+                => asset.Name.Contains("duckstation-windows", StringComparison.OrdinalIgnoreCase) &&
+                   asset.Name.Contains("release", StringComparison.OrdinalIgnoreCase) &&
+                   !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
+                   !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
+                   asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+
+            return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       asset =>
+                           IsDuckStationWindowsReleaseArchive(asset) &&
+                           !asset.Name.Contains("sse2", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       asset =>
+                           IsDuckStationWindowsReleaseArchive(asset) &&
+                           asset.Name.Contains("sse2", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
         if (OperatingSystem.IsLinux())
         {
-            return EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
-                       assets,
-                       static asset => asset.Name,
-                       static asset => asset.Name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+            return EmulatorReleaseAssetSelection.SelectDuckStationLinuxAsset(assets, static asset => asset.Name)
                    ?? EmulatorReleaseAssetSelection.SelectFirstLinuxAsset(
                        assets,
                        static asset => asset.Name,
-                       static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                       static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
         if (OperatingSystem.IsMacOS())
@@ -788,6 +794,25 @@ public partial class DuckStationEmulatorUpdateService
         var chars = input.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
         var sanitized = new string(chars).Trim();
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
+    }
+
+    private static void TryMarkLinuxExecutable(string path)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return;
+
+        try
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to mark DuckStation Linux file as executable: '{path}'.", ex);
+        }
     }
 
     private static EmulatorReleaseCache? LoadCache(string cachePath) =>

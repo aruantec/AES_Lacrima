@@ -357,13 +357,19 @@ public partial class ShadPs4EmulatorUpdateService
 
         if (OperatingSystem.IsWindows())
         {
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("qt", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.Contains("qt", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 

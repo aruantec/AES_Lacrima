@@ -385,16 +385,22 @@ public partial class Pcsx2EmulatorUpdateService
 
         if (OperatingSystem.IsWindows())
         {
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("x64", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("qt", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
-                       (asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)))
+            return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.Contains("qt", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
+                           asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset =>
+                           asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
+                           (asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                            asset.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)))
                    ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 

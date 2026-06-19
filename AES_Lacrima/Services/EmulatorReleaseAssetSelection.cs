@@ -27,16 +27,18 @@ public static class EmulatorReleaseAssetSelection
         if (string.IsNullOrWhiteSpace(assetName))
             return false;
 
-        var hasArm = IsArm64AssetName(assetName);
+        var hasArm64 = IsArm64AssetName(assetName);
+        var hasArm32 = IsArm32AssetName(assetName);
         var hasX64 = IsX64AssetName(assetName);
-        if (!hasArm && !hasX64)
+        if (!hasArm64 && !hasArm32 && !hasX64)
             return true;
 
         return architecture switch
         {
-            Architecture.Arm64 => hasArm,
+            Architecture.Arm64 => hasArm64,
+            Architecture.Arm => hasArm32,
             Architecture.X64 or Architecture.X86 => hasX64,
-            _ => !hasArm && !hasX64,
+            _ => !hasArm64 && !hasArm32 && !hasX64,
         };
     }
 
@@ -45,15 +47,56 @@ public static class EmulatorReleaseAssetSelection
         if (string.IsNullOrWhiteSpace(assetName))
             return false;
 
-        var hasArm = IsArm64AssetName(assetName);
+        var hasArm64 = IsArm64AssetName(assetName);
+        var hasArm32 = IsArm32AssetName(assetName);
         var hasX64 = IsX64AssetName(assetName);
-        if (!hasArm && !hasX64)
+        if (!hasArm64 && !hasArm32 && !hasX64)
+            return false;
+
+        return architecture switch
+        {
+            Architecture.Arm64 => hasX64 || hasArm32,
+            Architecture.Arm => hasArm64 || hasX64,
+            Architecture.X64 or Architecture.X86 => hasArm64 || hasArm32,
+            _ => false,
+        };
+    }
+
+    public static bool MatchesHostWindowsAssetArchitecture(string assetName) =>
+        MatchesWindowsAssetArchitecture(assetName, ResolveHostArchitecture());
+
+    public static bool MatchesWindowsAssetArchitecture(string assetName, Architecture architecture)
+    {
+        if (string.IsNullOrWhiteSpace(assetName))
+            return false;
+
+        var hasArm64 = IsArm64AssetName(assetName);
+        var hasX64 = IsX64AssetName(assetName);
+        if (!hasArm64 && !hasX64)
+            return true;
+
+        return architecture switch
+        {
+            Architecture.Arm64 => hasArm64,
+            Architecture.X64 or Architecture.X86 => hasX64,
+            _ => !hasArm64 && !hasX64,
+        };
+    }
+
+    public static bool IsConflictingWindowsAssetArchitecture(string assetName, Architecture architecture)
+    {
+        if (string.IsNullOrWhiteSpace(assetName))
+            return false;
+
+        var hasArm64 = IsArm64AssetName(assetName);
+        var hasX64 = IsX64AssetName(assetName);
+        if (!hasArm64 && !hasX64)
             return false;
 
         return architecture switch
         {
             Architecture.Arm64 => hasX64,
-            Architecture.X64 or Architecture.X86 => hasArm,
+            Architecture.X64 or Architecture.X86 => hasArm64,
             _ => false,
         };
     }
@@ -79,7 +122,45 @@ public static class EmulatorReleaseAssetSelection
         if (match != null)
             return match;
 
-        return list.FirstOrDefault(predicate);
+        return list.FirstOrDefault(asset =>
+            predicate(asset) && !IsConflictingLinuxAssetArchitecture(getName(asset), architecture));
+    }
+
+    public static T? SelectFirstWindowsAsset<T>(
+        IEnumerable<T> assets,
+        Func<T, string> getName,
+        Func<T, bool> predicate)
+    {
+        var list = assets as IReadOnlyList<T> ?? assets.ToList();
+        if (list.Count == 0)
+            return default;
+
+        var architecture = ResolveHostArchitecture();
+
+        var match = list.FirstOrDefault(asset =>
+            predicate(asset) && MatchesWindowsAssetArchitecture(getName(asset), architecture));
+        if (match != null)
+            return match;
+
+        match = list.FirstOrDefault(asset =>
+            predicate(asset) && !IsConflictingWindowsAssetArchitecture(getName(asset), architecture));
+        if (match != null)
+            return match;
+
+        return list.FirstOrDefault(asset =>
+            predicate(asset) && !IsConflictingWindowsAssetArchitecture(getName(asset), architecture));
+    }
+
+    public static bool IsArm32AssetName(string assetName)
+    {
+        if (IsArm64AssetName(assetName))
+            return false;
+
+        var lower = assetName.ToLowerInvariant();
+        return lower.Contains("armhf", StringComparison.Ordinal) ||
+               lower.Contains("armv7", StringComparison.Ordinal) ||
+               lower.Contains("armv6", StringComparison.Ordinal) ||
+               lower.Contains("arm32", StringComparison.Ordinal);
     }
 
     public static bool IsArm64AssetName(string assetName)
@@ -132,6 +213,42 @@ public static class EmulatorReleaseAssetSelection
         return assetName.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
                assetName.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase) &&
                !assetName.EndsWith(".AppImage.zsync", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static T? SelectDuckStationLinuxAsset<T>(
+        IEnumerable<T> assets,
+        Func<T, string> getName) where T : class
+    {
+        var appImages = assets
+            .Where(asset => getName(asset).EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (appImages.Count == 0)
+            return null;
+
+        if (ResolveHostArchitecture() == Architecture.Arm64)
+        {
+            return SelectFirstLinuxAsset(
+                       appImages,
+                       getName,
+                       asset => getName(asset).Contains("arm64", StringComparison.OrdinalIgnoreCase))
+                   ?? SelectFirstLinuxAsset(appImages, getName, _ => true);
+        }
+
+        return SelectFirstLinuxAsset(
+                   appImages,
+                   getName,
+                   asset => string.Equals(getName(asset), "DuckStation-x64.AppImage", StringComparison.OrdinalIgnoreCase))
+               ?? SelectFirstLinuxAsset(
+                   appImages,
+                   getName,
+                   asset =>
+                       getName(asset).Contains("x64", StringComparison.OrdinalIgnoreCase) &&
+                       !getName(asset).Contains("sse2", StringComparison.OrdinalIgnoreCase))
+               ?? SelectFirstLinuxAsset(
+                   appImages,
+                   getName,
+                   asset => getName(asset).Contains("sse2", StringComparison.OrdinalIgnoreCase))
+               ?? SelectFirstLinuxAsset(appImages, getName, _ => true);
     }
 
     public static T? SelectEdenLinuxAsset<T>(

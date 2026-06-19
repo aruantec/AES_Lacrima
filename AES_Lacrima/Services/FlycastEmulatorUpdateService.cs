@@ -505,7 +505,13 @@ public partial class FlycastEmulatorUpdateService
             return null;
 
         if (OperatingSystem.IsWindows())
-            return assets.FirstOrDefault(asset => IsWindowsX64AssetName(asset.Name));
+        {
+            return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       static asset => IsWindowsDesktopAssetName(asset.Name))
+                   ?? assets.FirstOrDefault(asset => IsWindowsDesktopAssetName(asset.Name));
+        }
 
         if (OperatingSystem.IsLinux())
         {
@@ -530,7 +536,32 @@ public partial class FlycastEmulatorUpdateService
                        asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
-        return assets.FirstOrDefault(asset => IsWindowsX64AssetName(asset.Name));
+        return assets.FirstOrDefault(asset => IsWindowsDesktopAssetName(asset.Name));
+    }
+
+    private static bool IsWindowsDesktopAssetName(string assetName)
+    {
+        if (!IsWindowsX64AssetName(assetName) && !IsWindowsArm64AssetName(assetName))
+            return false;
+
+        return EmulatorReleaseAssetSelection.MatchesHostWindowsAssetArchitecture(assetName);
+    }
+
+    private static bool IsWindowsArm64AssetName(string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(assetName))
+            return false;
+
+        var lower = assetName.ToLowerInvariant();
+        if (!lower.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
+            !lower.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) &&
+            !lower.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return lower.Contains("arm64", StringComparison.OrdinalIgnoreCase) ||
+               lower.Contains("aarch64", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryMatchNightlyKey(string key, out string assetFileName)

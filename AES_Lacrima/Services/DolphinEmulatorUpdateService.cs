@@ -872,28 +872,22 @@ public partial class DolphinEmulatorUpdateService
                    asset.Name.Contains("mac", StringComparison.OrdinalIgnoreCase) ||
                    asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase);
 
-            return assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                       asset.Name.Contains("x64", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("symbol", StringComparison.OrdinalIgnoreCase) &&
-                        IsWindowsArchive(asset))
-                   ?? assets.FirstOrDefault(asset =>
-                       asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                       !asset.Name.Contains("symbol", StringComparison.OrdinalIgnoreCase) &&
-                        IsWindowsArchive(asset))
-                   ?? assets.FirstOrDefault(asset =>
-                        asset.Name.Contains("x64", StringComparison.OrdinalIgnoreCase) &&
-                        !IsNonWindowsBuild(asset) &&
-                        !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("symbol", StringComparison.OrdinalIgnoreCase) &&
-                        IsWindowsArchive(asset))
-                   ?? assets.FirstOrDefault(asset =>
-                        !IsNonWindowsBuild(asset) &&
-                        !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("symbol", StringComparison.OrdinalIgnoreCase) &&
-                        IsWindowsArchive(asset));
+            return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       asset =>
+                           asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("symbol", StringComparison.OrdinalIgnoreCase) &&
+                           IsWindowsArchive(asset))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       asset =>
+                           !IsNonWindowsBuild(asset) &&
+                           !asset.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("symbol", StringComparison.OrdinalIgnoreCase) &&
+                           IsWindowsArchive(asset));
         }
 
         if (OperatingSystem.IsLinux())

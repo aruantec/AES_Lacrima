@@ -1182,23 +1182,23 @@ public partial class Rpcs3EmulatorUpdateService
 
             static bool IsNonWindowsBuild(ReleaseAsset asset)
                 => asset.Name.Contains("android", StringComparison.OrdinalIgnoreCase) ||
-                   asset.Name.Contains("arm64", StringComparison.OrdinalIgnoreCase) ||
-                   asset.Name.Contains("aarch64", StringComparison.OrdinalIgnoreCase) ||
                    asset.Name.Contains("mac", StringComparison.OrdinalIgnoreCase) ||
                    asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase);
 
-            return assets.FirstOrDefault(asset =>
-                        asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("arm64", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("aarch64", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
-                        IsWindowsArchive(asset))
-                   ?? assets.FirstOrDefault(asset =>
-                        !IsNonWindowsBuild(asset) &&
-                        !asset.Name.Contains("arm64", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("aarch64", StringComparison.OrdinalIgnoreCase) &&
-                        !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
-                        IsWindowsArchive(asset));
+            return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       asset =>
+                           asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
+                           !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
+                           IsWindowsArchive(asset))
+                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
+                       assets,
+                       static asset => asset.Name,
+                       asset =>
+                           !IsNonWindowsBuild(asset) &&
+                           !asset.Name.Contains("symbols", StringComparison.OrdinalIgnoreCase) &&
+                           IsWindowsArchive(asset));
         }
 
         if (OperatingSystem.IsLinux())
