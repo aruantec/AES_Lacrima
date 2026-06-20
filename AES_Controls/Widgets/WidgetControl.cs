@@ -23,6 +23,12 @@ public class MoveResizeResult(double left, double top, double width, double heig
     public double Height { get; init; } = height;
 }
 
+public sealed class WidgetMoveResizeEndedArgs(string? settingsKey, MoveResizeResult result)
+{
+    public string? SettingsKey { get; } = settingsKey;
+    public MoveResizeResult Result { get; } = result;
+}
+
 // Draggable and resizable content control with focus visuals.
 public class WidgetControl : ContentControl
 {
@@ -72,6 +78,30 @@ public class WidgetControl : ContentControl
 
     public static readonly StyledProperty<bool> IsPinnedProperty =
         AvaloniaProperty.Register<WidgetControl, bool>(nameof(IsPinned), true);
+
+    /// <summary>
+    /// When true, layout clamping allows edge-to-edge placement (left/top at 0, full container width/height).
+    /// </summary>
+    public static readonly StyledProperty<bool> AllowEdgeBleedProperty =
+        AvaloniaProperty.Register<WidgetControl, bool>(nameof(AllowEdgeBleed));
+
+    public bool AllowEdgeBleed
+    {
+        get => GetValue(AllowEdgeBleedProperty);
+        set => SetValue(AllowEdgeBleedProperty, value);
+    }
+
+    /// <summary>
+    /// Identifies which persisted widget settings to update when a move/resize completes.
+    /// </summary>
+    public static readonly StyledProperty<string?> WidgetSettingsKeyProperty =
+        AvaloniaProperty.Register<WidgetControl, string?>(nameof(WidgetSettingsKey));
+
+    public string? WidgetSettingsKey
+    {
+        get => GetValue(WidgetSettingsKeyProperty);
+        set => SetValue(WidgetSettingsKeyProperty, value);
+    }
 
     public bool IsPinned
     {
@@ -154,6 +184,10 @@ public class WidgetControl : ContentControl
                 {
                     Dispatcher.UIThread.Post(() => s.TryApplyInitialPosition(), DispatcherPriority.Background);
                 }
+                else if (s._initialPositionApplied && !s._isCaptured)
+                {
+                    Dispatcher.UIThread.Post(() => s.ApplyExplicitPosition(), DispatcherPriority.Background);
+                }
             }
         });
 
@@ -168,7 +202,23 @@ public class WidgetControl : ContentControl
                 {
                     Dispatcher.UIThread.Post(() => s.TryApplyInitialPosition(), DispatcherPriority.Background);
                 }
+                else if (s._initialPositionApplied && !s._isCaptured)
+                {
+                    Dispatcher.UIThread.Post(() => s.ApplyExplicitPosition(), DispatcherPriority.Background);
+                }
             }
+        });
+
+        WidthProperty.Changed.AddClassHandler<WidgetControl>((s, e) =>
+        {
+            if (s._initialPositionApplied && !s._isCaptured)
+                Dispatcher.UIThread.Post(() => s.ApplyExplicitPosition(), DispatcherPriority.Background);
+        });
+
+        HeightProperty.Changed.AddClassHandler<WidgetControl>((s, e) =>
+        {
+            if (s._initialPositionApplied && !s._isCaptured)
+                Dispatcher.UIThread.Post(() => s.ApplyExplicitPosition(), DispatcherPriority.Background);
         });
 
         // React to IsDashAnimated changes to start/stop the timer when bound value changes.
@@ -441,6 +491,15 @@ public class WidgetControl : ContentControl
     {
         if (!TryGetContainerSize(out var containerWidth, out var containerHeight))
             return (left, top, width, height);
+
+        if (AllowEdgeBleed)
+        {
+            width = Math.Clamp(width, MinW, Math.Max(MinW, containerWidth));
+            height = Math.Clamp(height, MinH, Math.Max(MinH, containerHeight));
+            left = Math.Clamp(left, 0, Math.Max(0, containerWidth - width));
+            top = Math.Clamp(top, 0, Math.Max(0, containerHeight - height));
+            return (left, top, width, height);
+        }
 
         var maxWidth = Math.Max(MinW, containerWidth - (SafeEdgeMargin * 2));
         var maxHeight = Math.Max(MinH, containerHeight - (SafeEdgeMargin * 2));
@@ -793,24 +852,27 @@ public class WidgetControl : ContentControl
         }
 
         var finalPos = GetReportedPosition();
-        var finalResult = new MoveResizeResult(finalPos.left, finalPos.top, Width, Height);
-        if (MoveResizeEndedCommand?.CanExecute(finalResult) ?? false)
-            MoveResizeEndedCommand.Execute(finalResult);
+        var finalWidth = double.IsNaN(Width) ? Bounds.Width : Width;
+        var finalHeight = double.IsNaN(Height) ? Bounds.Height : Height;
+        var finalResult = new MoveResizeResult(finalPos.left, finalPos.top, finalWidth, finalHeight);
+        var commandArgs = new WidgetMoveResizeEndedArgs(WidgetSettingsKey, finalResult);
+        if (MoveResizeEndedCommand?.CanExecute(commandArgs) ?? false)
+            MoveResizeEndedCommand.Execute(commandArgs);
 
         e.Handled = true;
     }
 
     private (double left, double top) GetReportedPosition()
     {
-        // If we have explicit valid numbers in properties, trust them over TranslatePoint
-        // as TranslatePoint might be stale before the first layout completion after reload.
-        if (!double.IsNaN(Left) && !double.IsNaN(Top) && (Left != 0 || Top != 0))
-            return (Left, Top);
-
         var reference = _container ?? Parent as Visual;
-        if (reference == null) return (double.IsNaN(Left) ? 0 : Left, double.IsNaN(Top) ? 0 : Top);
-        var p = this.TranslatePoint(new Point(0, 0), reference);
-        return p.HasValue ? (p.Value.X, p.Value.Y) : (double.IsNaN(Left) ? 0 : Left, double.IsNaN(Top) ? 0 : Top);
+        if (reference != null)
+        {
+            var p = this.TranslatePoint(new Point(0, 0), reference);
+            if (p.HasValue)
+                return (p.Value.X, p.Value.Y);
+        }
+
+        return (double.IsNaN(Left) ? 0 : Left, double.IsNaN(Top) ? 0 : Top);
     }
 
     private void ReleasePointerCaptureAndReset()

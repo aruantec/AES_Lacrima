@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 using AES_Controls.Composition;
+using AES_Controls.Widgets;
 using AES_Core.DI;
 using AES_Lacrima.Services;
 using Avalonia;
@@ -24,7 +25,6 @@ namespace AES_Lacrima.ViewModels
     internal partial class MainContentViewModel : ViewModelBase, IMainContentViewModel
     {
         public const double MainMenuHeight = 160;
-        private const double DefaultEdgeMargin = 24;
         private const double DefaultPlayerInfoHeight = 160;
 
         private double _lastWidgetContainerWidth;
@@ -99,25 +99,65 @@ namespace AES_Lacrima.ViewModels
 
             _lastWidgetContainerWidth = containerWidth;
             _lastWidgetContainerHeight = containerHeight;
+            MainContentWidgetLayout.Apply(this, containerWidth, containerHeight, MainMenuHeight);
+        }
 
-            ClockWidth = 250;
-            ClockHeight = 250;
-            ClockLeft = DefaultEdgeMargin;
-            ClockTop = DefaultEdgeMargin;
+        /// <summary>
+        /// Re-applies layout anchors after load or container resize without persisting pinned responsive drift.
+        /// </summary>
+        public void ReconcileWidgetLayout(double containerWidth, double containerHeight)
+        {
+            if (containerWidth <= 0 || containerHeight <= 0)
+                return;
 
-            PlayerWidth = 250;
-            PlayerHeight = 300;
+            _lastWidgetContainerWidth = containerWidth;
+            _lastWidgetContainerHeight = containerHeight;
 
+            if (UsesAnchoredPlayerInfoLayout)
+                ApplyFullWidthPlayerInfoLayout(containerWidth, containerHeight);
+
+            if (ShouldKeepPlayerCentered(containerWidth, containerHeight))
+            {
+                PlayerWidth = Math.Max(180, containerWidth * MainContentWidgetLayout.PlayerWidthRatio);
+                PlayerHeight = Math.Max(200, containerHeight * MainContentWidgetLayout.PlayerHeightRatio);
+                ApplyCenteredPlayerLayout(containerWidth, containerHeight);
+            }
+        }
+
+        private bool UsesAnchoredPlayerInfoLayout => PlayerInfoLeft <= 1.0;
+
+        private bool ShouldKeepPlayerCentered(double containerWidth, double containerHeight)
+        {
+            if (PlayerWidth <= 0 || PlayerHeight <= 0 ||
+                double.IsNaN(PlayerLeft) || double.IsNaN(PlayerTop))
+            {
+                return false;
+            }
+
+            var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(PlayerWidth, PlayerHeight));
+            var centerX = PlayerLeft + discCenter.X;
+            var centerY = PlayerTop + discCenter.Y;
+            var targetX = containerWidth * 0.5;
+            var targetY = containerHeight * 0.5;
+
+            // Re-anchor turntable widgets that are still roughly centered (including drifted defaults).
+            return Math.Abs(centerX - targetX) < 320 && Math.Abs(centerY - targetY) < 320;
+        }
+
+        private void ApplyCenteredPlayerLayout(double containerWidth, double containerHeight)
+        {
             var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(PlayerWidth, PlayerHeight));
             PlayerLeft = (containerWidth * 0.5) - discCenter.X;
             PlayerTop = (containerHeight * 0.5) - discCenter.Y;
+        }
 
-            var playerInfoTop = containerHeight - MainMenuHeight - DefaultPlayerInfoHeight;
-
+        private void ApplyFullWidthPlayerInfoLayout(double containerWidth, double containerHeight)
+        {
+            var playerInfoHeight = PlayerInfoHeight > 0 ? PlayerInfoHeight : DefaultPlayerInfoHeight;
             PlayerInfoLeft = 0;
-            PlayerInfoTop = playerInfoTop;
+            PlayerInfoTop = containerHeight - MainMenuHeight - playerInfoHeight;
             PlayerInfoWidth = containerWidth;
-            PlayerInfoHeight = DefaultPlayerInfoHeight;
+            PlayerInfoHeight = playerInfoHeight;
         }
 
         [ObservableProperty]
@@ -281,22 +321,55 @@ namespace AES_Lacrima.ViewModels
 
         protected override void OnLoadSettings(JsonObject section)
         {
-            PlayerInfoLeft = ReadDoubleSetting(section, nameof(PlayerInfoLeft), double.NaN);
-            PlayerInfoTop = ReadDoubleSetting(section, nameof(PlayerInfoTop), double.NaN);
-            PlayerInfoWidth = ReadDoubleSetting(section, nameof(PlayerInfoWidth), 300);
-            PlayerInfoHeight = ReadDoubleSetting(section, nameof(PlayerInfoHeight), double.NaN);
-            
-            ClockLeft = ReadDoubleSetting(section, nameof(ClockLeft), double.NaN);
-            ClockTop = ReadDoubleSetting(section, nameof(ClockTop), double.NaN);
-            ClockWidth = ReadDoubleSetting(section, nameof(ClockWidth), 250);
-            ClockHeight = ReadDoubleSetting(section, nameof(ClockHeight), 250);
+            var playerInfoLeft = ReadDoubleSetting(section, nameof(PlayerInfoLeft), double.NaN);
+            var playerInfoTop = ReadDoubleSetting(section, nameof(PlayerInfoTop), double.NaN);
+            var playerInfoWidth = ReadDoubleSetting(section, nameof(PlayerInfoWidth), 300);
+            var playerInfoHeight = ReadDoubleSetting(section, nameof(PlayerInfoHeight), double.NaN);
 
-            PlayerLeft = ReadDoubleSetting(section, nameof(PlayerLeft), double.NaN);
-            PlayerTop = ReadDoubleSetting(section, nameof(PlayerTop), double.NaN);
-            PlayerWidth = ReadDoubleSetting(section, nameof(PlayerWidth), 250);
-            PlayerHeight = ReadDoubleSetting(section, nameof(PlayerHeight), 300);
+            var clockLeft = ReadDoubleSetting(section, nameof(ClockLeft), double.NaN);
+            var clockTop = ReadDoubleSetting(section, nameof(ClockTop), double.NaN);
+            var clockWidth = ReadDoubleSetting(section, nameof(ClockWidth), 250);
+            var clockHeight = ReadDoubleSetting(section, nameof(ClockHeight), 250);
+
+            var playerLeft = ReadDoubleSetting(section, nameof(PlayerLeft), double.NaN);
+            var playerTop = ReadDoubleSetting(section, nameof(PlayerTop), double.NaN);
+            var playerWidth = ReadDoubleSetting(section, nameof(PlayerWidth), 250);
+            var playerHeight = ReadDoubleSetting(section, nameof(PlayerHeight), 300);
+
+            var scaleFactor = SettingsViewModel?.ScaleFactor ?? 1.0;
+            var windowWidth = _mainWindowViewModel?.WindowWidth ?? MainContentWidgetLayout.ReferenceContainerWidth;
+            MainContentWidgetLayout.NormalizeLegacyAbsoluteValues(
+                ref playerInfoLeft,
+                ref playerInfoTop,
+                ref playerInfoWidth,
+                ref playerInfoHeight,
+                ref clockLeft,
+                ref clockTop,
+                ref clockWidth,
+                ref clockHeight,
+                ref playerLeft,
+                ref playerTop,
+                ref playerWidth,
+                ref playerHeight,
+                scaleFactor,
+                windowWidth);
+
+            PlayerInfoLeft = playerInfoLeft;
+            PlayerInfoTop = playerInfoTop;
+            PlayerInfoWidth = playerInfoWidth;
+            PlayerInfoHeight = playerInfoHeight;
+
+            ClockLeft = clockLeft;
+            ClockTop = clockTop;
+            ClockWidth = clockWidth;
+            ClockHeight = clockHeight;
+
+            PlayerLeft = playerLeft;
+            PlayerTop = playerTop;
+            PlayerWidth = playerWidth;
+            PlayerHeight = playerHeight;
             PlayerShowControls = ReadBoolSetting(section, nameof(PlayerShowControls));
-            
+
             ShowClock = ReadBoolSetting(section, nameof(ShowClock), true);
             ShowPlayerInfo = ReadBoolSetting(section, nameof(ShowPlayerInfo), true);
             ShowPlayer = ReadBoolSetting(section, nameof(ShowPlayer), true);
@@ -326,8 +399,33 @@ namespace AES_Lacrima.ViewModels
         }
 
         [RelayCommand]
-        private void SaveWidgetSettings()
+        private void SaveWidgetSettings(WidgetMoveResizeEndedArgs? args)
         {
+            if (args?.Result is { } result)
+            {
+                switch (args.SettingsKey)
+                {
+                    case "Clock":
+                        ClockLeft = result.Left;
+                        ClockTop = result.Top;
+                        ClockWidth = result.Width;
+                        ClockHeight = result.Height;
+                        break;
+                    case "Player":
+                        PlayerLeft = result.Left;
+                        PlayerTop = result.Top;
+                        PlayerWidth = result.Width;
+                        PlayerHeight = result.Height;
+                        break;
+                    case "PlayerInfo":
+                        PlayerInfoLeft = result.Left;
+                        PlayerInfoTop = result.Top;
+                        PlayerInfoWidth = result.Width;
+                        PlayerInfoHeight = result.Height;
+                        break;
+                }
+            }
+
             SaveSettings();
         }
 
@@ -361,24 +459,14 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void ResetWidgetLayout()
         {
-            ClockLeft = double.NaN;
-            ClockTop = double.NaN;
-            PlayerLeft = double.NaN;
-            PlayerTop = double.NaN;
-            PlayerInfoLeft = double.NaN;
-            PlayerInfoTop = double.NaN;
-
             if (_lastWidgetContainerWidth > 0 && _lastWidgetContainerHeight > 0)
                 ApplyDefaultWidgetLayout(_lastWidgetContainerWidth, _lastWidgetContainerHeight);
             else
-            {
-                ClockWidth = 250;
-                ClockHeight = 250;
-                PlayerWidth = 250;
-                PlayerHeight = 300;
-                PlayerInfoWidth = 500;
-                PlayerInfoHeight = double.NaN;
-            }
+                MainContentWidgetLayout.Apply(
+                    this,
+                    MainContentWidgetLayout.ReferenceContainerWidth,
+                    MainContentWidgetLayout.ReferenceContainerHeight,
+                    MainMenuHeight);
 
             SaveSettings();
         }
