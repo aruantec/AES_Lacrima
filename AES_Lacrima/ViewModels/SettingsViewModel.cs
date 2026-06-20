@@ -128,6 +128,12 @@ public sealed class EmulationHandlerAppItem : ObservableObject
             }
 
             var appId = normalized.IsEmpty ? null : normalized.ApplicationId;
+            if (!string.IsNullOrWhiteSpace(appId) &&
+                !EmulatorFlatpakCatalog.IsCompatibleApplicationId(Handler.HandlerId, appId))
+            {
+                return;
+            }
+
             if (string.Equals(Handler.FlatpakAppId, appId, StringComparison.Ordinal) &&
                 _selectedFlatpakApplication is not null &&
                 Equals(_selectedFlatpakApplication, normalized))
@@ -3970,8 +3976,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             if (emulatorHandlerLauncherPaths.TryGetValue(handler.HandlerId, out var launcherPath))
                 handler.LauncherPath = launcherPath;
 
-            if (emulatorHandlerFlatpakAppIds.TryGetValue(handler.HandlerId, out var flatpakAppId))
+            if (emulatorHandlerFlatpakAppIds.TryGetValue(handler.HandlerId, out var flatpakAppId) &&
+                EmulatorFlatpakCatalog.IsCompatibleApplicationId(handler.HandlerId, flatpakAppId))
+            {
                 handler.FlatpakAppId = flatpakAppId;
+            }
         }
 
         foreach (var item in EmulationSections)

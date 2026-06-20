@@ -93,6 +93,9 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(FlatpakAppId))
             return false;
 
+        if (!EmulatorFlatpakCatalog.IsCompatibleApplicationId(HandlerId, FlatpakAppId))
+            return false;
+
         return Linux.LinuxFlatpakApplicationService.IsFlatpakAvailable() &&
                Linux.LinuxFlatpakApplicationService.IsApplicationInstalled(FlatpakAppId);
     }

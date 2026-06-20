@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace AES_Emulation.EmulationHandlers;
 
-internal static class EmulatorFlatpakCatalog
+public static class EmulatorFlatpakCatalog
 {
     private sealed record HandlerProfile(string[] KnownApplicationIds, string[] Keywords);
 
@@ -31,6 +31,19 @@ internal static class EmulatorFlatpakCatalog
         ["fbneo"] = new([], ["fbneo", "fightcade", "finalburn"]),
         ["default"] = new([], []),
     };
+
+    public static bool IsCompatibleApplicationId(string handlerId, string? applicationId)
+    {
+        if (string.IsNullOrWhiteSpace(handlerId) || string.IsNullOrWhiteSpace(applicationId))
+            return false;
+
+        if (!Profiles.TryGetValue(handlerId, out var profile))
+            return false;
+
+        var knownIds = new HashSet<string>(profile.KnownApplicationIds, StringComparer.OrdinalIgnoreCase);
+        var app = new FlatpakApplicationItem(applicationId, applicationId, null);
+        return MatchesProfile(app, profile, knownIds);
+    }
 
     public static IReadOnlyList<FlatpakApplicationItem> BuildSelectionList(
         string handlerId,

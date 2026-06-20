@@ -257,6 +257,14 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 var resolvedFlatpakAppId = handler.FlatpakAppId;
+                if (!string.IsNullOrWhiteSpace(resolvedFlatpakAppId) &&
+                    !EmulatorFlatpakCatalog.IsCompatibleApplicationId(handler.HandlerId, resolvedFlatpakAppId))
+                {
+                    SLog.Warn(
+                        $"Ignoring incompatible Flatpak app '{resolvedFlatpakAppId}' for handler '{handler.HandlerId}'.");
+                    resolvedFlatpakAppId = null;
+                }
+
                 if (string.IsNullOrWhiteSpace(resolvedFlatpakAppId) &&
                     handler is SteamHandler steamHandler &&
                     !steamLinuxLaunchPrepared)

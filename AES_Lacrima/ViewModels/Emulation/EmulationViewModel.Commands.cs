@@ -341,7 +341,8 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(handler.FlatpakAppId))
+            if (!string.IsNullOrWhiteSpace(handler.FlatpakAppId) &&
+                EmulatorFlatpakCatalog.IsCompatibleApplicationId(handler.HandlerId, handler.FlatpakAppId))
             {
                 var flatpakKey = $"flatpak:{handler.FlatpakAppId}";
                 if (string.Equals(_currentSetupLaunchIconExecutablePath, flatpakKey, StringComparison.OrdinalIgnoreCase) &&
@@ -355,7 +356,7 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            var launcherPath = handler.LauncherPath;
+            var launcherPath = handler.NormalizeLauncherPath(handler.LauncherPath) ?? handler.LauncherPath;
             if (string.IsNullOrWhiteSpace(launcherPath))
             {
                 ReplaceSetupLaunchIcon(null, null);
@@ -363,7 +364,8 @@ namespace AES_Lacrima.ViewModels
             }
 
             var executablePath = EmulatorHandlerBase.ResolveSimpleLaunchExecutablePath(launcherPath);
-            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+            if (string.IsNullOrWhiteSpace(executablePath) ||
+                (!File.Exists(executablePath) && !Directory.Exists(executablePath)))
             {
                 ReplaceSetupLaunchIcon(null, null);
                 return;
