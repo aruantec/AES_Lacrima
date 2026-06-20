@@ -8,7 +8,7 @@ namespace AES_Tests.AES_Lacrima;
 public sealed class MainContentWidgetLayoutTests
 {
     [Fact]
-    public void Apply_centers_disc_on_panel_and_spans_full_width_player_info()
+    public void Apply_aligns_disc_with_shader_origin_and_spans_full_width_player_info()
     {
         const double width = MainContentWidgetLayout.ReferenceContainerWidth;
         const double height = MainContentWidgetLayout.ReferenceContainerHeight;
@@ -20,11 +20,14 @@ public sealed class MainContentWidgetLayoutTests
         Assert.Equal(width, vm.PlayerInfoWidth, 0.5);
         Assert.InRange(vm.PlayerInfoTop, height - MainContentViewModel.MainMenuHeight - vm.PlayerInfoHeight - 1, height);
 
+        Assert.Equal(width * MainContentWidgetLayout.PlayerWidthRatio, vm.PlayerWidth, 0.5);
+        Assert.Equal(height * MainContentWidgetLayout.PlayerHeightRatio, vm.PlayerHeight, 0.5);
+
         var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(vm.PlayerWidth, vm.PlayerHeight));
         var centerX = vm.PlayerLeft + discCenter.X;
         var centerY = vm.PlayerTop + discCenter.Y;
-        Assert.InRange(centerX, width * 0.5 - 1, width * 0.5 + 1);
-        Assert.InRange(centerY, height * 0.5 - 1, height * 0.5 + 1);
+        Assert.InRange(centerX, MainContentWidgetLayout.GetShaderToyOriginX(width) - 0.5, MainContentWidgetLayout.GetShaderToyOriginX(width) + 0.5);
+        Assert.InRange(centerY, MainContentWidgetLayout.GetShaderToyOriginY(height) - 0.5, MainContentWidgetLayout.GetShaderToyOriginY(height) + 0.5);
 
         Assert.Equal(0, vm.ClockLeft);
         Assert.Equal(0, vm.ClockTop);
@@ -135,7 +138,7 @@ public sealed class MainContentWidgetLayoutTests
     }
 
     [Fact]
-    public void ReconcileWidgetLayout_recenters_factory_player_layout_on_resize()
+    public void ReconcileWidgetLayout_rescales_factory_player_layout_on_resize()
     {
         var vm = new MainContentViewModel();
         MainContentWidgetLayout.Apply(
@@ -150,10 +153,13 @@ public sealed class MainContentWidgetLayoutTests
         const double resizedHeight = 820;
         vm.ReconcileWidgetLayout(resizedWidth, resizedHeight);
 
+        Assert.Equal(resizedWidth * MainContentWidgetLayout.PlayerWidthRatio, vm.PlayerWidth, 0.5);
+        Assert.Equal(resizedHeight * MainContentWidgetLayout.PlayerHeightRatio, vm.PlayerHeight, 0.5);
+
         var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(vm.PlayerWidth, vm.PlayerHeight));
         var centerX = vm.PlayerLeft + discCenter.X;
         var centerY = vm.PlayerTop + discCenter.Y;
-        Assert.InRange(centerX, resizedWidth * 0.5 - 1, resizedWidth * 0.5 + 1);
-        Assert.InRange(centerY, resizedHeight * 0.5 - 1, resizedHeight * 0.5 + 1);
+        Assert.InRange(centerX, MainContentWidgetLayout.GetShaderToyOriginX(resizedWidth) - 0.5, MainContentWidgetLayout.GetShaderToyOriginX(resizedWidth) + 0.5);
+        Assert.InRange(centerY, MainContentWidgetLayout.GetShaderToyOriginY(resizedHeight) - 0.5, MainContentWidgetLayout.GetShaderToyOriginY(resizedHeight) + 0.5);
     }
 }

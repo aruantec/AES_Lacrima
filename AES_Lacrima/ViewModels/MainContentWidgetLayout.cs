@@ -13,17 +13,28 @@ internal static class MainContentWidgetLayout
     public const double ReferenceContainerWidth = 1092;
     public const double ReferenceContainerHeight = 769;
 
+    /// <summary>
+    /// Logical height of <see cref="Views.Common.MainTopBar"/> — ShaderToy fills the full window
+    /// while widgets live below this bar, so the shader origin sits half a top-bar above panel center.
+    /// </summary>
+    public const double MainTopBarHeight = 70;
+
     // Clock — flush to the top-left corner on reset.
     public const double ClockMarginXRatio = 0;
     public const double ClockMarginYRatio = 0;
-    public const double ClockSizeRatio = 184.84 / ReferenceContainerWidth;
+    public const double ClockSizeRatio = 184.61431013431016 / ReferenceContainerWidth;
 
-    // Turntable — disc center aligns with panel center (ShaderToy origin).
+    // Turntable — proportional size; disc center aligns with ShaderToy origin on reset.
     public const double PlayerWidthRatio = 354.51 / ReferenceContainerWidth;
     public const double PlayerHeightRatio = 372.04 / ReferenceContainerHeight;
 
     // Player info — full width strip above the bottom menu.
     public const double PlayerInfoHeightRatio = 116.94 / ReferenceContainerHeight;
+
+    public static double GetShaderToyOriginX(double containerWidth) => containerWidth * 0.5;
+
+    public static double GetShaderToyOriginY(double containerHeight) =>
+        (containerHeight * 0.5) - (MainTopBarHeight * 0.5);
 
     public static void Apply(
         MainContentViewModel target,
@@ -45,8 +56,8 @@ internal static class MainContentWidgetLayout
 
         var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(
             new Size(target.PlayerWidth, target.PlayerHeight));
-        target.PlayerLeft = (containerWidth * 0.5) - discCenter.X;
-        target.PlayerTop = (containerHeight * 0.5) - discCenter.Y;
+        target.PlayerLeft = GetShaderToyOriginX(containerWidth) - discCenter.X;
+        target.PlayerTop = GetShaderToyOriginY(containerHeight) - discCenter.Y;
 
         var playerInfoHeight = Math.Max(80, containerHeight * PlayerInfoHeightRatio);
         target.PlayerInfoLeft = 0;
