@@ -26,6 +26,7 @@ internal static class EmulatorFlatpakCatalog
         ["cemu"] = new(["info.cemu.Cemu"], ["cemu"]),
         ["ares"] = new(["dev.ares.ares"], ["ares"]),
         ["snes9x"] = new(["com.snes9x.Snes9x"], ["snes9x"]),
+        ["steam"] = new(["com.valvesoftware.Steam"], ["steam", "valve"]),
         ["redream"] = new([], ["redream"]),
         ["fbneo"] = new([], ["fbneo", "fightcade", "finalburn"]),
         ["default"] = new([], []),

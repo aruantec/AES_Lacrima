@@ -609,11 +609,15 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
     {
         output = string.Empty;
 
+        var pactlPath = LinuxAudioEnvironmentHelper.ResolvePactlExecutable();
+        if (string.IsNullOrWhiteSpace(pactlPath))
+            return false;
+
         try
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = "/usr/bin/pactl",
+                FileName = pactlPath,
                 Arguments = $"-f json {arguments}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

@@ -413,6 +413,8 @@ public partial class EmulationView : UserControl
             return;
 
         ActiveCaptureHost?.ForwardFocusToTarget();
+        if (OperatingSystem.IsLinux())
+            ActiveCaptureHost?.Focus(NavigationMethod.Pointer);
     }
 
     private bool TryHandleCaptureDoubleClick(PointerPressedEventArgs e)

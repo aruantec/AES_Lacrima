@@ -4,6 +4,7 @@ using AES_Core.IO;
 using AES_Lacrima.Helpers;
 using AES_Lacrima.Serialization;
 using AES_Lacrima.Services;
+using AES_Lacrima.Services.Steam;
 using AES_Lacrima.Services.Emulation;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -112,6 +113,13 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                 var cartridgeTitle = ResolveCartridgeRomTitle(filePath);
                 if (!string.IsNullOrWhiteSpace(cartridgeTitle))
                     return cartridgeTitle;
+            }
+
+            if (EmulationConsoleCatalog.IsSteamSection(albumTitle) || SteamInstalledGameHelper.IsSteamGamePath(filePath))
+            {
+                var steamTitle = SteamInstalledGameHelper.GetTitleName(filePath);
+                if (!string.IsNullOrWhiteSpace(steamTitle))
+                    return steamTitle;
             }
 
             return string.IsNullOrWhiteSpace(normalizedCurrent) ? null : normalizedCurrent;

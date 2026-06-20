@@ -85,7 +85,7 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         }
     }
 
-    public bool HasLauncherPath =>
+    public virtual bool HasLauncherPath =>
         HasConfiguredFlatpakLauncher() || IsLauncherPathValid(LauncherPath);
 
     protected virtual bool HasConfiguredFlatpakLauncher()

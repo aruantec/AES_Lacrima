@@ -288,6 +288,20 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
+    public void EmulatorHandlerRegistry_Steam_IsLinuxOnly()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Steam");
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase));
+        }
+        else
+        {
+            Assert.DoesNotContain(handlers, handler => string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
     public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesFbNeoHandler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");

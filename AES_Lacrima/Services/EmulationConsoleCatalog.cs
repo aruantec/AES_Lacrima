@@ -1,6 +1,7 @@
 using Avalonia.Platform.Storage;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace AES_Lacrima.Services
@@ -147,7 +148,12 @@ namespace AES_Lacrima.Services
                 "PSP",
                 "PlayStation Portable",
                 ["PlayStation Portable", "PSP"],
-                ["*.iso", "*.cso", "*.pbp", "*.chd"])
+                ["*.iso", "*.cso", "*.pbp", "*.chd"]),
+            new(
+                "STEAM",
+                "Steam",
+                ["Steam", "Steam Deck", "PC"],
+                AllFilePatterns)
         ];
 
         private static readonly Dictionary<string, EmulationConsoleDefinition> DefinitionsByLookupKey = BuildDefinitionsByLookupKey();
@@ -205,6 +211,47 @@ namespace AES_Lacrima.Services
 
             return string.Equals(definition.Key, "PS3", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(definition.Key, "PS4", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool UsesAutoLibrarySync(string? consoleName)
+            => IsSteamSection(consoleName);
+
+        public static bool IsLinuxOnlySection(string? consoleName)
+            => IsSteamSection(consoleName);
+
+        public static bool IsSteamSection(string? consoleName)
+        {
+            if (string.IsNullOrWhiteSpace(consoleName))
+                return false;
+
+            if (TryGetDefinition(consoleName, out var definition) &&
+                string.Equals(definition.Key, "STEAM", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var normalized = NormalizeLookupKey(consoleName);
+            return string.Equals(normalized, "STEAM", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalized, "STEAMPNG", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsConsoleAssetAvailableOnCurrentPlatform(string imagePath)
+        {
+            if (!IsSteamConsoleAsset(imagePath))
+                return true;
+
+            return OperatingSystem.IsLinux();
+        }
+
+        public static bool IsSteamConsoleAsset(string imagePath)
+        {
+            if (string.IsNullOrWhiteSpace(imagePath))
+                return false;
+
+            return string.Equals(
+                Path.GetFileNameWithoutExtension(imagePath),
+                "Steam",
+                StringComparison.OrdinalIgnoreCase);
         }
 
         public static IReadOnlyList<string> GetSearchQueryTerms(string? consoleName)

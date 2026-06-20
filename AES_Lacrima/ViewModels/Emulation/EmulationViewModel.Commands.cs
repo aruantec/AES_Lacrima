@@ -49,7 +49,8 @@ namespace AES_Lacrima.ViewModels
     {
         private FolderMediaItem? GetActiveEmulationAlbum() => GetBrowseAlbum();
 
-        public bool ShowAlbumRomImportMenuItems => GetActiveEmulationAlbum() != null;
+        public bool ShowAlbumRomImportMenuItems =>
+            GetActiveEmulationAlbum() is { } album && !IsSteamAlbum(album);
 
         /// <summary>
         /// Album used for section-scoped UI (render options handler tab, per-section settings).
@@ -150,8 +151,8 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedIndexChanged(double value)
         {
-            CarouselSliderPreview = null;
             NotifyCarouselOverlayItemChanged();
+            OnPropertyChanged(nameof(ShowSteamProtonVersionMenuItem));
 
             if (Math.Abs(value - Math.Round(value)) > 0.001)
                 return;

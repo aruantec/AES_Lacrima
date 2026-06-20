@@ -240,6 +240,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private string? _activeRpcs3SessionTitleId;
         private string? _activeRpcs3SessionEmulatorDirectory;
         private bool _isClosingActiveEmulatorForRelaunch;
+        private bool _linuxCaptureHandoffCompleted;
+        private string? _activeSteamLaunchRomPath;
+        private string? _activeSteamLaunchTitle;
         private bool _appTopmostOverride;
         private bool _appWasTopmostBeforeEmulatorLaunch;
         private IntPtr _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
@@ -403,6 +406,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsItemPointed))]
+        [NotifyPropertyChangedFor(nameof(ShowSteamProtonVersionMenuItem))]
         private int _pointedIndex = -1;
 
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
@@ -455,7 +459,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool ShowEmptyActiveAlbumHint => LoadedAlbum != null && !HasActiveAlbumItems;
         public string EmptyLoadedAlbumMessage =>
             LoadedAlbum != null
-                ? "Right-click to add ROMs or scan folder"
+                ? IsSteamAlbum(LoadedAlbum)
+                    ? "No Steam games found. Install games through Steam."
+                    : "Right-click to add ROMs or scan folder"
                 : "No album loaded";
 
         private FolderMediaItem? GetBrowseAlbum() => LoadedAlbum;
@@ -1470,6 +1476,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             if (IsActive && IsGameplayPreviewAvailable)
                 QueueGameplayPreview(HighlightedItem, immediate: true);
+
+            if (_watchedSteamAlbum != null)
+                _ = SyncSteamLibraryAsync(_watchedSteamAlbum);
         }
 
         partial void OnIsEmulatorLaunchInProgressChanged(bool value)
@@ -1663,6 +1672,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             base.OnLeaveViewModel();
             StopGameplayPreview();
+            StopSteamLibraryWatcher();
             SaveSettings();
         }
 
@@ -1774,6 +1784,10 @@ private bool _isShadPs4PatchesOverlayOpen;
 
                 SyncCurrentSectionEmulatorContext();
                 OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
+                OnPropertyChanged(nameof(ShowSteamLibraryRefreshMenuItem));
+                OnPropertyChanged(nameof(ShowSteamProtonVersionMenuItem));
+                RefreshSteamLibraryCommand.NotifyCanExecuteChanged();
+                ManageSteamLibraryWatcher(value);
 
                 if (value != null)
                     QueueSelectedAlbumCoverScan(value);

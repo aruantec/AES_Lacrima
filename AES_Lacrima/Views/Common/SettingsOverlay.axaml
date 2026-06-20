@@ -173,6 +173,29 @@
                             <ToggleSwitch FontSize="20" IsChecked="{Binding EmulationUseBackCoverLetterboxFill, Mode=TwoWay}" Margin="8,0"/>
                         </StackPanel>
 
+                        <StackPanel Spacing="8"
+                                    Margin="0,0,0,15"
+                                    IsVisible="{Binding IsSteamProtonSettingsVisible}">
+                            <TextBlock Text="Steam Proton"
+                                       VerticalAlignment="Center"
+                                       FontSize="30"
+                                       Foreground="WhiteSmoke"
+                                       Margin="0,15,0,10"/>
+                            <Separator Margin="0,0,0,15"/>
+                            <TextBlock Text="Default Proton version for Steam games without a per-game override or Steam compatibility setting."
+                                       Foreground="DarkGray"
+                                       FontSize="16"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="760"
+                                       Margin="0,0,0,8"/>
+                            <ComboBox ItemsSource="{Binding SteamProtonVersionItems}"
+                                      DisplayMemberBinding="{Binding DisplayName}"
+                                      SelectedItem="{Binding SelectedSteamDefaultProtonItem, Mode=TwoWay}"
+                                      HorizontalAlignment="Stretch"
+                                      MinWidth="320"
+                                      FontSize="18"/>
+                        </StackPanel>
+
                         <TextBlock Text="Gameplay Recording" VerticalAlignment="Center" FontSize="30" Foreground="WhiteSmoke" Margin="0,15,0,10"/>
                         <Separator Margin="0,0,0,15"/>
                         <StackPanel Spacing="8" Margin="0,0,0,15">

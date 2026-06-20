@@ -3398,7 +3398,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
             var files = Directory
                 .EnumerateFiles(directory)
-                .Where(IsSupportedConsoleImage)
+                .Where(path => IsSupportedConsoleImage(path) &&
+                               EmulationConsoleCatalog.IsConsoleAssetAvailableOnCurrentPlatform(path))
                 .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -3948,6 +3949,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             nameof(GameplayRecordingAudioProcessId),
             GameplayRecordingAudioProcessId);
         RefreshGameplayRecordingAudioLists();
+        LoadSteamProtonSettings(section);
         var emulationSectionConfigurations = ReadObjectSetting<Dictionary<string, EmulationSectionConfiguration>>(section, EmulationSectionConfigurationsSettingName)
             ?? new Dictionary<string, EmulationSectionConfiguration>(StringComparer.OrdinalIgnoreCase);
         var emulationSectionLauncherPaths = ReadObjectSetting<Dictionary<string, string>>(section, EmulationSectionLauncherPathsSettingName)
@@ -4095,6 +4097,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(GameplayRecordingAudioSource), GameplayRecordingAudioSource.ToString());
         WriteSetting(section, nameof(GameplayRecordingAudioDeviceId), GameplayRecordingAudioDeviceId);
         WriteSetting(section, nameof(GameplayRecordingAudioProcessId), GameplayRecordingAudioProcessId);
+        SaveSteamProtonSettings(section);
         WriteObjectSetting(
             section,
             EmulationSectionConfigurationsSettingName,

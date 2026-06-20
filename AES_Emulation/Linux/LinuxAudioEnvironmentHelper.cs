@@ -95,6 +95,33 @@ public static class LinuxAudioEnvironmentHelper
         }
     }
 
+    internal static string? ResolvePactlExecutable()
+    {
+        foreach (var candidate in new[] { "pactl", "/usr/bin/pactl", "/bin/pactl" })
+        {
+            if (string.Equals(candidate, "pactl", StringComparison.Ordinal))
+            {
+                var pathEnv = Environment.GetEnvironmentVariable("PATH");
+                if (!string.IsNullOrWhiteSpace(pathEnv))
+                {
+                    foreach (var entry in pathEnv.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        var resolved = Path.Combine(entry, "pactl");
+                        if (File.Exists(resolved))
+                            return resolved;
+                    }
+                }
+
+                continue;
+            }
+
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
     [DllImport("libc", SetLastError = true)]
     private static extern uint getuid();
 }

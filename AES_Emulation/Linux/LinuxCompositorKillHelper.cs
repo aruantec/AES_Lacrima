@@ -223,11 +223,8 @@ public static class LinuxCompositorKillHelper
                 continue;
             }
 
-            if (comm.Equals("gamescopereaper", StringComparison.OrdinalIgnoreCase) ||
-                comm.Equals("gamescope-wl", StringComparison.OrdinalIgnoreCase))
-            {
+            if (comm.StartsWith("gamescope", StringComparison.OrdinalIgnoreCase))
                 yield return pid;
-            }
         }
     }
 

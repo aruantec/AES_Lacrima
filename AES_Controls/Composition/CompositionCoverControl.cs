@@ -814,8 +814,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
                 }
             }
 
-            if (ViewportPreviewIndex.HasValue)
-                ViewportPreviewIndex = null;
             return;
         }
 

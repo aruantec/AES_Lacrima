@@ -7,6 +7,7 @@ using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Linux;
 using AES_Emulation.Platform;
+using AES_Emulation.Steam;
 using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
@@ -15,6 +16,7 @@ using AES_Lacrima.Services.Cemu;
 using AES_Lacrima.Services.Dolphin;
 using AES_Lacrima.Services.Rpcs3;
 using AES_Lacrima.Services.ShadPs4;
+using AES_Lacrima.Services.Steam;
 using AES_Lacrima.Services.Xenia;
 using Avalonia;
 using Avalonia.Collections;
@@ -33,6 +35,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -61,6 +64,9 @@ namespace AES_Lacrima.ViewModels
         private void RequestEmulatorLaunch(PendingEmulatorLaunchRequest request)
         {
             _emulatorLaunchStartedUtc = DateTime.UtcNow;
+            _linuxCaptureHandoffCompleted = false;
+            _activeSteamLaunchRomPath = null;
+            _activeSteamLaunchTitle = null;
             _pendingEmulatorLaunchRequest = request;
             if (!OperatingSystem.IsLinux())
                 PrepareEmulatorShutdownCapture();
@@ -165,6 +171,12 @@ namespace AES_Lacrima.ViewModels
                 EnsureAppTopMostBeforeLaunch();
 
                 var launchRomPath = request.RomPath;
+                if (string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase) &&
+                    SteamGamePath.NormalizeVirtualPath(launchRomPath) is { } steamRomPath)
+                {
+                    launchRomPath = steamRomPath;
+                }
+
                 if (string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(rpcs3TitleId))
                 {
@@ -220,11 +232,57 @@ namespace AES_Lacrima.ViewModels
                     rpcs3LinuxLaunchPrepared = true;
                 }
 
-                if (!pcsx2PortableLaunchWrapped && !rpcs3LinuxLaunchPrepared && string.IsNullOrWhiteSpace(handler.FlatpakAppId))
-                    PrepareLinuxAppImageStartInfo(startInfo);
+                var steamLinuxLaunchPrepared = false;
+                if (OperatingSystem.IsLinux() &&
+                    string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase))
+                {
+                    steamLinuxLaunchPrepared = SteamLinuxLaunchHelper.TryPrepareDirectLaunch(
+                        startInfo,
+                        launchRomPath,
+                        SettingsViewModel?.BuildSteamProtonLaunchPreferences());
+                    if (steamLinuxLaunchPrepared)
+                    {
+                        _activeSteamLaunchRomPath = launchRomPath;
+                        _activeSteamLaunchTitle = request.ItemTitle;
+                        SLog.Info(
+                            $"Steam direct launch prepared for '{launchRomPath}': " +
+                            $"FileName='{startInfo.FileName}', Args='{string.Join(' ', startInfo.ArgumentList)}'.");
+                    }
+                    else
+                    {
+                        throw new LinuxCompositorLaunchException(
+                            "Could not prepare a direct Proton/native launch for this Steam game. " +
+                            "Make sure the game is fully installed and has been launched at least once in Steam.");
+                    }
+                }
 
-                if (OperatingSystem.IsLinux() && !rpcs3LinuxLaunchPrepared && !string.IsNullOrWhiteSpace(handler.FlatpakAppId))
-                    FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId, launchRomPath);
+                var resolvedFlatpakAppId = handler.FlatpakAppId;
+                if (string.IsNullOrWhiteSpace(resolvedFlatpakAppId) &&
+                    handler is SteamHandler steamHandler &&
+                    !steamLinuxLaunchPrepared)
+                {
+                    resolvedFlatpakAppId = steamHandler.ResolveLaunchFlatpakAppId();
+                }
+
+                if (!pcsx2PortableLaunchWrapped && !rpcs3LinuxLaunchPrepared && !steamLinuxLaunchPrepared)
+                {
+                    if (!string.IsNullOrWhiteSpace(resolvedFlatpakAppId))
+                        FlatpakLaunchHelper.Apply(startInfo, resolvedFlatpakAppId, launchRomPath);
+                    else
+                        PrepareLinuxAppImageStartInfo(startInfo);
+                }
+
+                if (OperatingSystem.IsLinux() &&
+                    string.IsNullOrWhiteSpace(resolvedFlatpakAppId) &&
+                    handler is SteamHandler &&
+                    !steamLinuxLaunchPrepared &&
+                    SteamHandler.TryResolveNativeSteamExecutable(handler.LauncherPath) is { } nativeSteamPath)
+                {
+                    startInfo.FileName = nativeSteamPath;
+                    var workingDirectory = Path.GetDirectoryName(nativeSteamPath);
+                    if (!string.IsNullOrWhiteSpace(workingDirectory))
+                        startInfo.WorkingDirectory = workingDirectory;
+                }
 
                 if (OperatingSystem.IsLinux())
                 {
@@ -275,21 +333,42 @@ namespace AES_Lacrima.ViewModels
                 RestoreHostWindowFocus();
 
                 Process? runtimeProcess = process;
+                var useLinuxGamescopeCapture = OperatingSystem.IsLinux()
+                                               && _linuxCompositorPid > 0
+                                               && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition;
                 if (process != null)
                 {
-                    try
+                    if (useLinuxGamescopeCapture)
                     {
-                        runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
-                        SLog.Info($"Emulator runtime process resolution completed in {launchStopwatch.ElapsedMilliseconds} ms for '{request.AlbumTitle}'/'{request.ItemTitle}'. runtimePid={runtimeProcess?.Id ?? 0}.");
+                        // PipeWire captures the gamescope compositor directly. Waiting for a game
+                        // window/process (especially Proton/Wine) can take tens of seconds and
+                        // leaves audio running with no video during the launch overlay.
+                        SLog.Debug(
+                            $"Skipping blocking runtime process resolution for Linux gamescope capture; " +
+                            $"compositorPid={_linuxCompositorPid}.");
+                        _ = ResolveRuntimeProcessInBackgroundAsync(
+                            handler,
+                            process,
+                            request.AlbumTitle,
+                            request.ItemTitle,
+                            launchStopwatch);
                     }
-                    catch (OperationCanceledException)
+                    else
                     {
-                        runtimeProcess = process;
-                    }
-                    catch (Exception ex)
-                    {
-                        SLog.Warn($"Failed to resolve emulator runtime process for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
-                        runtimeProcess = process;
+                        try
+                        {
+                            runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
+                            SLog.Info($"Emulator runtime process resolution completed in {launchStopwatch.ElapsedMilliseconds} ms for '{request.AlbumTitle}'/'{request.ItemTitle}'. runtimePid={runtimeProcess?.Id ?? 0}.");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            runtimeProcess = process;
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn($"Failed to resolve emulator runtime process for '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                            runtimeProcess = process;
+                        }
                     }
 
                     if (EmulatorCapturePlatform.SupportsCompositionCapture &&
@@ -347,6 +426,35 @@ namespace AES_Lacrima.ViewModels
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
                 IsEmulatorLaunchInProgress = false;
+            }
+        }
+
+        private async Task ResolveRuntimeProcessInBackgroundAsync(
+            IEmulatorHandler handler,
+            Process process,
+            string albumTitle,
+            string itemTitle,
+            Stopwatch launchStopwatch)
+        {
+            try
+            {
+                var runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
+                if (ReferenceEquals(runtimeProcess, process))
+                    return;
+
+                SLog.Info(
+                    $"Emulator runtime process resolved in background after {launchStopwatch.ElapsedMilliseconds} ms " +
+                    $"for '{albumTitle}'/'{itemTitle}'. launcherPid={process.Id}, runtimePid={runtimeProcess.Id}.");
+            }
+            catch (OperationCanceledException)
+            {
+                // ignored
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug(
+                    $"Background runtime process resolution failed for '{albumTitle}'/'{itemTitle}'.",
+                    ex);
             }
         }
 
@@ -891,6 +999,7 @@ namespace AES_Lacrima.ViewModels
                     ClearRetroArchErrorState();
                     if (_linuxCompositorPid > 0)
                         EmulatorTargetProcessId = _linuxCompositorPid;
+                    _linuxCaptureHandoffCompleted = true;
                     SLog.Info(
                         $"Linux gamescope PipeWire capture handoff completed for '{romPath}'. compositorPid={_linuxCompositorPid}.");
                 }, DispatcherPriority.Background);
@@ -1039,6 +1148,7 @@ namespace AES_Lacrima.ViewModels
             _activeRpcs3SessionTitleId = null;
             _activeRpcs3SessionEmulatorDirectory = null;
 
+            var earlyLaunchFailureDetails = TryBuildEarlyLinuxLaunchFailureDetails(process, currentHandler);
             if (OperatingSystem.IsLinux())
                 TeardownLinuxGamescopeSession();
 
@@ -1052,6 +1162,7 @@ namespace AES_Lacrima.ViewModels
             if (currentHandler is CemuHandler cemuHandler)
                 cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
             RestoreAppTopMost();
+            RestoreHostWindowFocus();
 
             if (CurrentEmulatorHandler is RetroArchHandler retroArchHandler)
             {
@@ -1064,6 +1175,74 @@ namespace AES_Lacrima.ViewModels
 
             if (!hadPendingLaunch)
                 IsEmulatorLaunchInProgress = false;
+
+            if (!string.IsNullOrWhiteSpace(earlyLaunchFailureDetails) && !_isClosingActiveEmulatorForRelaunch)
+            {
+                ShowEmulatorLaunchFailure(
+                    currentHandler,
+                    _activeSteamLaunchTitle,
+                    earlyLaunchFailureDetails);
+            }
+
+            _activeSteamLaunchRomPath = null;
+            _activeSteamLaunchTitle = null;
+        }
+
+        private string? TryBuildEarlyLinuxLaunchFailureDetails(Process process, IEmulatorHandler? handler)
+        {
+            if (!OperatingSystem.IsLinux() ||
+                _linuxCaptureHandoffCompleted ||
+                _isClosingActiveEmulatorForRelaunch ||
+                handler is not SteamHandler)
+            {
+                return null;
+            }
+
+            if ((DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalSeconds > 60)
+                return null;
+
+            int exitCode;
+            try
+            {
+                exitCode = process.ExitCode;
+            }
+            catch
+            {
+                exitCode = -1;
+            }
+
+            var compositorOutput = _linuxCompositorSession?.RecentCompositorOutput;
+            var builder = new StringBuilder();
+            builder.AppendLine("The game exited before capture could start.");
+            if (exitCode >= 0)
+                builder.AppendLine($"gamescope exit code: {exitCode}");
+
+            if (!SteamClientIpcHelper.IsSteamClientRunning())
+            {
+                builder.AppendLine();
+                builder.AppendLine("Steam does not appear to be running. Start Steam, then try again.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(_activeSteamLaunchRomPath))
+            {
+                var appId = AES_Emulation.Steam.SteamGamePath.GetAppId(_activeSteamLaunchRomPath);
+                if (!string.IsNullOrWhiteSpace(appId) &&
+                    !SteamInstalledGameHelper.HasProtonPrefix(appId))
+                {
+                    builder.AppendLine();
+                    builder.AppendLine(
+                        "This game has no Proton prefix yet. Launch it once from Steam to finish setup, then retry here.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(compositorOutput))
+            {
+                builder.AppendLine();
+                builder.AppendLine("Compositor output:");
+                builder.AppendLine(compositorOutput);
+            }
+
+            return builder.ToString().Trim();
         }
 
         private void DetachTrackedEmulatorProcess()

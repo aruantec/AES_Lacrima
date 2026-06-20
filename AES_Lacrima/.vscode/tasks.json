@@ -5,10 +5,20 @@
             "label": "build",
             "command": "dotnet",
             "type": "process",
+            "options": {
+                "env": {
+                    "DOTNET_GCDynamicAdaptationMode": "0",
+                    "DOTNET_GCServer": "0",
+                    "DOTNET_MSBUILD_NODE_REUSE": "0"
+                }
+            },
             "args": [
                 "build",
                 "${workspaceFolder}/AES_Lacrima.csproj",
                 "/property:GenerateFullPaths=true",
+                "/property:RunAnalyzers=false",
+                "/m:1",
+                "/nodeReuse:false",
                 "/consoleloggerparameters:NoSummary"
             ],
             "problemMatcher": "$msCompile",

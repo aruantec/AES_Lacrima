@@ -13,6 +13,7 @@ using AES_Emulation.Windows.API;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
+using AES_Lacrima.Services.Steam;
 using AES_Lacrima.Services.Cemu;
 using AES_Lacrima.Services.Rpcs3;
 using AES_Lacrima.Services.ShadPs4;
@@ -200,7 +201,9 @@ namespace AES_Lacrima.ViewModels
                     ApplyFilter();
                 }, DispatcherPriority.Background);
 
-                _ = RestorePersistedAlbumRomsAsync();
+                _ = RestorePersistedAlbumRomsAsync().ContinueWith(
+                    _ => SyncSteamLibrariesAfterInitializeAsync(),
+                    TaskScheduler.Default);
             }
             catch (Exception ex)
             {
@@ -262,6 +265,9 @@ namespace AES_Lacrima.ViewModels
                     var pairs = new List<(EmulationAlbumItem, AvaloniaList<MediaItem>)>();
                     foreach (var album in albums)
                     {
+                        if (EmulationConsoleCatalog.UsesAutoLibrarySync(album.Title))
+                            continue;
+
                         var albumKey = GetAlbumPersistenceKey(album);
                         var children = RestoreAlbumRoms(albumKey, album.Title ?? string.Empty, album.CoverBitmap);
                         if (children.Count > 0)
@@ -369,7 +375,7 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            if (!NeedsCoverLookup(item, album) && string.IsNullOrWhiteSpace(item.LocalCoverPath))
+            if (!NeedsCoverLookup(item, album))
             {
                 item.IsLoadingCover = false;
                 return;
@@ -424,6 +430,9 @@ namespace AES_Lacrima.ViewModels
             string? albumTitle,
             CancellationToken cancellationToken)
         {
+            if (SteamInstalledGameHelper.IsSteamGamePath(item.FileName))
+                return await TryLoadSteamGameCoverAsync(item, cancellationToken).ConfigureAwait(false);
+
             if (MetadataService == null)
                 return false;
 
@@ -839,7 +848,8 @@ namespace AES_Lacrima.ViewModels
             LoadedAlbum?.Children.Count > 0 ||
             SelectedAlbum?.Children.Count > 0;
 
-        private bool CanClearLoadedAlbum() => HasActiveAlbumItems;
+        private bool CanClearLoadedAlbum() =>
+            HasActiveAlbumItems && !IsSteamAlbum(LoadedAlbum);
 
         private static IReadOnlyList<string> FindConsoleImagePaths()
         {
@@ -850,7 +860,8 @@ namespace AES_Lacrima.ViewModels
 
                 var files = Directory
                     .EnumerateFiles(directory)
-                    .Where(IsSupportedConsoleImage)
+                    .Where(path => IsSupportedConsoleImage(path) &&
+                                   EmulationConsoleCatalog.IsConsoleAssetAvailableOnCurrentPlatform(path))
                     .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
@@ -1159,7 +1170,11 @@ namespace AES_Lacrima.ViewModels
 
                     try
                     {
-                        if (HasLocalCoverFile(item.FileName) || HasLegacyEmbeddedCover(item.FileName))
+                        if (SteamInstalledGameHelper.IsSteamGamePath(item.FileName))
+                        {
+                            await TryLoadSteamGameCoverAsync(item, cancellationToken).ConfigureAwait(false);
+                        }
+                        else if (HasLocalCoverFile(item.FileName) || HasLegacyEmbeddedCover(item.FileName))
                         {
                             await CoverLoader.EnsureCoverAsync(
                                     item,
@@ -1218,7 +1233,8 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private bool CanAddRoms() => SelectedAlbum != null;
+        private bool CanAddRoms() =>
+            SelectedAlbum != null && !IsSteamAlbum(SelectedAlbum);
 
         private bool ImportRomPaths(FolderMediaItem album, IEnumerable<string> paths)
         {
@@ -1599,7 +1615,8 @@ namespace AES_Lacrima.ViewModels
         private Dictionary<string, List<MediaItem>> BuildAlbumRomMap()
         {
             return AlbumList
-                .Where(album => album.Children.Count > 0)
+                .Where(album => album.Children.Count > 0 &&
+                                !EmulationConsoleCatalog.UsesAutoLibrarySync(album.Title))
                 .ToDictionary(
                     GetAlbumPersistenceKey,
                     album => album.Children
@@ -2132,6 +2149,15 @@ namespace AES_Lacrima.ViewModels
         {
             if (item.CoverBitmap != null && !ReferenceEquals(item.CoverBitmap, album.CoverBitmap))
                 return false;
+
+            if (SteamInstalledGameHelper.IsSteamGamePath(item.FileName))
+            {
+                var iconPath = item.LocalCoverPath;
+                if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath))
+                    iconPath = SteamInstalledGameHelper.GetPreferredIconPath(item.FileName);
+
+                return !string.IsNullOrWhiteSpace(iconPath) && File.Exists(iconPath);
+            }
 
             if (HasLocalCoverFile(item.FileName) || HasLegacyEmbeddedCover(item.FileName))
                 return true;

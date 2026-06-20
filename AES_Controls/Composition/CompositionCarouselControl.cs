@@ -499,7 +499,7 @@ namespace AES_Controls.Composition
                     _uiVelocity = _animationSync.Velocity;
                 }
 
-                if (_isWheelScrolling)
+                if (_isWheelScrolling || IsCarouselPhysicsInMotion() || _animationSync.IsAnimating)
                     SyncViewportPreviewFromAnimation();
 
                 bool physicsInMotion = IsCarouselPhysicsInMotion();
@@ -3746,6 +3746,7 @@ namespace AES_Controls.Composition
             _uiCurrentIndex = _animationSync.CurrentIndex;
             _uiVelocity = _animationSync.Velocity;
             SyncViewportPreviewFromAnimation();
+            QueueSettleCommit();
         }
 
         private void CommitSelectionToNearestItem()
@@ -3884,7 +3885,7 @@ namespace AES_Controls.Composition
             else if (_isPressed)
             {
                 double moveDistance = Point.Distance(_startPoint, point);
-                if (moveDistance > ScrollDragThreshold)
+                if (moveDistance > ScrollDragThreshold && _images.Count > 1)
                 {
                     long dt = (long)(e.Timestamp - _prevTime);
                     if (dt > 0)
@@ -4070,6 +4071,12 @@ namespace AES_Controls.Composition
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
         {
             base.OnPointerWheelChanged(e);
+
+            if (_images.Count <= 1)
+            {
+                e.Handled = true;
+                return;
+            }
 
             double maxIndex = Math.Max(0, _images.Count - 1);
             double wheelDelta = e.Delta.Y * WheelScrollSensitivity;

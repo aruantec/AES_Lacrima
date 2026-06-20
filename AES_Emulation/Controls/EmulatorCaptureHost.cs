@@ -177,6 +177,7 @@ public class EmulatorCaptureHost : ContentControl
     private string _gpuRenderer = "Unknown";
     private string _gpuVendor = "Unknown";
     private MouseTunnelHelper? _mouseTunnel;
+    private LinuxGamescopeInputTunnel? _linuxInputTunnel;
     private InputElement? _pointerTunnelSurface;
 
     public EmulatorCaptureHost()
@@ -193,6 +194,11 @@ public class EmulatorCaptureHost : ContentControl
         if (OperatingSystem.IsWindows())
         {
             RecreateMouseTunnel();
+            Focusable = true;
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            RecreateLinuxInputTunnel();
             Focusable = true;
         }
     }
@@ -422,6 +428,14 @@ public class EmulatorCaptureHost : ContentControl
 
     public void ForwardFocusToTarget()
     {
+        if (OperatingSystem.IsLinux())
+        {
+            _linuxInputTunnel?.ForwardFocusToTarget();
+            if (_backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+                linuxCompositionBackend.ForwardFocusToTarget();
+            return;
+        }
+
         if (!OperatingSystem.IsWindows())
             return;
 
@@ -527,6 +541,9 @@ public class EmulatorCaptureHost : ContentControl
 
         if (change.Property == TargetHwndProperty)
             UpdateMouseTunnelTarget();
+
+        if (change.Property == TargetProcessIdProperty)
+            UpdateLinuxInputTunnelTarget();
         
         if (change.Property == CaptureModeProperty)
         {
@@ -602,6 +619,8 @@ public class EmulatorCaptureHost : ContentControl
     {
         _mouseTunnel?.Dispose();
         _mouseTunnel = null;
+        _linuxInputTunnel?.Dispose();
+        _linuxInputTunnel = null;
 
         Content = null;
         _backend = CreateBackend();
@@ -612,6 +631,38 @@ public class EmulatorCaptureHost : ContentControl
 
         if (OperatingSystem.IsWindows())
             RecreateMouseTunnel();
+        else if (OperatingSystem.IsLinux())
+            RecreateLinuxInputTunnel();
+    }
+
+    private void RecreateLinuxInputTunnel()
+    {
+        _linuxInputTunnel?.Dispose();
+        _linuxInputTunnel = null;
+
+        if (!OperatingSystem.IsLinux())
+        {
+            IsHitTestVisible = true;
+            return;
+        }
+
+        var tunnelElement = (InputElement?)_pointerTunnelSurface ?? this;
+        IsHitTestVisible = _pointerTunnelSurface == null;
+
+        var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
+        _linuxInputTunnel = new LinuxGamescopeInputTunnel(tunnelElement)
+        {
+            CompositorProcessId = TargetProcessId,
+            ViewportWidth = width,
+            ViewportHeight = height,
+            MapToTargetClient = local => MapTunnelLocalToTargetClient(local, tunnelElement)
+        };
+    }
+
+    private void UpdateLinuxInputTunnelTarget()
+    {
+        if (_linuxInputTunnel != null)
+            _linuxInputTunnel.CompositorProcessId = TargetProcessId;
     }
 
     private void RecreateMouseTunnel()

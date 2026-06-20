@@ -23,6 +23,8 @@ public sealed class LinuxCompositorSession : IDisposable
 
     public int PipeWireNodeId => _outputPump?.PipeWireNodeId ?? 0;
 
+    public string? RecentCompositorOutput => _outputPump?.GetRecentDiagnostics();
+
     public string? WaylandSocketName { get; private set; }
 
     public bool IsActive
@@ -127,9 +129,19 @@ public sealed class LinuxCompositorSession : IDisposable
         try { _outputPump?.Dispose(); } catch { /* ignored */ }
         _outputPump = null;
 
+        var alreadyExited = false;
+        try
+        {
+            alreadyExited = process.HasExited;
+        }
+        catch
+        {
+            alreadyExited = true;
+        }
+
         try { process.Dispose(); } catch { /* already disposed */ }
 
-        if (pid <= 0)
+        if (pid <= 0 || alreadyExited)
             return;
 
         if (scheduleKill)

@@ -461,6 +461,24 @@ namespace AES_Lacrima
         /// </summary>
         private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
         {
+            if (!IsSwitchingMode && OperatingSystem.IsLinux())
+            {
+                try
+                {
+                    var emulation = DiLocator.ResolveViewModel<EmulationViewModel>();
+                    if (emulation?.IsEmulatorRunning == true)
+                    {
+                        e.Cancel = true;
+                        emulation.CloseEmulatorCommand.Execute(null);
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Debug("Failed to intercept main window close during active emulation.", ex);
+                }
+            }
+
             if (!IsSwitchingMode)
             {
                 if (sender is Window closingWindow &&

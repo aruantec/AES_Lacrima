@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,10 +22,16 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
     [GeneratedRegex(@"node\s+ID:\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PipeWireNodeIdRegex();
 
+    private const int MaxBufferedLines = 32;
+
     private readonly CancellationTokenSource _cts = new();
+    private readonly Queue<string> _recentStderrLines = new();
+    private readonly Queue<string> _recentStdoutLines = new();
+    private readonly object _bufferGate = new();
     private Task? _stdoutTask;
     private Task? _stderrTask;
     private int _disposed;
+    private Process? _process;
 
     public int PipeWireNodeId { get; private set; }
 
@@ -39,6 +47,8 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
 
     private void Attach(Process process)
     {
+        _process = process;
+
         try
         {
             process.EnableRaisingEvents = true;
@@ -49,8 +59,8 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
             SLog.Debug("Failed to subscribe to gamescope exit events for output pump.", ex);
         }
 
-        _stdoutTask = PumpStreamAsync(process.StandardOutput, _cts.Token);
-        _stderrTask = PumpStreamAsync(process.StandardError, _cts.Token);
+        _stdoutTask = PumpStreamAsync(process.StandardOutput, _recentStdoutLines, cancellationToken: _cts.Token);
+        _stderrTask = PumpStreamAsync(process.StandardError, _recentStderrLines, cancellationToken: _cts.Token);
     }
 
     private void OnProcessExited(object? sender, EventArgs e)
@@ -63,9 +73,57 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
         {
             // ignored
         }
+
+        try
+        {
+            var exitCode = _process?.ExitCode;
+            var diagnostics = GetRecentDiagnostics();
+            if (string.IsNullOrWhiteSpace(diagnostics))
+            {
+                SLog.Warn($"gamescope compositor exited early (exitCode={exitCode?.ToString() ?? "unknown"}).");
+                return;
+            }
+
+            SLog.Warn(
+                $"gamescope compositor exited early (exitCode={exitCode?.ToString() ?? "unknown"}). " +
+                $"Recent output:{Environment.NewLine}{diagnostics}");
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug("Failed to log gamescope compositor exit diagnostics.", ex);
+        }
     }
 
-    private async Task PumpStreamAsync(StreamReader reader, CancellationToken cancellationToken)
+    public string? GetRecentDiagnostics()
+    {
+        lock (_bufferGate)
+        {
+            if (_recentStderrLines.Count == 0 && _recentStdoutLines.Count == 0)
+                return null;
+
+            var builder = new StringBuilder();
+            if (_recentStderrLines.Count > 0)
+            {
+                builder.AppendLine("stderr:");
+                foreach (var line in _recentStderrLines)
+                    builder.AppendLine(line);
+            }
+
+            if (_recentStdoutLines.Count > 0)
+            {
+                builder.AppendLine("stdout:");
+                foreach (var line in _recentStdoutLines)
+                    builder.AppendLine(line);
+            }
+
+            return builder.ToString().TrimEnd();
+        }
+    }
+
+    private async Task PumpStreamAsync(
+        StreamReader reader,
+        Queue<string> buffer,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -75,6 +133,7 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
                 if (line == null)
                     break;
 
+                BufferLine(buffer, line);
                 TryCapturePipeWireNodeId(line);
             }
         }
@@ -85,6 +144,19 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
         catch (Exception ex)
         {
             SLog.Debug("gamescope output pump stopped due to read failure.", ex);
+        }
+    }
+
+    private void BufferLine(Queue<string> buffer, string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return;
+
+        lock (_bufferGate)
+        {
+            buffer.Enqueue(line);
+            while (buffer.Count > MaxBufferedLines)
+                buffer.Dequeue();
         }
     }
 

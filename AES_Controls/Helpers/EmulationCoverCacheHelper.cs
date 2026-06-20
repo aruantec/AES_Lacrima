@@ -345,14 +345,35 @@ public static class EmulationCoverCacheHelper
         if (string.IsNullOrWhiteSpace(romPath))
             return string.Empty;
 
+        var trimmed = romPath.Trim();
+        if (TryNormalizeSteamVirtualRomPath(trimmed, out var steamPath))
+            return steamPath;
+
         try
         {
-            return Path.GetFullPath(romPath.Trim());
+            return Path.GetFullPath(trimmed);
         }
         catch
         {
-            return romPath.Trim();
+            return trimmed;
         }
+    }
+
+    private static bool TryNormalizeSteamVirtualRomPath(string romPath, out string normalizedPath)
+    {
+        normalizedPath = string.Empty;
+        const string steamPrefix = "%STEAM_APPID%:";
+
+        var prefixIndex = romPath.IndexOf(steamPrefix, StringComparison.OrdinalIgnoreCase);
+        if (prefixIndex < 0)
+            return false;
+
+        var appId = romPath[(prefixIndex + steamPrefix.Length)..].Trim();
+        if (appId.Length == 0 || appId.Any(ch => !char.IsDigit(ch)))
+            return false;
+
+        normalizedPath = steamPrefix + appId;
+        return true;
     }
 
     private static IEnumerable<string> EnumerateRomPathCandidates(string? romPath)

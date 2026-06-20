@@ -6,27 +6,37 @@ namespace AES_Emulation.EmulationHandlers;
 
 public static class EmulatorHandlerRegistry
 {
-    private static readonly IEmulatorHandler[] Handlers =
-    [
-        DuckStationHandler.Instance,
-        Pcsx2Handler.Instance,
-        Rpcs3Handler.Instance,
-        ShadPs4Handler.Instance,
-        DolphinHandler.Instance,
-        FlyCastHandler.Instance,
-        RedreamHandler.Instance,
-        FbNeoHandler.Instance,
-        RetroArchHandler.Instance,
-        RetroArchGbaHandler.Instance,
-        RetroArchGenesisHandler.Instance,
-        RetroArchSaturnHandler.Instance,
-        AresHandler.Instance,
-        XeniaHandler.Instance,
-        XemuHandler.Instance,
-        EdenHandler.Instance,
-        CemuHandler.Instance,
-        Snes9xHandler.Instance
-    ];
+    private static readonly IEmulatorHandler[] Handlers = BuildHandlers();
+
+    private static IEmulatorHandler[] BuildHandlers()
+    {
+        var handlers = new List<IEmulatorHandler>
+        {
+            DuckStationHandler.Instance,
+            Pcsx2Handler.Instance,
+            Rpcs3Handler.Instance,
+            ShadPs4Handler.Instance,
+            DolphinHandler.Instance,
+            FlyCastHandler.Instance,
+            RedreamHandler.Instance,
+            FbNeoHandler.Instance,
+            RetroArchHandler.Instance,
+            RetroArchGbaHandler.Instance,
+            RetroArchGenesisHandler.Instance,
+            RetroArchSaturnHandler.Instance,
+            AresHandler.Instance,
+            XeniaHandler.Instance,
+            XemuHandler.Instance,
+            EdenHandler.Instance,
+            CemuHandler.Instance,
+            Snes9xHandler.Instance
+        };
+
+        if (OperatingSystem.IsLinux())
+            handlers.Add(SteamHandler.Instance);
+
+        return handlers.ToArray();
+    }
 
     public static IReadOnlyList<IEmulatorHandler> GetRegisteredHandlers()
         => Handlers;

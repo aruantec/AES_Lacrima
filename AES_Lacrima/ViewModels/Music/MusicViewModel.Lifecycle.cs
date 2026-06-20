@@ -6,6 +6,7 @@ using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Settings;
 using AES_Lacrima.Services;
+using AES_Lacrima.ViewModels;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
@@ -283,6 +284,13 @@ namespace AES_Lacrima.ViewModels
                     }),
                     quitRequested: () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
+                        var emulation = DiLocator.ResolveViewModel<EmulationViewModel>();
+                        if (emulation?.IsEmulatorRunning == true)
+                        {
+                            emulation.CloseEmulatorCommand.Execute(null);
+                            return;
+                        }
+
                         if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
                         {
                             desktop.Shutdown();
