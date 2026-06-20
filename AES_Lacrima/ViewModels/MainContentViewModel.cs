@@ -81,13 +81,17 @@ namespace AES_Lacrima.ViewModels
         [NotifyPropertyChangedFor(nameof(PlayerMenuText))]
         private bool _showPlayer = true;
 
+        private bool _widgetLayoutUserCustomized;
+
         /// <summary>
-        /// True when no custom widget coordinates have been saved yet.
+        /// True when no widget coordinates have been loaded or applied yet (first launch before layout).
         /// </summary>
         public bool UsesDefaultWidgetLayout =>
             double.IsNaN(ClockLeft) && double.IsNaN(ClockTop) &&
             double.IsNaN(PlayerLeft) && double.IsNaN(PlayerTop) &&
             double.IsNaN(PlayerInfoLeft) && double.IsNaN(PlayerInfoTop);
+
+        internal bool WidgetLayoutUserCustomized => _widgetLayoutUserCustomized;
 
         /// <summary>
         /// Applies the initial home-screen widget layout for first launch or reset.
@@ -104,6 +108,7 @@ namespace AES_Lacrima.ViewModels
 
         /// <summary>
         /// Re-applies layout anchors after load or container resize without persisting pinned responsive drift.
+        /// Custom widget positions saved by the user are never overwritten.
         /// </summary>
         public void ReconcileWidgetLayout(double containerWidth, double containerHeight)
         {
@@ -113,43 +118,17 @@ namespace AES_Lacrima.ViewModels
             _lastWidgetContainerWidth = containerWidth;
             _lastWidgetContainerHeight = containerHeight;
 
+            if (!_widgetLayoutUserCustomized)
+            {
+                MainContentWidgetLayout.Apply(this, containerWidth, containerHeight, MainMenuHeight);
+                return;
+            }
+
             if (UsesAnchoredPlayerInfoLayout)
                 ApplyFullWidthPlayerInfoLayout(containerWidth, containerHeight);
-
-            if (ShouldKeepPlayerCentered(containerWidth, containerHeight))
-            {
-                PlayerWidth = Math.Max(180, containerWidth * MainContentWidgetLayout.PlayerWidthRatio);
-                PlayerHeight = Math.Max(200, containerHeight * MainContentWidgetLayout.PlayerHeightRatio);
-                ApplyCenteredPlayerLayout(containerWidth, containerHeight);
-            }
         }
 
         private bool UsesAnchoredPlayerInfoLayout => PlayerInfoLeft <= 1.0;
-
-        private bool ShouldKeepPlayerCentered(double containerWidth, double containerHeight)
-        {
-            if (PlayerWidth <= 0 || PlayerHeight <= 0 ||
-                double.IsNaN(PlayerLeft) || double.IsNaN(PlayerTop))
-            {
-                return false;
-            }
-
-            var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(PlayerWidth, PlayerHeight));
-            var centerX = PlayerLeft + discCenter.X;
-            var centerY = PlayerTop + discCenter.Y;
-            var targetX = containerWidth * 0.5;
-            var targetY = containerHeight * 0.5;
-
-            // Re-anchor turntable widgets that are still roughly centered (including drifted defaults).
-            return Math.Abs(centerX - targetX) < 320 && Math.Abs(centerY - targetY) < 320;
-        }
-
-        private void ApplyCenteredPlayerLayout(double containerWidth, double containerHeight)
-        {
-            var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(PlayerWidth, PlayerHeight));
-            PlayerLeft = (containerWidth * 0.5) - discCenter.X;
-            PlayerTop = (containerHeight * 0.5) - discCenter.Y;
-        }
 
         private void ApplyFullWidthPlayerInfoLayout(double containerWidth, double containerHeight)
         {
@@ -373,6 +352,55 @@ namespace AES_Lacrima.ViewModels
             ShowClock = ReadBoolSetting(section, nameof(ShowClock), true);
             ShowPlayerInfo = ReadBoolSetting(section, nameof(ShowPlayerInfo), true);
             ShowPlayer = ReadBoolSetting(section, nameof(ShowPlayer), true);
+
+            _widgetLayoutUserCustomized = ReadBoolSetting(
+                section,
+                nameof(WidgetLayoutUserCustomized),
+                !double.IsNaN(playerLeft) || !double.IsNaN(playerTop));
+
+            InferWidgetLayoutCustomizedFromPersistedLayout(
+                playerLeft,
+                playerTop,
+                playerWidth,
+                playerHeight,
+                clockLeft,
+                clockTop,
+                clockWidth,
+                clockHeight);
+        }
+
+        internal void InferWidgetLayoutCustomizedFromPersistedLayout(
+            double playerLeft,
+            double playerTop,
+            double playerWidth,
+            double playerHeight,
+            double clockLeft,
+            double clockTop,
+            double clockWidth,
+            double clockHeight)
+        {
+            if (_widgetLayoutUserCustomized)
+                return;
+
+            var defaults = new MainContentViewModel();
+            MainContentWidgetLayout.Apply(
+                defaults,
+                MainContentWidgetLayout.ReferenceContainerWidth,
+                MainContentWidgetLayout.ReferenceContainerHeight,
+                MainMenuHeight);
+
+            const double tolerance = 1.0;
+            if (Math.Abs(playerLeft - defaults.PlayerLeft) > tolerance ||
+                Math.Abs(playerTop - defaults.PlayerTop) > tolerance ||
+                Math.Abs(playerWidth - defaults.PlayerWidth) > tolerance ||
+                Math.Abs(playerHeight - defaults.PlayerHeight) > tolerance ||
+                Math.Abs(clockLeft - defaults.ClockLeft) > tolerance ||
+                Math.Abs(clockTop - defaults.ClockTop) > tolerance ||
+                Math.Abs(clockWidth - defaults.ClockWidth) > tolerance ||
+                Math.Abs(clockHeight - defaults.ClockHeight) > tolerance)
+            {
+                _widgetLayoutUserCustomized = true;
+            }
         }
 
         protected override void OnSaveSettings(JsonObject section)
@@ -396,6 +424,7 @@ namespace AES_Lacrima.ViewModels
             WriteSetting(section, nameof(ShowClock), ShowClock);
             WriteSetting(section, nameof(ShowPlayerInfo), ShowPlayerInfo);
             WriteSetting(section, nameof(ShowPlayer), ShowPlayer);
+            WriteSetting(section, nameof(WidgetLayoutUserCustomized), _widgetLayoutUserCustomized);
         }
 
         [RelayCommand]
@@ -403,6 +432,8 @@ namespace AES_Lacrima.ViewModels
         {
             if (args?.Result is { } result)
             {
+                _widgetLayoutUserCustomized = true;
+
                 switch (args.SettingsKey)
                 {
                     case "Clock":
@@ -459,6 +490,8 @@ namespace AES_Lacrima.ViewModels
         [RelayCommand]
         private void ResetWidgetLayout()
         {
+            _widgetLayoutUserCustomized = false;
+
             if (_lastWidgetContainerWidth > 0 && _lastWidgetContainerHeight > 0)
                 ApplyDefaultWidgetLayout(_lastWidgetContainerWidth, _lastWidgetContainerHeight);
             else

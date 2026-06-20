@@ -1,4 +1,5 @@
 using AES_Controls.Composition;
+using AES_Controls.Widgets;
 using AES_Lacrima.ViewModels;
 using Avalonia;
 
@@ -24,6 +25,9 @@ public sealed class MainContentWidgetLayoutTests
         var centerY = vm.PlayerTop + discCenter.Y;
         Assert.InRange(centerX, width * 0.5 - 1, width * 0.5 + 1);
         Assert.InRange(centerY, height * 0.5 - 1, height * 0.5 + 1);
+
+        Assert.Equal(0, vm.ClockLeft);
+        Assert.Equal(0, vm.ClockTop);
     }
 
     [Fact]
@@ -60,5 +64,96 @@ public sealed class MainContentWidgetLayoutTests
 
         Assert.Equal(1090.66, playerInfoWidth, 0.5);
         Assert.Equal(354.51, playerWidth, 0.5);
+    }
+
+    [Fact]
+    public void InferWidgetLayoutCustomizedFromPersistedLayout_marks_stale_factory_flag_as_customized()
+    {
+        var vm = new MainContentViewModel
+        {
+            PlayerLeft = 401,
+            PlayerTop = 197,
+            PlayerWidth = 354,
+            PlayerHeight = 330,
+            ClockLeft = 12,
+            ClockTop = 12,
+            ClockWidth = 184,
+            ClockHeight = 184,
+        };
+
+        vm.InferWidgetLayoutCustomizedFromPersistedLayout(
+            vm.PlayerLeft,
+            vm.PlayerTop,
+            vm.PlayerWidth,
+            vm.PlayerHeight,
+            vm.ClockLeft,
+            vm.ClockTop,
+            vm.ClockWidth,
+            vm.ClockHeight);
+
+        Assert.True(vm.WidgetLayoutUserCustomized);
+
+        vm.ReconcileWidgetLayout(
+            MainContentWidgetLayout.ReferenceContainerWidth,
+            MainContentWidgetLayout.ReferenceContainerHeight);
+
+        Assert.Equal(401, vm.PlayerLeft, 0.5);
+        Assert.Equal(197, vm.PlayerTop, 0.5);
+        Assert.Equal(354, vm.PlayerWidth, 0.5);
+        Assert.Equal(330, vm.PlayerHeight, 0.5);
+    }
+
+    [Fact]
+    public void ReconcileWidgetLayout_preserves_custom_player_position_after_save()
+    {
+        var vm = new MainContentViewModel
+        {
+            ClockLeft = 12,
+            ClockTop = 12,
+            PlayerInfoLeft = 0,
+            PlayerInfoTop = 500,
+            PlayerLeft = 401,
+            PlayerTop = 180,
+            PlayerWidth = 354,
+            PlayerHeight = 372,
+        };
+
+        vm.SaveWidgetSettingsCommand.Execute(new WidgetMoveResizeEndedArgs(
+            "Player",
+            new MoveResizeResult(401, 180, 354, 372)));
+
+        Assert.True(vm.WidgetLayoutUserCustomized);
+
+        vm.ReconcileWidgetLayout(
+            MainContentWidgetLayout.ReferenceContainerWidth,
+            MainContentWidgetLayout.ReferenceContainerHeight);
+
+        Assert.Equal(401, vm.PlayerLeft, 0.5);
+        Assert.Equal(180, vm.PlayerTop, 0.5);
+        Assert.Equal(354, vm.PlayerWidth, 0.5);
+        Assert.Equal(372, vm.PlayerHeight, 0.5);
+    }
+
+    [Fact]
+    public void ReconcileWidgetLayout_recenters_factory_player_layout_on_resize()
+    {
+        var vm = new MainContentViewModel();
+        MainContentWidgetLayout.Apply(
+            vm,
+            MainContentWidgetLayout.ReferenceContainerWidth,
+            MainContentWidgetLayout.ReferenceContainerHeight,
+            MainContentViewModel.MainMenuHeight);
+
+        Assert.False(vm.WidgetLayoutUserCustomized);
+
+        const double resizedWidth = 1200;
+        const double resizedHeight = 820;
+        vm.ReconcileWidgetLayout(resizedWidth, resizedHeight);
+
+        var discCenter = PlayerCompositionControl.GetDiscCenterInBounds(new Size(vm.PlayerWidth, vm.PlayerHeight));
+        var centerX = vm.PlayerLeft + discCenter.X;
+        var centerY = vm.PlayerTop + discCenter.Y;
+        Assert.InRange(centerX, resizedWidth * 0.5 - 1, resizedWidth * 0.5 + 1);
+        Assert.InRange(centerY, resizedHeight * 0.5 - 1, resizedHeight * 0.5 + 1);
     }
 }

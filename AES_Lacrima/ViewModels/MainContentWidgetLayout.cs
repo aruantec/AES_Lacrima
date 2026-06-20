@@ -13,9 +13,9 @@ internal static class MainContentWidgetLayout
     public const double ReferenceContainerWidth = 1092;
     public const double ReferenceContainerHeight = 769;
 
-    // Clock — small corner margin, square face ~17% of panel width.
-    public const double ClockMarginXRatio = 12 / ReferenceContainerWidth;
-    public const double ClockMarginYRatio = 12 / ReferenceContainerHeight;
+    // Clock — flush to the top-left corner on reset.
+    public const double ClockMarginXRatio = 0;
+    public const double ClockMarginYRatio = 0;
     public const double ClockSizeRatio = 184.84 / ReferenceContainerWidth;
 
     // Turntable — disc center aligns with panel center (ShaderToy origin).
@@ -37,8 +37,8 @@ internal static class MainContentWidgetLayout
         var clockSize = Math.Max(120, containerWidth * ClockSizeRatio);
         target.ClockWidth = clockSize;
         target.ClockHeight = clockSize;
-        target.ClockLeft = Math.Max(0, containerWidth * ClockMarginXRatio);
-        target.ClockTop = Math.Max(0, containerHeight * ClockMarginYRatio);
+        target.ClockLeft = 0;
+        target.ClockTop = 0;
 
         target.PlayerWidth = Math.Max(180, containerWidth * PlayerWidthRatio);
         target.PlayerHeight = Math.Max(200, containerHeight * PlayerHeightRatio);
