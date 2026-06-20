@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
@@ -97,7 +100,13 @@ public static class LinuxAudioEnvironmentHelper
 
     internal static string? ResolvePactlExecutable()
     {
-        foreach (var candidate in new[] { "pactl", "/usr/bin/pactl", "/bin/pactl" })
+        foreach (var candidate in new[]
+                 {
+                     "pactl",
+                     "/usr/bin/pactl",
+                     "/usr/local/bin/pactl",
+                     "/bin/pactl",
+                 })
         {
             if (string.Equals(candidate, "pactl", StringComparison.Ordinal))
             {
@@ -107,6 +116,39 @@ public static class LinuxAudioEnvironmentHelper
                     foreach (var entry in pathEnv.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                     {
                         var resolved = Path.Combine(entry, "pactl");
+                        if (File.Exists(resolved))
+                            return resolved;
+                    }
+                }
+
+                continue;
+            }
+
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    internal static string? ResolveWpctlExecutable()
+        => ResolveExecutable("wpctl", "/usr/bin/wpctl", "/bin/wpctl");
+
+    internal static string? ResolvePwDumpExecutable()
+        => ResolveExecutable("pw-dump", "/usr/bin/pw-dump", "/bin/pw-dump");
+
+    private static string? ResolveExecutable(string name, params string[] absoluteCandidates)
+    {
+        foreach (var candidate in absoluteCandidates.Prepend(name))
+        {
+            if (string.Equals(candidate, name, StringComparison.Ordinal))
+            {
+                var pathEnv = Environment.GetEnvironmentVariable("PATH");
+                if (!string.IsNullOrWhiteSpace(pathEnv))
+                {
+                    foreach (var entry in pathEnv.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        var resolved = Path.Combine(entry, name);
                         if (File.Exists(resolved))
                             return resolved;
                     }

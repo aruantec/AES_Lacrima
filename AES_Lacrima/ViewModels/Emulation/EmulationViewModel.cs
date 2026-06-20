@@ -530,7 +530,21 @@ private bool _isShadPs4PatchesOverlayOpen;
             {
                 try
                 {
-                    AttachLinuxEmulatorAudioVolume(_linuxCompositorPid, _activeEmulatorProcess, CurrentEmulatorHandler);
+                    var controller = GetOrCreateLinuxEmulatorAudioVolume();
+                    if (controller.IsAttached)
+                    {
+                        RefreshLinuxEmulatorAudioVolume(
+                            _linuxCompositorPid,
+                            _activeEmulatorProcess,
+                            CurrentEmulatorHandler);
+                    }
+                    else
+                    {
+                        AttachLinuxEmulatorAudioVolume(
+                            _linuxCompositorPid,
+                            _activeEmulatorProcess,
+                            CurrentEmulatorHandler);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -617,6 +631,28 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             _linuxCompositorPid = compositorRoot;
 
+            var seeds = BuildLinuxEmulatorAudioSeedPids(compositorPid, compositorRoot, process);
+            var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
+            GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, seeds, audioNameHints);
+        }
+
+        [SupportedOSPlatform("linux")]
+        private void RefreshLinuxEmulatorAudioVolume(int compositorPid, Process? process = null, IEmulatorHandler? handler = null)
+        {
+            var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(compositorPid);
+            if (compositorRoot <= 0)
+                compositorRoot = compositorPid;
+
+            _linuxCompositorPid = compositorRoot;
+
+            var seeds = BuildLinuxEmulatorAudioSeedPids(compositorPid, compositorRoot, process);
+            var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
+            GetOrCreateLinuxEmulatorAudioVolume().RefreshSessionTargets(seeds, audioNameHints);
+        }
+
+        [SupportedOSPlatform("linux")]
+        private HashSet<int> BuildLinuxEmulatorAudioSeedPids(int compositorPid, int compositorRoot, Process? process)
+        {
             var seeds = new HashSet<int> { compositorPid, compositorRoot };
             var primaryEmulatorPid = LinuxCompositorProcessHelper.FindPrimaryEmulatorPid(compositorRoot);
             if (primaryEmulatorPid > 0)
@@ -636,11 +672,10 @@ private bool _isShadPs4PatchesOverlayOpen;
                 }
             }
 
-            var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
-            GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, seeds, audioNameHints);
+            return seeds;
         }
 
-        private static IEnumerable<string> BuildLinuxEmulatorAudioNameHints(IEmulatorHandler? handler, Process? process)
+        private IEnumerable<string> BuildLinuxEmulatorAudioNameHints(IEmulatorHandler? handler, Process? process)
         {
             var hints = new List<string>();
             if (handler != null)
@@ -666,6 +701,34 @@ private bool _isShadPs4PatchesOverlayOpen;
                 catch
                 {
                     // ignored
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_activeEmulatorRomPath))
+            {
+                hints.Add(Path.GetFileName(_activeEmulatorRomPath));
+                hints.Add(Path.GetFileNameWithoutExtension(_activeEmulatorRomPath));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_activeEmulatorGameTitle))
+                hints.Add(_activeEmulatorGameTitle);
+
+            if (OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(_activeSteamLaunchRomPath))
+            {
+                var appId = AES_Emulation.Steam.SteamGamePath.GetAppId(_activeSteamLaunchRomPath);
+                if (!string.IsNullOrWhiteSpace(appId))
+                {
+                    var game = Services.Steam.SteamInstalledGameHelper.GetInstalledGame(appId);
+                    if (game != null &&
+                        Services.Steam.SteamInstalledGameHelper.TryResolveGameExecutable(
+                            game.InstallDirectory,
+                            preferWindowsExecutable: true,
+                            out var gameExecutable))
+                    {
+                        hints.Add(gameExecutable);
+                        hints.Add(Path.GetFileName(gameExecutable));
+                        hints.Add(Path.GetFileNameWithoutExtension(gameExecutable));
+                    }
                 }
             }
 

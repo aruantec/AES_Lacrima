@@ -445,6 +445,31 @@ namespace AES_Lacrima.ViewModels
                 SLog.Info(
                     $"Emulator runtime process resolved in background after {launchStopwatch.ElapsedMilliseconds} ms " +
                     $"for '{albumTitle}'/'{itemTitle}'. launcherPid={process.Id}, runtimePid={runtimeProcess.Id}.");
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!IsEmulatorRunning || _linuxCompositorPid <= 0)
+                        return;
+
+                    try
+                    {
+                        var controller = GetOrCreateLinuxEmulatorAudioVolume();
+                        if (controller.IsAttached)
+                        {
+                            RefreshLinuxEmulatorAudioVolume(_linuxCompositorPid, runtimeProcess, handler);
+                        }
+                        else
+                        {
+                            AttachLinuxEmulatorAudioVolume(_linuxCompositorPid, runtimeProcess, handler);
+                        }
+
+                        ApplyEmulatorVolumeToProcess(EmulatorVolume);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Debug("Failed to refresh Linux emulator volume after runtime process resolution.", ex);
+                    }
+                }, DispatcherPriority.Background);
             }
             catch (OperationCanceledException)
             {

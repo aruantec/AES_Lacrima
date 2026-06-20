@@ -131,6 +131,35 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
         TrySyncAndApply(forcePush: true);
     }
 
+    /// <summary>
+    /// Expands PID/hint matching without resetting the attach baseline. Use after capture is live
+    /// or once the runtime emulator process appears so we do not treat game audio as pre-existing.
+    /// </summary>
+    public void RefreshSessionTargets(IEnumerable<int>? additionalPids = null, IEnumerable<string>? audioNameHints = null)
+    {
+        if (_launchedCompositorPid <= 0)
+            return;
+
+        if (additionalPids != null)
+        {
+            foreach (var pid in additionalPids)
+            {
+                if (pid > 0)
+                    _seedPids.Add(pid);
+            }
+        }
+
+        AddAudioNameHints(audioNameHints);
+        RebuildCandidateState();
+        _pushPending = true;
+
+        Log.Info(
+            $"EmulatorVolume: refreshed session targets (candidates={_candidatePids.Count}, " +
+            $"hints=[{string.Join(", ", _processNameHints)}]).");
+
+        TrySyncAndApply(forcePush: true);
+    }
+
     public float Volume
     {
         get => _volume;
@@ -219,29 +248,7 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
     }
 
     private bool TryApplyVolumeToSink(int sinkIndex, float normalizedVolume)
-    {
-        var clamped = Math.Clamp(normalizedVolume, 0.0f, 1.0f);
-        var pulseVolume = Math.Clamp(
-            (int)Math.Round(clamped * PulseVolumeNominal, MidpointRounding.AwayFromZero),
-            0,
-            PulseVolumeNominal);
-
-        if (clamped > 0.001f &&
-            !TryRunPactl($"set-sink-input-mute {sinkIndex} 0"))
-        {
-            return false;
-        }
-
-        var pulseArg = pulseVolume.ToString(CultureInfo.InvariantCulture);
-        if (!TryRunPactl($"set-sink-input-volume {sinkIndex} {pulseArg}"))
-            return false;
-
-        if (clamped <= 0.001f &&
-            !TryRunPactl($"set-sink-input-mute {sinkIndex} 1"))
-            return false;
-
-        return true;
-    }
+        => LinuxPipeWireAudioBackend.TryApplyStreamVolume(sinkIndex, normalizedVolume);
 
     private static string FormatVolumePercent(float normalizedVolume)
         => $"{Math.Round(normalizedVolume * 100.0, 1).ToString(CultureInfo.InvariantCulture)}%";
@@ -272,7 +279,7 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
     private void CaptureBaselineSinkSerials()
     {
         _baselineSinkSerials.Clear();
-        if (!TryRunPactl("list sink-inputs", out var output) || string.IsNullOrWhiteSpace(output))
+        if (!LinuxPipeWireAudioBackend.TryListSinkInputsJson(out var output) || string.IsNullOrWhiteSpace(output))
             return;
 
         try
@@ -331,7 +338,7 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
     {
         sinkInputs = new List<MatchedSinkInput>();
 
-        if (!TryRunPactl("list sink-inputs", out var output) || string.IsNullOrWhiteSpace(output))
+        if (!LinuxPipeWireAudioBackend.TryListSinkInputsJson(out var output) || string.IsNullOrWhiteSpace(output))
             return false;
 
         try
@@ -366,6 +373,9 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
             }
 
             if (sinkInputs.Count == 0)
+                TryCollectFallbackSessionSinks(document.RootElement, sinkInputs);
+
+            if (sinkInputs.Count == 0)
                 return false;
 
             sinkInputs.Sort(static (left, right) =>
@@ -397,17 +407,31 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
         matchScore = 0;
         TryGetProcessId(properties, out var pid);
 
-        if (pid > 0 && IsCandidateProcessId(pid))
-            matchScore = Math.Max(matchScore, 100);
-
         if (TryGetPropertyString(properties, "application.name", out var applicationName) &&
             IsIgnoredApplicationName(applicationName))
         {
             return false;
         }
 
+        if (pid > 0 && IsCandidateProcessId(pid))
+            matchScore = Math.Max(matchScore, 100);
+
         if (MatchesProcessNameHints(properties, out var hintScore))
             matchScore = Math.Max(matchScore, hintScore);
+
+        if (matchScore <= 0 &&
+            pid > 0 &&
+            TryMatchSinkInputFromProcessIdentity(properties, pid, out hintScore))
+        {
+            matchScore = hintScore;
+        }
+
+        if (matchScore <= 0 &&
+            IsLikelyCompositorStream(properties) &&
+            IsNewSessionSink(properties, out var compositorScore))
+        {
+            matchScore = compositorScore;
+        }
 
         if (matchScore > 0)
             return true;
@@ -416,6 +440,127 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
             return false;
 
         return false;
+    }
+
+    private bool TryMatchSinkInputFromProcessIdentity(JsonElement properties, int pid, out int matchScore)
+    {
+        matchScore = 0;
+        if (pid <= 0)
+            return false;
+
+        var identityHints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        LinuxCompositorProcessHelper.CollectProcessIdentityHints(pid, identityHints);
+        if (identityHints.Count == 0)
+            return false;
+
+        foreach (var key in new[]
+                 {
+                     "application.process.binary",
+                     "application.name",
+                     "application.process.command",
+                     "node.name",
+                     "media.name",
+                 })
+        {
+            if (!TryGetPropertyString(properties, key, out var value) ||
+                string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var normalized = value.ToLowerInvariant();
+            foreach (var hint in identityHints)
+            {
+                if (hint.Length < 2)
+                    continue;
+
+                if (!normalized.Contains(hint, StringComparison.Ordinal))
+                    continue;
+
+                matchScore = key switch
+                {
+                    "application.process.binary" => 85,
+                    "application.name" => 75,
+                    "node.name" => 65,
+                    _ => 55,
+                };
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsNewSessionSink(JsonElement properties, out int matchScore)
+    {
+        matchScore = 0;
+        var serial = TryGetObjectSerial(properties);
+        if (serial <= 0 || _baselineSinkSerials.Contains(serial))
+            return false;
+
+        matchScore = IsLikelyCompositorStream(properties) ? 70 : 0;
+        return matchScore > 0;
+    }
+
+    private void TryCollectFallbackSessionSinks(JsonElement sinkInputsRoot, List<MatchedSinkInput> sinkInputs)
+    {
+        var fallbackCandidates = new List<MatchedSinkInput>();
+
+        foreach (var element in sinkInputsRoot.EnumerateArray())
+        {
+            if (!element.TryGetProperty("index", out var indexElement) ||
+                indexElement.ValueKind != JsonValueKind.Number)
+            {
+                continue;
+            }
+
+            if (!element.TryGetProperty("properties", out var properties) ||
+                properties.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            if (TryGetPropertyString(properties, "application.name", out var applicationName) &&
+                IsIgnoredApplicationName(applicationName))
+            {
+                continue;
+            }
+
+            var serial = TryGetObjectSerial(properties);
+            if (serial <= 0 || _baselineSinkSerials.Contains(serial))
+                continue;
+
+            var matchScore = 35;
+            if (MatchesProcessNameHints(properties, out var hintScore))
+                matchScore = Math.Max(matchScore, hintScore);
+            else if (IsLikelyCompositorStream(properties))
+                matchScore = Math.Max(matchScore, 40);
+
+            fallbackCandidates.Add(new MatchedSinkInput(
+                indexElement.GetInt32(),
+                TryReadVolumeNormalized(element),
+                element.TryGetProperty("mute", out var muteElement) &&
+                muteElement.ValueKind == JsonValueKind.True,
+                IsLikelyCompositorStream(properties),
+                true,
+                matchScore,
+                serial));
+        }
+
+        if (fallbackCandidates.Count == 0)
+            return;
+
+        if (fallbackCandidates.Count == 1)
+        {
+            sinkInputs.Add(fallbackCandidates[0] with { MatchScore = Math.Max(fallbackCandidates[0].MatchScore, 45) });
+            return;
+        }
+
+        var compositorStreams = fallbackCandidates.Where(static candidate => candidate.IsCompositorStream).ToArray();
+        if (compositorStreams.Length == 1)
+        {
+            sinkInputs.Add(compositorStreams[0] with { MatchScore = Math.Max(compositorStreams[0].MatchScore, 42) });
+        }
     }
 
     private bool IsCandidateProcessId(int pid)
@@ -601,57 +746,6 @@ public sealed class LinuxEmulatorAudioVolumeController : IDisposable
 
         return !string.IsNullOrWhiteSpace(value);
     }
-
-    private static bool TryRunPactl(string arguments)
-        => TryRunPactl(arguments, out _);
-
-    private static bool TryRunPactl(string arguments, out string output)
-    {
-        output = string.Empty;
-
-        var pactlPath = LinuxAudioEnvironmentHelper.ResolvePactlExecutable();
-        if (string.IsNullOrWhiteSpace(pactlPath))
-            return false;
-
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = pactlPath,
-                Arguments = $"-f json {arguments}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-            LinuxAudioEnvironmentHelper.Apply(startInfo);
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                return false;
-
-            output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit(5000);
-            if (process.ExitCode != 0)
-            {
-                if (!string.IsNullOrWhiteSpace(error))
-                    Log.Warn($"EmulatorVolume: pactl '{arguments}' failed: {error.Trim()}");
-                return false;
-            }
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"EmulatorVolume: pactl '{arguments}' failed.", ex);
-            return false;
-        }
-    }
-
-    private static void CopyAudioEnvironment(ProcessStartInfo startInfo)
-        => LinuxAudioEnvironmentHelper.Apply(startInfo);
 
     public void Dispose()
     {
