@@ -1842,7 +1842,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 if (value != null && !ReferenceEquals(LoadedAlbum, value))
                     return;
 
-                if (value != null)
+                if (value != null && !EmulationConsoleCatalog.UsesAutoLibrarySync(value.Title))
                     PrepareAlbumItemsForCoverDisplay(value);
 
                 SyncCurrentSectionEmulatorContext();
@@ -1852,7 +1852,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 RefreshSteamLibraryCommand.NotifyCanExecuteChanged();
                 ManageSteamLibraryWatcher(value);
 
-                if (value != null)
+                if (value != null && !EmulationConsoleCatalog.UsesAutoLibrarySync(value.Title))
                     QueueSelectedAlbumCoverScan(value);
             }, DispatcherPriority.Background);
         }

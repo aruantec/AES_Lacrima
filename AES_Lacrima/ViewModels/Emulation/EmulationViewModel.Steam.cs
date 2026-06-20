@@ -18,8 +18,10 @@ namespace AES_Lacrima.ViewModels
     {
         private readonly object _steamSyncGate = new();
         private readonly List<FileSystemWatcher> _steamLibraryWatchers = [];
+        private readonly SemaphoreSlim _steamSyncSemaphore = new(1, 1);
         private CancellationTokenSource? _steamLibrarySyncCts;
         private CancellationTokenSource? _steamLibraryWatcherDebounceCts;
+        private CancellationTokenSource? _steamEnterSyncDebounceCts;
 
         private static bool IsSteamAlbum(FolderMediaItem? album)
         {
@@ -62,24 +64,34 @@ namespace AES_Lacrima.ViewModels
             if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
                 return;
 
-            IReadOnlyList<SteamInstalledGame> installedGames;
+            if (!await _steamSyncSemaphore.WaitAsync(0).ConfigureAwait(false))
+                return;
+
             try
             {
-                installedGames = await Task.Run(SteamInstalledGameHelper.GetInstalledGames).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                SLog.Warn("Failed to enumerate installed Steam games.", ex);
-                return;
-            }
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (IsEmulatorRunning)
+                IReadOnlyList<SteamInstalledGame> installedGames;
+                try
+                {
+                    installedGames = await Task.Run(SteamInstalledGameHelper.GetInstalledGames).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("Failed to enumerate installed Steam games.", ex);
                     return;
+                }
 
-                ApplySteamLibrarySnapshot(album, installedGames);
-            }, DispatcherPriority.Background);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (IsEmulatorRunning)
+                        return;
+
+                    ApplySteamLibrarySnapshot(album, installedGames);
+                }, DispatcherPriority.Normal);
+            }
+            finally
+            {
+                _steamSyncSemaphore.Release();
+            }
         }
 
         private void ApplySteamLibrarySnapshot(EmulationAlbumItem album, IReadOnlyList<SteamInstalledGame> installedGames)
@@ -93,7 +105,6 @@ namespace AES_Lacrima.ViewModels
                     .ToDictionary(game => game.GamePath, StringComparer.OrdinalIgnoreCase);
 
                 var nextItems = new AvaloniaList<MediaItem>();
-                bool anyCoverChanged = false;
                 bool addedNewItems = false;
 
                 foreach (var existing in album.Children)
@@ -105,8 +116,7 @@ namespace AES_Lacrima.ViewModels
                         continue;
 
                     existing.Title = game.Name;
-                    if (TryApplySteamIconCover(existing, album, game.IconPath))
-                        anyCoverChanged = true;
+                    TryApplySteamIconCover(existing, album, game.IconPath);
 
                     nextItems.Add(existing);
                 }
@@ -122,11 +132,7 @@ namespace AES_Lacrima.ViewModels
                         continue;
 
                     addedNewItems = true;
-                    var created = CreateSteamGameItem(game, album);
-                    if (created.CoverBitmap != null && !ReferenceEquals(created.CoverBitmap, album.CoverBitmap))
-                        anyCoverChanged = true;
-
-                    nextItems.Add(created);
+                    nextItems.Add(CreateSteamGameItem(game, album));
                 }
 
                 album.Children = nextItems;
@@ -138,7 +144,6 @@ namespace AES_Lacrima.ViewModels
                 if (ReferenceEquals(LoadedAlbum, album))
                 {
                     ApplyFilter();
-                    PrepareAlbumItemsForCoverDisplay(album);
                     if (album.Children.Count <= 1)
                     {
                         SelectedIndex = 0;
@@ -146,7 +151,7 @@ namespace AES_Lacrima.ViewModels
                         CarouselSliderPreview = null;
                     }
 
-                    if (addedNewItems || anyCoverChanged)
+                    if (addedNewItems)
                         NotifyAlbumCoverDisplayChanged(album);
 
                     OnPropertyChanged(nameof(HasActiveAlbumItems));
@@ -180,25 +185,18 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
-            var anyCoverChanged = false;
             var anyNeedsCover = false;
             foreach (var existing in album.Children)
             {
                 var game = installedByPath[existing.FileName!];
                 existing.Title = game.Name;
-                if (TryApplySteamIconCover(existing, album, game.IconPath))
-                    anyCoverChanged = true;
-                else if (NeedsPreviewCoverHydration(existing, album))
+                TryApplySteamIconCover(existing, album, game.IconPath);
+                if (NeedsPreviewCoverHydration(existing, album))
                     anyNeedsCover = true;
             }
 
-            if (ReferenceEquals(LoadedAlbum, album))
-            {
-                if (anyCoverChanged)
-                    NotifyAlbumCoverDisplayChanged(album);
-                if (anyNeedsCover)
-                    QueueAlbumPreviewCoverLoad(album);
-            }
+            if (ReferenceEquals(LoadedAlbum, album) && anyNeedsCover)
+                QueueAlbumPreviewCoverLoad(album);
 
             return true;
         }
@@ -241,19 +239,17 @@ namespace AES_Lacrima.ViewModels
             if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath))
                 return false;
 
-            try
+            if (string.Equals(item.LocalCoverPath, iconPath, StringComparison.OrdinalIgnoreCase) &&
+                item.CoverFound)
             {
-                item.LocalCoverPath = iconPath;
-                item.CoverBitmap = new Bitmap(iconPath);
-                item.CoverFound = true;
                 item.IsLoadingCover = false;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                SLog.Debug($"Failed to apply Steam icon cover from '{iconPath}'.", ex);
                 return false;
             }
+
+            item.LocalCoverPath = iconPath;
+            item.CoverFound = true;
+            item.IsLoadingCover = false;
+            return true;
         }
 
         internal async Task<bool> TryLoadSteamGameCoverAsync(MediaItem item, CancellationToken cancellationToken = default)
@@ -308,29 +304,37 @@ namespace AES_Lacrima.ViewModels
 
             _ = Task.Run(async () =>
             {
-                while (!token.IsCancellationRequested)
+                try
                 {
-                    try
+                    await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
+                    while (!token.IsCancellationRequested)
                     {
-                        await SyncSteamLibraryAsync(album).ConfigureAwait(false);
-                        await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        SLog.Warn("Steam library polling sync failed.", ex);
                         try
                         {
-                            await Task.Delay(TimeSpan.FromSeconds(30), token).ConfigureAwait(false);
+                            await SyncSteamLibraryAsync(album).ConfigureAwait(false);
+                            await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
                         }
                         catch (OperationCanceledException)
                         {
                             break;
                         }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn("Steam library polling sync failed.", ex);
+                            try
+                            {
+                                await Task.Delay(TimeSpan.FromSeconds(30), token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                break;
+                            }
+                        }
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    // ignored
                 }
             }, token);
 
@@ -451,6 +455,20 @@ namespace AES_Lacrima.ViewModels
                 _steamLibraryWatcherDebounceCts = null;
             }
 
+            try
+            {
+                _steamEnterSyncDebounceCts?.Cancel();
+                _steamEnterSyncDebounceCts?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to stop Steam enter sync debounce.", ex);
+            }
+            finally
+            {
+                _steamEnterSyncDebounceCts = null;
+            }
+
             if (_steamLibraryWatchers.Count == 0)
                 return;
 
@@ -488,6 +506,43 @@ namespace AES_Lacrima.ViewModels
                 QueueSteamLibraryResync(_watchedSteamAlbum);
         }
 
+        private void QueueDeferredSteamLibrarySync(EmulationAlbumItem album)
+        {
+            if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
+                return;
+
+            try
+            {
+                _steamEnterSyncDebounceCts?.Cancel();
+                _steamEnterSyncDebounceCts?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to reset Steam enter sync debounce.", ex);
+            }
+
+            _steamEnterSyncDebounceCts = new CancellationTokenSource();
+            var token = _steamEnterSyncDebounceCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Let the carousel finish layout before scanning manifests and hydrating covers.
+                    await Task.Delay(500, token).ConfigureAwait(false);
+                    await SyncSteamLibraryAsync(album).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // ignored
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("Deferred Steam library sync failed.", ex);
+                }
+            }, token);
+        }
+
         private void ManageSteamLibraryWatcher(FolderMediaItem? album)
         {
             if (!OperatingSystem.IsLinux())
@@ -501,7 +556,7 @@ namespace AES_Lacrima.ViewModels
             {
                 _watchedSteamAlbum = steamAlbum;
                 StartSteamLibraryWatcher(steamAlbum);
-                _ = SyncSteamLibraryAsync(steamAlbum);
+                QueueDeferredSteamLibrarySync(steamAlbum);
                 return;
             }
 

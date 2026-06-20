@@ -1523,6 +1523,9 @@ namespace AES_Lacrima.ViewModels
             if (album == null || album.Children.Count == 0)
                 return;
 
+            if (EmulationConsoleCatalog.UsesAutoLibrarySync(album.Title))
+                return;
+
             try
             {
                 if (_albumCoverScanDebounceMap.TryGetValue(album, out var existingDebounce))
