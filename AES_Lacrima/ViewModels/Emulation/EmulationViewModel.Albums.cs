@@ -202,7 +202,7 @@ namespace AES_Lacrima.ViewModels
                 }, DispatcherPriority.Background);
 
                 _ = RestorePersistedAlbumRomsAsync().ContinueWith(
-                    _ => SyncSteamLibrariesAfterInitializeAsync(),
+                    _ => ScheduleDeferredSteamStartupSync(),
                     TaskScheduler.Default);
             }
             catch (Exception ex)
@@ -1907,6 +1907,21 @@ namespace AES_Lacrima.ViewModels
         private void NotifyAlbumCoverDisplayChanged(FolderMediaItem album)
         {
             _albumCoverDisplayRevision++;
+            if (!IsActive)
+            {
+                _albumCoverDisplayNotifyPending = true;
+                return;
+            }
+
+            OnPropertyChanged(nameof(AlbumCoverDisplayRevision));
+        }
+
+        private void FlushDeferredAlbumCoverDisplayNotification()
+        {
+            if (!_albumCoverDisplayNotifyPending)
+                return;
+
+            _albumCoverDisplayNotifyPending = false;
             OnPropertyChanged(nameof(AlbumCoverDisplayRevision));
         }
 

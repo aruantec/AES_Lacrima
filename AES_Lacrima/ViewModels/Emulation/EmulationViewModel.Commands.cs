@@ -141,10 +141,36 @@ namespace AES_Lacrima.ViewModels
             if (!ReferenceEquals(SelectedAlbum, nextAlbum))
                 SelectedAlbum = nextAlbum;
 
-            if (nextAlbum is EmulationAlbumItem emulationAlbum && emulationAlbum.Children.Count > 0)
+            ScheduleAlbumRowCoverLoadsForIndex(value);
+        }
+
+        private void ScheduleAlbumRowCoverLoadsForIndex(int index)
+        {
+            _pendingAlbumRowCoverLoadIndex = index;
+
+            _albumRowCoverLoadDebounceTimer ??= new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(AlbumRowCoverLoadDebounceMs)
+            };
+
+            _albumRowCoverLoadDebounceTimer.Stop();
+            _albumRowCoverLoadDebounceTimer.Tick -= OnAlbumRowCoverLoadDebounceTick;
+            _albumRowCoverLoadDebounceTimer.Tick += OnAlbumRowCoverLoadDebounceTick;
+            _albumRowCoverLoadDebounceTimer.Start();
+        }
+
+        private void OnAlbumRowCoverLoadDebounceTick(object? sender, EventArgs e)
+        {
+            _albumRowCoverLoadDebounceTimer?.Stop();
+
+            var index = _pendingAlbumRowCoverLoadIndex;
+            if (index < 0 || index >= AlbumList.Count)
+                return;
+
+            if (AlbumList[index] is EmulationAlbumItem emulationAlbum && emulationAlbum.Children.Count > 0)
                 QueueAlbumPreviewCoverLoad(emulationAlbum);
 
-            QueueAlbumPresentationCoverLoadsNearIndex(value);
+            QueueAlbumPresentationCoverLoadsNearIndex(index);
         }
 
         partial void OnCarouselSliderPreviewChanged(double? value)

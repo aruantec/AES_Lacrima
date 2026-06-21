@@ -22,6 +22,74 @@ namespace AES_Lacrima.ViewModels
         private CancellationTokenSource? _steamLibrarySyncCts;
         private CancellationTokenSource? _steamLibraryWatcherDebounceCts;
         private CancellationTokenSource? _steamEnterSyncDebounceCts;
+        private CancellationTokenSource? _steamStartupSyncCts;
+        private int _steamStartupSyncState;
+        private readonly HashSet<EmulationAlbumItem> _steamAlbumsPendingPresentation = new();
+
+        private void ScheduleDeferredSteamStartupSync()
+        {
+            if (!OperatingSystem.IsLinux())
+                return;
+
+            if (Volatile.Read(ref _steamStartupSyncState) == 2)
+                return;
+
+            if (Interlocked.CompareExchange(ref _steamStartupSyncState, 1, 0) != 0)
+                return;
+
+            _steamStartupSyncCts?.Cancel();
+            _steamStartupSyncCts?.Dispose();
+            _steamStartupSyncCts = new CancellationTokenSource();
+            var token = _steamStartupSyncCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!token.IsCancellationRequested && !IsActive)
+                        await Task.Delay(250, token).ConfigureAwait(false);
+
+                    if (token.IsCancellationRequested)
+                        return;
+
+                    // Let the album row finish layout after navigation.
+                    await Task.Delay(900, token).ConfigureAwait(false);
+                    await SyncSteamLibrariesAfterInitializeAsync().ConfigureAwait(false);
+                    Interlocked.Exchange(ref _steamStartupSyncState, 2);
+
+                    await Dispatcher.UIThread.InvokeAsync(
+                        FlushDeferredSteamPresentationUpdates,
+                        DispatcherPriority.Background);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("Deferred Steam startup sync failed.", ex);
+                    Interlocked.Exchange(ref _steamStartupSyncState, 0);
+                }
+            }, token);
+        }
+
+        private void FlushDeferredSteamPresentationUpdates()
+        {
+            if (!OperatingSystem.IsLinux())
+                return;
+
+            List<EmulationAlbumItem> pending;
+            lock (_steamSyncGate)
+            {
+                if (_steamAlbumsPendingPresentation.Count == 0)
+                    return;
+
+                pending = _steamAlbumsPendingPresentation.ToList();
+                _steamAlbumsPendingPresentation.Clear();
+            }
+
+            foreach (var album in pending)
+                ApplySteamLibraryPresentationUpdates(album, addedNewItems: false);
+        }
 
         private static bool IsSteamAlbum(FolderMediaItem? album)
         {
@@ -59,7 +127,7 @@ namespace AES_Lacrima.ViewModels
                 await SyncSteamLibraryAsync(album).ConfigureAwait(false);
         }
 
-        private async Task SyncSteamLibraryAsync(EmulationAlbumItem album)
+        private async Task SyncSteamLibraryAsync(EmulationAlbumItem album, bool forcePresentation = false)
         {
             if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
                 return;
@@ -85,8 +153,8 @@ namespace AES_Lacrima.ViewModels
                     if (IsEmulatorRunning)
                         return;
 
-                    ApplySteamLibrarySnapshot(album, installedGames);
-                }, DispatcherPriority.Normal);
+                    ApplySteamLibrarySnapshot(album, installedGames, forcePresentation);
+                }, DispatcherPriority.Background);
             }
             finally
             {
@@ -94,11 +162,16 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
-        private void ApplySteamLibrarySnapshot(EmulationAlbumItem album, IReadOnlyList<SteamInstalledGame> installedGames)
+        private void ApplySteamLibrarySnapshot(
+            EmulationAlbumItem album,
+            IReadOnlyList<SteamInstalledGame> installedGames,
+            bool forcePresentation = false)
         {
+            var shouldPresent = forcePresentation || IsActive;
+
             lock (_steamSyncGate)
             {
-                if (TryUpdateSteamLibrarySnapshotInPlace(album, installedGames))
+                if (TryUpdateSteamLibrarySnapshotInPlace(album, installedGames, shouldPresent))
                     return;
 
                 var installedByPath = installedGames
@@ -136,28 +209,36 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 album.Children = nextItems;
-
                 SyncAlbumTotalChildCount(album);
-                UpdatePreviewItems(album);
-                QueueAlbumPreviewCoverLoad(album);
 
-                if (ReferenceEquals(LoadedAlbum, album))
-                {
-                    ApplyFilter();
-                    if (album.Children.Count <= 1)
-                    {
-                        SelectedIndex = 0;
-                        PointedIndex = -1;
-                        CarouselSliderPreview = null;
-                    }
-
-                    if (addedNewItems)
-                        NotifyAlbumCoverDisplayChanged(album);
-
-                    OnPropertyChanged(nameof(HasActiveAlbumItems));
-                    OnPropertyChanged(nameof(ShowEmptyActiveAlbumHint));
-                }
+                if (shouldPresent)
+                    ApplySteamLibraryPresentationUpdates(album, addedNewItems);
+                else
+                    _steamAlbumsPendingPresentation.Add(album);
             }
+        }
+
+        private void ApplySteamLibraryPresentationUpdates(EmulationAlbumItem album, bool addedNewItems)
+        {
+            UpdatePreviewItems(album);
+            QueueAlbumPreviewCoverLoad(album);
+
+            if (!ReferenceEquals(LoadedAlbum, album))
+                return;
+
+            ApplyFilter();
+            if (album.Children.Count <= 1)
+            {
+                SelectedIndex = 0;
+                PointedIndex = -1;
+                CarouselSliderPreview = null;
+            }
+
+            if (addedNewItems)
+                NotifyAlbumCoverDisplayChanged(album);
+
+            OnPropertyChanged(nameof(HasActiveAlbumItems));
+            OnPropertyChanged(nameof(ShowEmptyActiveAlbumHint));
         }
 
         /// <summary>
@@ -165,7 +246,8 @@ namespace AES_Lacrima.ViewModels
         /// </summary>
         private bool TryUpdateSteamLibrarySnapshotInPlace(
             EmulationAlbumItem album,
-            IReadOnlyList<SteamInstalledGame> installedGames)
+            IReadOnlyList<SteamInstalledGame> installedGames,
+            bool shouldPresent)
         {
             if (album.Children.Count != installedGames.Count)
                 return false;
@@ -195,8 +277,13 @@ namespace AES_Lacrima.ViewModels
                     anyNeedsCover = true;
             }
 
-            if (ReferenceEquals(LoadedAlbum, album) && anyNeedsCover)
-                QueueAlbumPreviewCoverLoad(album);
+            if (anyNeedsCover)
+            {
+                if (shouldPresent && ReferenceEquals(LoadedAlbum, album))
+                    QueueAlbumPreviewCoverLoad(album);
+                else
+                    _steamAlbumsPendingPresentation.Add(album);
+            }
 
             return true;
         }
@@ -213,7 +300,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             SLog.Info($"Manual Steam library refresh requested for album '{album.Title}'.");
-            await SyncSteamLibraryAsync(album).ConfigureAwait(false);
+            await SyncSteamLibraryAsync(album, forcePresentation: true).ConfigureAwait(false);
         }
 
         private static MediaItem CreateSteamGameItem(SteamInstalledGame game, FolderMediaItem album)
@@ -263,7 +350,7 @@ namespace AES_Lacrima.ViewModels
 
             if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath))
             {
-                await Dispatcher.UIThread.InvokeAsync(() => item.IsLoadingCover = false, DispatcherPriority.Normal);
+                await Dispatcher.UIThread.InvokeAsync(() => item.IsLoadingCover = false, DispatcherPriority.Background);
                 return false;
             }
 
@@ -276,14 +363,14 @@ namespace AES_Lacrima.ViewModels
                     item.CoverBitmap = bitmap;
                     item.CoverFound = true;
                     item.IsLoadingCover = false;
-                }, DispatcherPriority.Normal);
+                }, DispatcherPriority.Background);
 
                 return true;
             }
             catch (Exception ex)
             {
                 SLog.Debug($"Failed to load Steam cover from '{iconPath}'.", ex);
-                await Dispatcher.UIThread.InvokeAsync(() => item.IsLoadingCover = false, DispatcherPriority.Normal);
+                await Dispatcher.UIThread.InvokeAsync(() => item.IsLoadingCover = false, DispatcherPriority.Background);
                 return false;
             }
         }
@@ -429,6 +516,20 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
+                _steamStartupSyncCts?.Cancel();
+                _steamStartupSyncCts?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to stop Steam startup sync.", ex);
+            }
+            finally
+            {
+                _steamStartupSyncCts = null;
+            }
+
+            try
+            {
                 _steamLibrarySyncCts?.Cancel();
                 _steamLibrarySyncCts?.Dispose();
             }
@@ -496,12 +597,14 @@ namespace AES_Lacrima.ViewModels
 
         private void OnSteamLibraryChanged(object sender, FileSystemEventArgs e)
         {
+            SteamInstalledGameHelper.InvalidateInstalledGamesCache();
             if (_watchedSteamAlbum != null)
                 QueueSteamLibraryResync(_watchedSteamAlbum);
         }
 
         private void OnSteamLibraryRenamed(object sender, RenamedEventArgs e)
         {
+            SteamInstalledGameHelper.InvalidateInstalledGamesCache();
             if (_watchedSteamAlbum != null)
                 QueueSteamLibraryResync(_watchedSteamAlbum);
         }

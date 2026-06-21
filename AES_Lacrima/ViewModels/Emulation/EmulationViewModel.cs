@@ -106,10 +106,14 @@ namespace AES_Lacrima.ViewModels
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
         private int _albumCoverDisplayRevision;
+        private bool _albumCoverDisplayNotifyPending;
         public int AlbumCoverDisplayRevision => _albumCoverDisplayRevision;
         private bool _isPreparing;
         private bool _isSyncingAlbumSelection;
         private CancellationTokenSource? _albumCoverScanCts;
+        private DispatcherTimer? _albumRowCoverLoadDebounceTimer;
+        private int _pendingAlbumRowCoverLoadIndex = -1;
+        private const int AlbumRowCoverLoadDebounceMs = 180;
         private CancellationTokenSource? _gameplayPreviewCts;
         private bool _isGameplayPreviewActive;
         private bool _suppressSelectionStopForGameplayPreview;
@@ -1305,6 +1309,13 @@ private bool _isShadPs4PatchesOverlayOpen;
                 OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
                 OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
                 NotifyGameplayRecordingAvailabilityChanged();
+
+                if (IsActive)
+                {
+                    ScheduleDeferredSteamStartupSync();
+                    FlushDeferredSteamPresentationUpdates();
+                    FlushDeferredAlbumCoverDisplayNotification();
+                }
             }
         }
 
@@ -1751,6 +1762,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             base.OnShowViewModel();
             EnsureSettingsViewModelSubscription();
             EnsureMetadataServiceSubscription();
+            ScheduleDeferredSteamStartupSync();
             if (!IsPrepared)
                 RefreshAlbumPreviews();
             else
@@ -1759,6 +1771,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                 if (!IsEmulatorRunning && IsGameplayPreviewAvailable)
                     QueueGameplayPreview(HighlightedItem, immediate: true);
             }
+
+            FlushDeferredSteamPresentationUpdates();
+            FlushDeferredAlbumCoverDisplayNotification();
 
             if (!IsEmulatorRunning && !IsGameplayRecording)
                 SyncCurrentSectionFlatpakSelection();

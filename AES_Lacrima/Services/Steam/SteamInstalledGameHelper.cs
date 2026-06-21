@@ -326,11 +326,41 @@ internal static class SteamInstalledGameHelper
         }
     }
 
+    private static readonly object InstalledGamesCacheLock = new();
+    private static IReadOnlyList<SteamInstalledGame>? _cachedInstalledGames;
+    private static long _cachedInstalledGamesAtMs;
+
+    public static void InvalidateInstalledGamesCache()
+    {
+        lock (InstalledGamesCacheLock)
+            _cachedInstalledGames = null;
+    }
+
     public static IReadOnlyList<SteamInstalledGame> GetInstalledGames()
     {
         if (!OperatingSystem.IsLinux())
             return [];
 
+        var nowMs = Environment.TickCount64;
+        lock (InstalledGamesCacheLock)
+        {
+            if (_cachedInstalledGames != null && nowMs - _cachedInstalledGamesAtMs < 30_000)
+                return _cachedInstalledGames;
+        }
+
+        var games = EnumerateInstalledGamesUncached();
+
+        lock (InstalledGamesCacheLock)
+        {
+            _cachedInstalledGames = games;
+            _cachedInstalledGamesAtMs = nowMs;
+        }
+
+        return games;
+    }
+
+    private static IReadOnlyList<SteamInstalledGame> EnumerateInstalledGamesUncached()
+    {
         var games = new Dictionary<string, SteamInstalledGame>(StringComparer.Ordinal);
         foreach (var libraryRoot in GetLibraryRoots())
         {
