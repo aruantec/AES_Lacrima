@@ -149,6 +149,40 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             }
         }
 
+        public static async Task<string?> EnsureRomTitleResolvedAsync(
+            string? filePath,
+            string? albumTitle,
+            string? currentTitle,
+            CancellationToken cancellationToken = default)
+        {
+            var resolved = ResolveRomTitle(filePath, albumTitle, currentTitle);
+            if (!string.IsNullOrWhiteSpace(resolved) &&
+                !EmulationHashTitleResolver.NeedsBetterTitle(resolved, filePath))
+            {
+                return resolved;
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath) ||
+                (!File.Exists(filePath) && !Directory.Exists(filePath)))
+            {
+                return resolved;
+            }
+
+            if (EmulationHashTitleResolver.IsSupportedAlbum(albumTitle, out var platform) && platform != null)
+            {
+                var improved = await TryImproveHashTitleAsync(
+                        filePath,
+                        albumTitle,
+                        resolved ?? currentTitle,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(improved))
+                    return improved;
+            }
+
+            return resolved;
+        }
+
         private static bool IsPsxAlbum(string? albumTitle)
         {
             if (string.IsNullOrWhiteSpace(albumTitle))
@@ -432,11 +466,31 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
 
         private static string? ResolveHashTitle(string? filePath, EmulationHashTitlePlatform platform)
         {
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            if (string.IsNullOrWhiteSpace(filePath) ||
+                (!File.Exists(filePath) && !Directory.Exists(filePath)))
                 return null;
 
             var cachePath = GetLocalMetadataCachePath(filePath);
             var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+
+            if (string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
+            {
+                var sfoTitle = EmulationHashTitleResolver.TryResolveOffline(filePath, platform);
+                if (!string.IsNullOrWhiteSpace(sfoTitle))
+                {
+                    metadata ??= new CustomMetadata();
+                    if (ShouldUpdateMetadataTitle(metadata.Title, sfoTitle) ||
+                        EmulationHashTitleResolver.LooksLikeDumpCatalogTitle(metadata.Title))
+                    {
+                        metadata.Title = sfoTitle.Trim();
+                    }
+
+                    ApplyHashPlatformMetadata(filePath, platform, metadata);
+                    metadata.RomScanned = true;
+                    BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+                    return metadata.Title?.Trim();
+                }
+            }
 
             if (metadata?.RomScanned == true || _inspectionAttempted.ContainsKey(filePath))
             {
@@ -473,7 +527,8 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             string? currentTitle,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            if (string.IsNullOrWhiteSpace(filePath) ||
+                (!File.Exists(filePath) && !Directory.Exists(filePath)))
                 return null;
 
             if (!EmulationHashTitleResolver.IsSupportedAlbum(albumTitle, out var platform) || platform == null)
@@ -481,6 +536,24 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
 
             if (!EmulationHashTitleResolver.NeedsBetterTitle(currentTitle, filePath))
                 return null;
+
+            if (string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
+            {
+                var sfoTitle = EmulationHashTitleResolver.TryResolveOffline(filePath, platform);
+                if (string.IsNullOrWhiteSpace(sfoTitle) ||
+                    string.Equals(currentTitle, sfoTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                var pspCachePath = GetLocalMetadataCachePath(filePath);
+                var pspMetadata = BinaryMetadataHelper.LoadMetadata(pspCachePath) ?? new CustomMetadata();
+                pspMetadata.Title = sfoTitle.Trim();
+                ApplyHashPlatformMetadata(filePath, platform, pspMetadata);
+                pspMetadata.RomScanned = true;
+                BinaryMetadataHelper.SaveMetadata(pspCachePath, pspMetadata);
+                return sfoTitle;
+            }
 
             var resolved = await EmulationHashTitleResolver.TryResolveFullAsync(filePath, platform, cancellationToken)
                 .ConfigureAwait(false);

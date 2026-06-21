@@ -189,10 +189,15 @@ namespace AES_Lacrima.Services
 
             try
             {
-                var results = await FindAutoCoverWebImageResultsAsync(query, searchTimeout.Token).ConfigureAwait(false);
+                // Match the metadata editor "Use Title" ROM search pipeline and keep ranking order.
+                var results = await SearchWebImagesAsync([query], isRomSearch: true)
+                    .WaitAsync(searchTimeout.Token)
+                    .ConfigureAwait(false);
 
-                return AutoCoverImageHeuristics.OrderByPreferredFormat(results)
-                    .Take(options.MaxCandidatesPerQuery)
+                var limit = Math.Max(options.MaxCandidatesPerQuery, MaxImageSearchResults);
+                return results
+                    .Where(candidate => !AutoCoverImageHeuristics.ShouldSkipSearchResultUrl(candidate.FullImageUrl))
+                    .Take(limit)
                     .ToList();
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -1828,12 +1833,15 @@ namespace AES_Lacrima.Services
             return "image/jpeg";
         }
 
+        private static readonly Regex RomParentheticalRegex = new(@"\([^)]*\)", RegexOptions.Compiled);
+
         private static string NormalizeRomSearchTitle(string? title)
         {
             var normalized = NormalizeSearchTitle(title);
             if (string.IsNullOrWhiteSpace(normalized))
                 return string.Empty;
 
+            normalized = RomParentheticalRegex.Replace(normalized, " ");
             normalized = RomDumpTokenRegex.Replace(normalized, " ");
             normalized = RomReleaseTokenRegex.Replace(normalized, " ");
             normalized = normalized.Replace('!', ' ')

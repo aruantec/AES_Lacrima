@@ -2,6 +2,7 @@ using log4net;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
@@ -93,21 +94,37 @@ internal static class EmulationHashTitleResolver
         if (string.IsNullOrWhiteSpace(filePath))
             return false;
 
-        return NintendoDiscMetadataHelper.IsFilenameLikeTitle(title, filePath);
+        if (NintendoDiscMetadataHelper.IsFilenameLikeTitle(title, filePath))
+            return true;
+
+        return LooksLikeDumpCatalogTitle(title);
+    }
+
+    internal static bool LooksLikeDumpCatalogTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        var trimmed = title.Trim();
+        int openCount = trimmed.Count(c => c == '(');
+        if (openCount >= 2)
+            return true;
+
+        return trimmed.Contains("(En,", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Contains("(Rev ", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Contains("(Asia)", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Contains("(Australia)", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string? TryResolveOffline(string? filePath, EmulationHashTitlePlatform platform)
     {
-        var romInfo = InspectRom(filePath, platform.ConsoleKey);
-        if (romInfo == null)
+        if (string.IsNullOrWhiteSpace(filePath))
             return null;
 
+        var romInfo = InspectRom(filePath, platform.ConsoleKey) ?? new RomInfo { FilePath = filePath };
+
         if (string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
-        {
-            return TryResolveFromRedump(romInfo, platform)
-                ?? TryResolveFromNoIntro(romInfo, platform)
-                ?? NormalizeHeaderTitle(romInfo.InternalTitle);
-        }
+            return TryResolvePspTitle(romInfo, platform);
 
         return TryResolveFromNoIntro(romInfo, platform) ??
                NormalizeHeaderTitle(romInfo.InternalTitle);
@@ -118,26 +135,17 @@ internal static class EmulationHashTitleResolver
         EmulationHashTitlePlatform platform,
         CancellationToken cancellationToken)
     {
-        var romInfo = InspectRom(filePath, platform.ConsoleKey);
-        if (romInfo == null)
+        if (string.IsNullOrWhiteSpace(filePath))
             return null;
 
-        if (string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
-        {
-            var redumpTitle = TryResolveFromRedump(romInfo, platform);
-            if (!string.IsNullOrWhiteSpace(redumpTitle))
-                return redumpTitle;
+        var romInfo = InspectRom(filePath, platform.ConsoleKey) ?? new RomInfo { FilePath = filePath };
 
-            var noIntroTitle = TryResolveFromNoIntro(romInfo, platform);
-            if (!string.IsNullOrWhiteSpace(noIntroTitle))
-                return noIntroTitle;
-        }
-        else
-        {
-            var noIntroTitle = TryResolveFromNoIntro(romInfo, platform);
-            if (!string.IsNullOrWhiteSpace(noIntroTitle))
-                return noIntroTitle;
-        }
+        if (string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
+            return TryResolvePspTitle(romInfo, platform);
+
+        var noIntroTitle = TryResolveFromNoIntro(romInfo, platform);
+        if (!string.IsNullOrWhiteSpace(noIntroTitle))
+            return noIntroTitle;
 
         if (!string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase) &&
             HasheousLookupService.BuildLookupPayload(romInfo) != null)
@@ -162,12 +170,9 @@ internal static class EmulationHashTitleResolver
             }
         }
 
-        if (!string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
-        {
-            var redumpTitle = TryResolveFromRedump(romInfo, platform);
-            if (!string.IsNullOrWhiteSpace(redumpTitle))
-                return redumpTitle;
-        }
+        var redumpTitle = TryResolveFromRedump(romInfo, platform);
+        if (!string.IsNullOrWhiteSpace(redumpTitle))
+            return redumpTitle;
 
         return NormalizeHeaderTitle(romInfo.InternalTitle);
     }
@@ -185,7 +190,10 @@ internal static class EmulationHashTitleResolver
 
     private static RomInfo? InspectRom(string? filePath, string consoleKey)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        if (string.IsNullOrWhiteSpace(filePath))
+            return null;
+
+        if (!File.Exists(filePath))
             return null;
 
         try
@@ -198,6 +206,16 @@ internal static class EmulationHashTitleResolver
             Log.Debug($"ROM inspection failed for '{filePath}'.", ex);
             return null;
         }
+    }
+
+    private static string? TryResolvePspTitle(RomInfo romInfo, EmulationHashTitlePlatform platform)
+    {
+        var sfoTitle = NormalizeHeaderTitle(romInfo.InternalTitle);
+        if (!string.IsNullOrWhiteSpace(sfoTitle))
+            return sfoTitle;
+
+        return TryResolveFromRedump(romInfo, platform)
+            ?? TryResolveFromNoIntro(romInfo, platform);
     }
 
     private static string? NormalizeHeaderTitle(string? internalTitle)

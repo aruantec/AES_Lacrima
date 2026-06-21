@@ -74,9 +74,6 @@ namespace AES_Lacrima.Services
                 if (await TryApplyCoverFromPs4InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
                     return true;
 
-                if (await TryFetchEmulationCoverFromHashProvidersAsync(item, albumName, cancellationToken).ConfigureAwait(false))
-                    return true;
-
                 if (await IsCoverLookupExhaustedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
                 {
                     if (options.MarkExhaustedOnFailure)
@@ -189,9 +186,9 @@ namespace AES_Lacrima.Services
             if (candidates.Count == 0)
                 return null;
 
-            var orderedCandidates = AutoCoverImageHeuristics.OrderByPreferredFormat(candidates)
+            var orderedCandidates = candidates
                 .Where(candidate => !AutoCoverImageHeuristics.ShouldSkipSearchResultUrl(candidate.FullImageUrl))
-                .Take(options.MaxCandidatesPerQuery)
+                .Take(Math.Max(options.MaxCandidatesPerQuery, 12))
                 .ToList();
             if (orderedCandidates.Count == 0)
                 return null;

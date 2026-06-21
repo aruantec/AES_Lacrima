@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace AES_Lacrima.Services.Emulation;
 
@@ -13,7 +14,9 @@ internal static class PspParamSfoReader
     private const int SfoMagic = unchecked((int)0x46535000); // "\0PSF"
     private const int SfoMagicAlt = 0x00465350; // "PSF\0" (some homebrew/tools)
     private const int IsoSectorSize = 2048;
-    private const int MaxScanBytes = 64 * 1024 * 1024;
+    private const int MaxScanBytes = 8 * 1024 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly Lazy<Encoding?> ShiftJis = new(TryLoadShiftJis);
 
     public static bool TryReadFromPbp(Stream fs, out string? discId, out string? title)
     {
@@ -146,8 +149,7 @@ internal static class PspParamSfoReader
                 var raw = new byte[Math.Min(dataLength, 512)];
                 if (fs.Read(raw, 0, raw.Length) == raw.Length)
                 {
-                    var encoding = dataFormat == 0x0204 ? Encoding.ASCII : Encoding.UTF8;
-                    var value = encoding.GetString(raw).TrimEnd('\0', ' ');
+                    var value = DecodeSfoString(raw);
                     if (!string.IsNullOrWhiteSpace(value))
                         values[key] = value;
                 }
@@ -379,5 +381,80 @@ internal static class PspParamSfoReader
         }
 
         return bytes.Count == 0 ? string.Empty : Encoding.UTF8.GetString(bytes.ToArray());
+    }
+
+    internal static string DecodeSfoString(ReadOnlySpan<byte> raw)
+    {
+        if (raw.Length == 0)
+            return string.Empty;
+
+        int length = raw.IndexOf((byte)0);
+        if (length < 0)
+            length = raw.Length;
+        if (length == 0)
+            return string.Empty;
+
+        var span = raw[..length];
+
+        try
+        {
+            return SanitizePspTitle(StrictUtf8.GetString(span));
+        }
+        catch (DecoderFallbackException)
+        {
+            var shiftJis = ShiftJis.Value;
+            if (shiftJis != null)
+            {
+                try
+                {
+                    return SanitizePspTitle(shiftJis.GetString(span));
+                }
+                catch (DecoderFallbackException)
+                {
+                }
+            }
+
+            return SanitizePspTitle(ExtractAsciiPrefix(span));
+        }
+    }
+
+    internal static string SanitizePspTitle(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        value = value.Trim().TrimEnd('\0', ' ');
+        value = Regex.Replace(value, @"[\?\uFFFD]+$", string.Empty).TrimEnd();
+        return value;
+    }
+
+    private static string ExtractAsciiPrefix(ReadOnlySpan<byte> raw)
+    {
+        var sb = new StringBuilder(raw.Length);
+        foreach (byte b in raw)
+        {
+            if (b == 0)
+                break;
+
+            if (b is >= 32 and <= 126)
+                sb.Append((char)b);
+            else
+                break;
+        }
+
+        return sb.ToString().Trim();
+    }
+
+    private static Encoding? TryLoadShiftJis()
+    {
+        try
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            return Encoding.GetEncoding(932);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

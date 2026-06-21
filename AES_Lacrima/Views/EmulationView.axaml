@@ -374,6 +374,28 @@
                 <behaviors:SteamProtonContextMenuBehavior/>
             </Interaction.Behaviors>
             </composition:CompositionCoverControl>
+
+            <Border HorizontalAlignment="Left"
+                    VerticalAlignment="Bottom"
+                    Margin="28,0,0,36"
+                    Background="#AA000000"
+                    BorderBrush="#44FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12,10"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding IsRomCarouselCoverStatusVisible}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <ProgressBar IsIndeterminate="True"
+                                 Width="160"
+                                 Height="6"
+                                 VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding RomCarouselCoverStatus}"
+                               Foreground="#FFD166"
+                               FontSize="16"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
         </Panel>
 
         <Canvas Grid.Row="0" IsHitTestVisible="False">

@@ -244,6 +244,6 @@ public readonly record struct EmulationCoverLoadRequest(
     public static EmulationCoverLoadRequest LocalOnly { get; } = new(false, AutoCoverLookupOptions.FastSkip);
 
     public static EmulationCoverLoadRequest WithOnline(AutoCoverLookupOptions? options = null) =>
-        new(true, options ?? AutoCoverLookupOptions.FastSkip);
+        new(true, options ?? AutoCoverLookupOptions.EmulationAlbumScan);
 }
 

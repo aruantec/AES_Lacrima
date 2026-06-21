@@ -1,5 +1,6 @@
 using AES_Lacrima.Services.Emulation;
 using System.IO;
+using System.Text;
 
 namespace AES_Lacrima.Tests;
 
@@ -51,6 +52,29 @@ public sealed class EmulationHashTitleResolverTests
     }
 
     [Fact]
+    public void PspParamSfoReader_DecodesAsciiTitleWithoutShiftJisQuestionMarks()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var ascii = Encoding.ASCII.GetBytes("GOD EATER BURST");
+        var shiftJisSuffix = Encoding.GetEncoding(932).GetBytes("ゴッドイーターバースト");
+        var raw = new byte[ascii.Length + shiftJisSuffix.Length];
+        Buffer.BlockCopy(ascii, 0, raw, 0, ascii.Length);
+        Buffer.BlockCopy(shiftJisSuffix, 0, raw, ascii.Length, shiftJisSuffix.Length);
+
+        var decoded = PspParamSfoReader.DecodeSfoString(raw);
+        Assert.Equal("GOD EATER BURST ゴッドイーターバースト", decoded);
+        Assert.DoesNotContain('?', decoded);
+    }
+
+    [Fact]
+    public void PspParamSfoReader_StripsTrailingQuestionMarksFromBadAsciiDecode()
+    {
+        var raw = Encoding.ASCII.GetBytes("GOD EATER BURST ???????????????");
+        var decoded = PspParamSfoReader.SanitizePspTitle(Encoding.ASCII.GetString(raw));
+        Assert.Equal("GOD EATER BURST", decoded);
+    }
+
+    [Fact]
     public void PspIso_ReadsRealDiscMetadata_WhenAvailable()
     {
         var path = Environment.GetEnvironmentVariable("PSP_TEST_ISO")
@@ -89,6 +113,13 @@ public sealed class EmulationHashTitleResolverTests
         var title = database.TryResolve(romInfo);
         Assert.NotNull(title);
         Assert.Contains("Crisis Core", title, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PspRedumpCatalogTitle_IsTreatedAsNeedingBetterTitle()
+    {
+        var dumpTitle = "God of War - Ghost of Sparta (Europe, Australia) (En,Fr,De,Es,It)";
+        Assert.True(EmulationHashTitleResolver.NeedsBetterTitle(dumpTitle, @"C:\Games\ghost.cso"));
     }
 
     [Fact]

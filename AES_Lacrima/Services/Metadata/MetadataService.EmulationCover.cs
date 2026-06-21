@@ -2,6 +2,8 @@ using AES_Lacrima.Services.Emulation;
 using AES_Code.Models;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
+using AES_Lacrima.ViewModels.SectionHandlers;
+using Avalonia.Threading;
 using System;
 using System.Linq;
 using System.Threading;
@@ -24,7 +26,7 @@ public partial class MetadataService
         if (item == null || string.IsNullOrWhiteSpace(item.FileName))
             return false;
 
-        options ??= AutoCoverLookupOptions.FastSkip;
+        options ??= AutoCoverLookupOptions.EmulationAlbumScan;
 
         var acquired = false;
         using var budgetCts = options.TotalBudgetSeconds > 0
@@ -35,12 +37,14 @@ public partial class MetadataService
 
         var effectiveToken = budgetCts?.Token ?? cancellationToken;
 
-        try
-        {
-            await AutoCoverLookupThrottle.WaitAsync(cancellationToken);
-            acquired = true;
+            try
+            {
+                await AutoCoverLookupThrottle.WaitAsync(cancellationToken);
+                acquired = true;
 
-            if (EmulationCoverCacheHelper.HasCover(item.FileName))
+                await EnsureEmulationTitleBeforeCoverLookupAsync(item, albumName, effectiveToken).ConfigureAwait(false);
+
+                if (EmulationCoverCacheHelper.HasCover(item.FileName))
                 return await TryApplyEmulationCoverSidecarAsync(item, effectiveToken).ConfigureAwait(false);
 
             if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(item.FileName))
@@ -52,7 +56,7 @@ public partial class MetadataService
                 return false;
 
             var searchQueries = BuildAutoCoverQueries(item, albumName)
-                .Take(MaxAutoCoverQueries)
+                .Take(1)
                 .ToList();
             if (searchQueries.Count == 0)
                 return false;
@@ -107,28 +111,28 @@ public partial class MetadataService
     public Task<bool> TryApplyEmulationCoverSidecarAsync(MediaItem item, CancellationToken cancellationToken = default) =>
         EmulationCoverLoaderService.ApplyLocalCoverToItemAsync(item, cancellationToken);
 
-    private async Task<bool> TryFetchEmulationCoverFromHashProvidersAsync(
+    private async Task EnsureEmulationTitleBeforeCoverLookupAsync(
         MediaItem item,
         string? albumName,
         CancellationToken cancellationToken)
     {
-        var result = await EmulationOnlineCoverResolver
-            .TryResolveCoverAsync(item, albumName, cancellationToken)
-            .ConfigureAwait(false);
-        if (result == null)
-            return false;
+        if (item == null || string.IsNullOrWhiteSpace(item.FileName))
+            return;
 
-        if (!string.IsNullOrWhiteSpace(result.ResolvedTitle) &&
-            EmulationOnlineCoverResolver.ShouldApplyResolvedTitle(item, result.ResolvedTitle))
+        var resolved = await GenericAlbumNormalizer.EnsureRomTitleResolvedAsync(
+                item.FileName,
+                albumName ?? item.Album,
+                item.Title,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(resolved) ||
+            string.Equals(item.Title, resolved, StringComparison.Ordinal))
         {
-            item.Title = result.ResolvedTitle;
+            return;
         }
 
-        await SaveEmulationCoverSidecarAsync(item, result.Bytes).ConfigureAwait(false);
-        await TryApplyEmulationCoverSidecarAsync(item, cancellationToken).ConfigureAwait(false);
-        await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
-        SLog.Info($"Emulation cover applied for '{item.Title}' via {result.Source}.");
-        return true;
+        await Dispatcher.UIThread.InvokeAsync(() => item.Title = resolved, DispatcherPriority.Background);
     }
 
     private async Task SaveEmulationCoverSidecarAsync(MediaItem item, byte[] bytes)

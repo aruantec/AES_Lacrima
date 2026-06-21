@@ -12,27 +12,27 @@ public sealed class AutoCoverLookupOptions
     /// </summary>
     public static AutoCoverLookupOptions FastSkip { get; } = new()
     {
-        SearchTimeoutSeconds = 5,
-        DownloadTimeoutSeconds = 2.5,
-        TotalBudgetSeconds = 9,
-        MaxCandidatesPerQuery = 4,
-        MaxParallelDownloads = 2,
-        PreferSequentialDownloads = false,
+        SearchTimeoutSeconds = 8,
+        DownloadTimeoutSeconds = 3,
+        TotalBudgetSeconds = 12,
+        MaxCandidatesPerQuery = 16,
+        MaxParallelDownloads = 1,
+        PreferSequentialDownloads = true,
         MarkExhaustedOnFailure = true,
         MarkExhaustedOnTimeout = false
     };
 
     /// <summary>
-    /// Background album carousel scan: enough time per title without blocking the UI forever.
+    /// Background album carousel scan: walk "Use Title" results in order.
     /// </summary>
     public static AutoCoverLookupOptions EmulationAlbumScan { get; } = new()
     {
-        SearchTimeoutSeconds = 10,
-        DownloadTimeoutSeconds = 5,
-        TotalBudgetSeconds = 18,
-        MaxCandidatesPerQuery = 4,
-        MaxParallelDownloads = 2,
-        PreferSequentialDownloads = false,
+        SearchTimeoutSeconds = 8,
+        DownloadTimeoutSeconds = 3,
+        TotalBudgetSeconds = 14,
+        MaxCandidatesPerQuery = 16,
+        MaxParallelDownloads = 1,
+        PreferSequentialDownloads = true,
         MarkExhaustedOnFailure = true,
         MarkExhaustedOnTimeout = false
     };

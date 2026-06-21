@@ -97,6 +97,12 @@ namespace AES_Lacrima.ViewModels
         private const int VisibleCoverPriorityRadius = 18;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
         private int _activeAlbumCoverScans;
+        private string _romCarouselCoverStatus = string.Empty;
+        public string RomCarouselCoverStatus => _romCarouselCoverStatus;
+        public bool IsRomCarouselCoverStatusVisible =>
+            !string.IsNullOrWhiteSpace(_romCarouselCoverStatus) &&
+            IsCarouselVisible &&
+            !IsCompositionCaptureVisible;
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
         private int _albumCoverDisplayRevision;
