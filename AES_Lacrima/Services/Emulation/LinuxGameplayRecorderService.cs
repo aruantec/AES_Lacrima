@@ -615,10 +615,23 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             "-an",
             videoFilter,
             $"-c:v {codecName} {codecExtra}",
-            $"-b:v {bitrateKbps}k -maxrate {bitrateKbps}k -bufsize {bitrateKbps * 2}k",
+            FfmpegHardwareEncoderProbe.GetVideoBitrateArguments(codecName, bitrateKbps),
             fpsMode,
             movFlags,
             quotedOut).Trim();
+    }
+
+    internal static string BuildRemuxTempOutputPath(string outputPath)
+    {
+        var ext = Path.GetExtension(outputPath);
+        if (string.IsNullOrEmpty(ext))
+            ext = ".mkv";
+
+        var directory = Path.GetDirectoryName(outputPath);
+        if (string.IsNullOrEmpty(directory))
+            directory = Path.GetTempPath();
+
+        return Path.Combine(directory, Path.GetFileNameWithoutExtension(outputPath) + ".muxing" + ext);
     }
 
     internal static string BuildRemuxArguments(
@@ -674,6 +687,11 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
         {
             args.Add("-f");
             args.Add("mp4");
+        }
+        else if (container == GameplayRecordingContainer.Mkv)
+        {
+            args.Add("-f");
+            args.Add("matroska");
         }
 
         var movFlags = GetLinuxMp4MovFlags(container, codecName, forFinalMux: true);
@@ -1341,7 +1359,7 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             ? GameplayRecordingContainer.Mkv
             : GameplayRecordingContainer.Mp4;
 
-        var tempOutput = outputPath + ".muxing";
+        var tempOutput = BuildRemuxTempOutputPath(outputPath);
         TryDeleteFile(tempOutput);
 
         if (!TryRunRemux(ffmpegPath, outputPath, audioCapturePath, tempOutput, container, out error))
@@ -1463,7 +1481,7 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             ? GameplayRecordingContainer.Mkv
             : GameplayRecordingContainer.Mp4;
 
-        var tempOutput = outputPath + ".muxing";
+        var tempOutput = BuildRemuxTempOutputPath(outputPath);
         TryDeleteFile(tempOutput);
 
         if (!TryRunRemux(ffmpegPath, videoCapturePath, audioCapturePath!, tempOutput, container, out var remuxError))

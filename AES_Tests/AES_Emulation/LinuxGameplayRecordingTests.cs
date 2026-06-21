@@ -7,6 +7,42 @@ namespace AES_Tests.AES_Emulation;
 public sealed class LinuxGameplayRecordingTests
 {
     [Fact]
+    public void BuildVideoFfmpegArguments_Libsvtav1_UsesVbrBitrateOnly()
+    {
+        var args = LinuxGameplayRecorderService.BuildVideoFfmpegArguments(
+            "/tmp/out.mkv",
+            1920,
+            1080,
+            60,
+            GameplayRecordingContainer.Mkv,
+            "libsvtav1",
+            "-preset 8",
+            12_000);
+
+        Assert.Contains("-b:v 12000k", args, StringComparison.Ordinal);
+        Assert.DoesNotContain("-maxrate", args, StringComparison.Ordinal);
+        Assert.DoesNotContain("-bufsize", args, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildVideoFfmpegArguments_H264_UsesCbrStyleBitrateCaps()
+    {
+        var args = LinuxGameplayRecorderService.BuildVideoFfmpegArguments(
+            "/tmp/out.mkv",
+            1920,
+            1080,
+            60,
+            GameplayRecordingContainer.Mkv,
+            "libx264",
+            "-preset veryfast",
+            12_000);
+
+        Assert.Contains("-b:v 12000k", args, StringComparison.Ordinal);
+        Assert.Contains("-maxrate 12000k", args, StringComparison.Ordinal);
+        Assert.Contains("-bufsize 24000k", args, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildVideoFfmpegArguments_IsVideoOnlyPipeInput()
     {
         var args = LinuxGameplayRecorderService.BuildVideoFfmpegArguments(
@@ -48,6 +84,28 @@ public sealed class LinuxGameplayRecordingTests
         Assert.Contains("default", args, StringComparison.Ordinal);
         Assert.Contains("-c:a pcm_s16le", args, StringComparison.Ordinal);
         Assert.Contains("-f wav", args, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildRemuxArguments_Mkv_UsesMatroskaFormat()
+    {
+        var args = LinuxGameplayRecorderService.BuildRemuxArguments(
+            "/tmp/video.mkv",
+            "/tmp/audio.wav",
+            "/tmp/out.muxing",
+            GameplayRecordingContainer.Mkv,
+            "libsvtav1");
+
+        Assert.Contains("-f matroska", args, StringComparison.Ordinal);
+        Assert.Contains("-c:a aac", args, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildRemuxTempOutputPath_PreservesContainerExtension()
+    {
+        var temp = LinuxGameplayRecorderService.BuildRemuxTempOutputPath("/tmp/AES_Recording.mkv");
+
+        Assert.Equal("/tmp/AES_Recording.muxing.mkv", temp);
     }
 
     [Fact]

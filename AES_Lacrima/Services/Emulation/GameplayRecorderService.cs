@@ -410,7 +410,7 @@ public partial class GameplayRecorderService : IGameplayRecorder
                 "-map 0:v:0 -map 1:a:0?",
                 videoFilter,
                 $"-c:v {codecName} {codecExtra}",
-                $"-b:v {bitrateKbps}k -maxrate {bitrateKbps}k -bufsize {bitrateKbps * 2}k",
+                FfmpegHardwareEncoderProbe.GetVideoBitrateArguments(codecName, bitrateKbps),
                 fpsMode,
                 "-c:a aac -b:a 192k -ar 48000",
                 "-max_interleave_delta 0",
@@ -425,7 +425,7 @@ public partial class GameplayRecorderService : IGameplayRecorder
             "-an",
             videoFilter,
             $"-c:v {codecName} {codecExtra}",
-            $"-b:v {bitrateKbps}k",
+            FfmpegHardwareEncoderProbe.GetVideoBitrateArguments(codecName, bitrateKbps),
             fpsMode,
             movFlags,
             quotedOut).Trim();

@@ -78,6 +78,14 @@ internal static class FfmpegHardwareEncoderProbe
 
     public static bool UseCfrFpsMode(string codecName) => !IsAmdAmfEncoder(codecName);
 
+    /// <summary>
+    /// libsvtav1 only accepts a VBR target bitrate; -maxrate/-bufsize trigger CBR and fail to open.
+    /// </summary>
+    public static string GetVideoBitrateArguments(string codecName, int bitrateKbps) =>
+        string.Equals(codecName, "libsvtav1", StringComparison.OrdinalIgnoreCase)
+            ? $"-b:v {bitrateKbps}k"
+            : $"-b:v {bitrateKbps}k -maxrate {bitrateKbps}k -bufsize {bitrateKbps * 2}k";
+
     private const string AmfH264Args = AmfH264Candidate1;
     private const string AmfH264Candidate1 = "-usage lowlatency -profile:v main -quality speed -rc vbr_peak";
     private const string AmfH264Candidate2 = "-usage transcoding -profile:v main -quality balanced";
