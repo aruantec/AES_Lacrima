@@ -20,7 +20,8 @@ public interface IGameplayRecorder : IDisposable
         GameplayRecordingVideoCodec codec,
         int fps,
         int videoBitrateKbps,
-        int emulatorProcessId);
+        int emulatorProcessId,
+        int compositorLaunchPid = 0);
 
     void Stop();
 }

@@ -654,6 +654,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             var seeds = BuildLinuxEmulatorAudioSeedPids(compositorPid, compositorRoot, process);
             var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
             GetOrCreateLinuxEmulatorAudioVolume().Attach(compositorPid, seeds, audioNameHints);
+            NotifyGameplayRecordingSessionContext();
         }
 
         [SupportedOSPlatform("linux")]
@@ -668,6 +669,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             var seeds = BuildLinuxEmulatorAudioSeedPids(compositorPid, compositorRoot, process);
             var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
             GetOrCreateLinuxEmulatorAudioVolume().RefreshSessionTargets(seeds, audioNameHints);
+            NotifyGameplayRecordingSessionContext();
         }
 
         [SupportedOSPlatform("linux")]
@@ -1317,6 +1319,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             if (_subscribedSettingsViewModel != null)
             {
+                _subscribedSettingsViewModel.RefreshGameplayRecordingSessionContext = null;
                 DetachEmulationSectionSubscriptions(_subscribedSettingsViewModel);
                 _subscribedSettingsViewModel.PropertyChanged -= SettingsViewModel_PropertyChanged;
                 _subscribedSettingsViewModel.EmulatorHandlerConfigurationChanged -= OnEmulatorHandlerConfigurationChanged;
@@ -1326,6 +1329,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
 
             _subscribedSettingsViewModel = settings;
+            _subscribedSettingsViewModel.RefreshGameplayRecordingSessionContext = RefreshGameplayRecordingSessionPids;
             AttachEmulationSectionSubscriptions(_subscribedSettingsViewModel);
             _subscribedSettingsViewModel.PropertyChanged += SettingsViewModel_PropertyChanged;
             _subscribedSettingsViewModel.EmulatorHandlerConfigurationChanged += OnEmulatorHandlerConfigurationChanged;

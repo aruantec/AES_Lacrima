@@ -1929,21 +1929,41 @@
                                     </Grid>
                                     <Grid ColumnDefinitions="220,*" ColumnSpacing="12"
                                           IsVisible="{Binding SettingsViewModel.IsGameplayRecordingDeviceSourceVisible}">
-                                        <TextBlock Grid.Column="0" Text="Output device" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
-                                        <ComboBox Grid.Column="1"
-                                                  HorizontalAlignment="Stretch"
-                                                  MinWidth="0"
-                                                  ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioDevices}"
-                                                  SelectedItem="{Binding SettingsViewModel.SelectedGameplayRecordingAudioDevice, Mode=TwoWay}">
-                                            <Interaction.Behaviors>
-                                                <controlBehaviors:ComboBoxPopupScaler/>
-                                            </Interaction.Behaviors>
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"/>
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
+                                        <TextBlock Grid.Column="0" Text="Output device" Foreground="White" FontSize="18" VerticalAlignment="Top" Margin="0,8,0,0"/>
+                                        <StackPanel Grid.Column="1" Spacing="6">
+                                            <ComboBox HorizontalAlignment="Stretch"
+                                                      MinWidth="0"
+                                                      ItemsSource="{Binding SettingsViewModel.GameplayRecordingAudioDevices}"
+                                                      SelectedItem="{Binding SettingsViewModel.SelectedGameplayRecordingAudioDevice, Mode=TwoWay}">
+                                                <Interaction.Behaviors>
+                                                    <controlBehaviors:ComboBoxPopupScaler/>
+                                                </Interaction.Behaviors>
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"/>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <Border Height="16"
+                                                    CornerRadius="4"
+                                                    Background="#1E1E1E"
+                                                    BorderBrush="#666"
+                                                    BorderThickness="1"
+                                                    ClipToBounds="True">
+                                                <Border Height="14"
+                                                        Margin="1"
+                                                        CornerRadius="3"
+                                                        HorizontalAlignment="Left"
+                                                        VerticalAlignment="Stretch"
+                                                        Background="#FF8C42"
+                                                        MinWidth="4"
+                                                        Width="{Binding SettingsViewModel.GameplayRecordingAudioMeterBarWidth}"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding SettingsViewModel.GameplayRecordingAudioMonitorStatus}"
+                                                       FontSize="13"
+                                                       Foreground="#AAAAAA"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
                                     </Grid>
                                     <Grid ColumnDefinitions="220,*" ColumnSpacing="12"
                                           IsVisible="{Binding SettingsViewModel.IsGameplayRecordingApplicationSourceVisible}">

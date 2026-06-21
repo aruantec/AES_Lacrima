@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Controls.Composition;
@@ -674,6 +675,46 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private AvaloniaList<GameplayRecordingAudioSessionItem> _gameplayRecordingAudioSessions = [];
 
+    [ObservableProperty]
+    private double _gameplayRecordingAudioOutputLevel;
+
+    [ObservableProperty]
+    private string _gameplayRecordingAudioMonitorStatus = string.Empty;
+
+    public double GameplayRecordingAudioMeterBarWidth =>
+        GameplayRecordingAudioOutputLevel <= 0.001
+            ? 0
+            : Math.Max(6, GameplayRecordingAudioOutputLevel * 420);
+
+    /// <summary>Refreshed before opening the live audio meter (e.g. gamescope PID).</summary>
+    public Action? RefreshGameplayRecordingSessionContext { get; set; }
+
+    private LinuxGameplayAudioLevelMonitor? _gameplayRecordingAudioLevelMonitor;
+    private int _gameplayRecordingCompositorPid;
+    private int _gameplayRecordingEmulatorPid;
+    private CancellationTokenSource? _gameplayRecordingAudioMonitorCts;
+    private int _gameplayRecordingAudioMonitorGeneration;
+
+    partial void OnGameplayRecordingAudioOutputLevelChanged(double value)
+    {
+        OnPropertyChanged(nameof(GameplayRecordingAudioMeterBarWidth));
+    }
+
+    public (int CompositorPid, int EmulatorPid) GetGameplayRecordingSessionPids()
+        => (_gameplayRecordingCompositorPid, _gameplayRecordingEmulatorPid);
+
+    public void ApplyGameplayRecordingSessionPids(int compositorPid, int emulatorProcessId)
+    {
+        _gameplayRecordingCompositorPid = compositorPid;
+        _gameplayRecordingEmulatorPid = emulatorProcessId;
+    }
+
+    public void SetGameplayRecordingSessionContext(int compositorPid, int emulatorProcessId)
+    {
+        ApplyGameplayRecordingSessionPids(compositorPid, emulatorProcessId);
+        UpdateGameplayRecordingAudioLevelMonitor();
+    }
+
     public IReadOnlyList<GameplayRecordingAudioSource> GameplayRecordingAudioSourceOptions { get; } =
         Enum.GetValues<GameplayRecordingAudioSource>();
 
@@ -688,12 +729,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         OnPropertyChanged(nameof(IsGameplayRecordingDeviceSourceVisible));
         OnPropertyChanged(nameof(IsGameplayRecordingApplicationSourceVisible));
         RefreshGameplayRecordingAudioLists();
+        UpdateGameplayRecordingAudioLevelMonitor();
         SaveSettings();
     }
 
     partial void OnSelectedGameplayRecordingAudioDeviceChanged(GameplayRecordingAudioDeviceItem? value)
     {
         GameplayRecordingAudioDeviceId = value?.Id ?? string.Empty;
+        UpdateGameplayRecordingAudioLevelMonitor();
         SaveSettings();
     }
 
@@ -706,21 +749,194 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [RelayCommand]
     private void RefreshGameplayRecordingAudioLists()
     {
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
+        {
+            var devices = GameplayAudioDeviceEnumerator.EnumerateRenderDevices();
+            GameplayRecordingAudioDevices = new AvaloniaList<GameplayRecordingAudioDeviceItem>(devices);
+            SelectedGameplayRecordingAudioDevice =
+                devices.FirstOrDefault(d => string.Equals(d.Id, GameplayRecordingAudioDeviceId, StringComparison.OrdinalIgnoreCase))
+                ?? devices.FirstOrDefault(d => d.IsDefault)
+                ?? devices.FirstOrDefault();
+
+            var sessions = GameplayAudioSessionEnumerator.EnumerateActiveSessions();
+            GameplayRecordingAudioSessions = new AvaloniaList<GameplayRecordingAudioSessionItem>(sessions);
+            SelectedGameplayRecordingAudioSession =
+                sessions.FirstOrDefault(s => s.ProcessId == GameplayRecordingAudioProcessId)
+                ?? sessions.FirstOrDefault();
+            return;
+        }
+
+        if (!OperatingSystem.IsLinux())
             return;
 
-        var devices = GameplayAudioDeviceEnumerator.EnumerateRenderDevices();
-        GameplayRecordingAudioDevices = new AvaloniaList<GameplayRecordingAudioDeviceItem>(devices);
+        var linuxDevices = LinuxGameplayAudioEnumerator.EnumerateMonitorDevices();
+        GameplayRecordingAudioDevices = new AvaloniaList<GameplayRecordingAudioDeviceItem>(linuxDevices);
         SelectedGameplayRecordingAudioDevice =
-            devices.FirstOrDefault(d => string.Equals(d.Id, GameplayRecordingAudioDeviceId, StringComparison.OrdinalIgnoreCase))
-            ?? devices.FirstOrDefault(d => d.IsDefault)
-            ?? devices.FirstOrDefault();
+            linuxDevices.FirstOrDefault(d => string.Equals(d.Id, GameplayRecordingAudioDeviceId, StringComparison.OrdinalIgnoreCase))
+            ?? linuxDevices.FirstOrDefault(d => d.IsDefault)
+            ?? linuxDevices.FirstOrDefault();
 
-        var sessions = GameplayAudioSessionEnumerator.EnumerateActiveSessions();
-        GameplayRecordingAudioSessions = new AvaloniaList<GameplayRecordingAudioSessionItem>(sessions);
+        var linuxSessions = LinuxGameplayAudioEnumerator.EnumerateActiveSessions();
+        GameplayRecordingAudioSessions = new AvaloniaList<GameplayRecordingAudioSessionItem>(linuxSessions);
         SelectedGameplayRecordingAudioSession =
-            sessions.FirstOrDefault(s => s.ProcessId == GameplayRecordingAudioProcessId)
-            ?? sessions.FirstOrDefault();
+            linuxSessions.FirstOrDefault(s => s.ProcessId == GameplayRecordingAudioProcessId)
+            ?? linuxSessions.FirstOrDefault();
+
+        UpdateGameplayRecordingAudioLevelMonitor();
+    }
+
+    private void UpdateGameplayRecordingAudioLevelMonitor()
+    {
+        var generation = Interlocked.Increment(ref _gameplayRecordingAudioMonitorGeneration);
+
+        _gameplayRecordingAudioMonitorCts?.Cancel();
+        _gameplayRecordingAudioMonitorCts?.Dispose();
+        _gameplayRecordingAudioMonitorCts = null;
+
+        DetachGameplayRecordingAudioLevelMonitor();
+
+        GameplayRecordingAudioOutputLevel = 0;
+        GameplayRecordingAudioMonitorStatus = string.Empty;
+
+        if (!OperatingSystem.IsLinux() || !IsGameplayRecordingDeviceSourceVisible)
+            return;
+
+        RefreshGameplayRecordingSessionContext?.Invoke();
+
+        var cts = new CancellationTokenSource();
+        _gameplayRecordingAudioMonitorCts = cts;
+
+        var deviceId = GameplayRecordingAudioDeviceId;
+        var compositorPid = _gameplayRecordingCompositorPid;
+        var emulatorPid = _gameplayRecordingEmulatorPid;
+
+        GameplayRecordingAudioMonitorStatus = "Connecting…";
+        _ = StartGameplayRecordingAudioLevelMonitorAsync(
+            generation,
+            cts,
+            deviceId,
+            compositorPid,
+            emulatorPid);
+    }
+
+    [SupportedOSPlatform("linux")]
+    private async Task StartGameplayRecordingAudioLevelMonitorAsync(
+        int generation,
+        CancellationTokenSource cts,
+        string deviceId,
+        int compositorPid,
+        int emulatorPid)
+    {
+        try
+        {
+            await Task.Delay(250, cts.Token).ConfigureAwait(false);
+
+            var monitor = new LinuxGameplayAudioLevelMonitor();
+            monitor.LevelChanged += OnGameplayRecordingAudioLevelChanged;
+            monitor.AudibleSignalChanged += OnGameplayRecordingAudibleSignalChanged;
+
+            var started = monitor.TryStartOutputDeviceMonitor(deviceId, compositorPid, emulatorPid);
+            if (cts.IsCancellationRequested || generation != _gameplayRecordingAudioMonitorGeneration)
+            {
+                monitor.LevelChanged -= OnGameplayRecordingAudioLevelChanged;
+                monitor.AudibleSignalChanged -= OnGameplayRecordingAudibleSignalChanged;
+                monitor.Dispose();
+                return;
+            }
+
+            _gameplayRecordingAudioLevelMonitor = monitor;
+
+            var status = started
+                ? compositorPid > 0
+                    ? "Listening (output monitor). Play audio to verify the meter moves."
+                    : "Listening. Play audio on this output to verify the meter moves."
+                : "Could not open this monitor. Try Refresh lists or another output.";
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (generation != _gameplayRecordingAudioMonitorGeneration)
+                    return;
+
+                GameplayRecordingAudioMonitorStatus = status;
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to start gameplay recording audio level monitor.", ex);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (generation != _gameplayRecordingAudioMonitorGeneration)
+                    return;
+
+                GameplayRecordingAudioMonitorStatus = "Could not open this monitor.";
+            });
+        }
+    }
+
+    private void DetachGameplayRecordingAudioLevelMonitor(bool waitForStop = false)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var monitor = _gameplayRecordingAudioLevelMonitor;
+        _gameplayRecordingAudioLevelMonitor = null;
+
+        if (monitor == null)
+            return;
+
+        monitor.LevelChanged -= OnGameplayRecordingAudioLevelChanged;
+        monitor.AudibleSignalChanged -= OnGameplayRecordingAudibleSignalChanged;
+        if (waitForStop)
+            monitor.StopAndWait(asyncCleanup: false);
+        else
+            monitor.Dispose();
+    }
+
+    public void SuspendGameplayRecordingAudioLevelMonitor()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        _gameplayRecordingAudioMonitorCts?.Cancel();
+        _gameplayRecordingAudioMonitorCts?.Dispose();
+        _gameplayRecordingAudioMonitorCts = null;
+        Interlocked.Increment(ref _gameplayRecordingAudioMonitorGeneration);
+
+        DetachGameplayRecordingAudioLevelMonitor(waitForStop: true);
+        GameplayRecordingAudioOutputLevel = 0;
+    }
+
+    public void ResumeGameplayRecordingAudioLevelMonitor()
+    {
+        if (!OperatingSystem.IsLinux() || !IsGameplayRecordingDeviceSourceVisible)
+            return;
+
+        UpdateGameplayRecordingAudioLevelMonitor();
+    }
+
+    private void OnGameplayRecordingAudibleSignalChanged(bool audible)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            GameplayRecordingAudioMonitorStatus = audible
+                ? "Receiving audio on this output."
+                : _gameplayRecordingCompositorPid > 0
+                    ? "Connected but silent — unpause the game or check system volume."
+                    : "Connected but silent — play audio on this output.";
+        });
+    }
+
+    private void OnGameplayRecordingAudioLevelChanged(double level)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            GameplayRecordingAudioOutputLevel = level;
+            if (level > 0.02)
+                GameplayRecordingAudioMonitorStatus = "Receiving audio on this output.";
+        });
     }
 
     partial void OnGameplayRecordingBitrateKbpsChanged(int value) => SaveSettings();

@@ -111,14 +111,18 @@ public partial class EmulationViewModel
         recorder.RecordingStateChanged += OnGameplayRecordingStateChanged;
         recorder.RecordingFailed += OnGameplayRecordingFailed;
 
+        settings.SuspendGameplayRecordingAudioLevelMonitor();
+
         if (!recorder.TryStart(
                 outputDir,
                 settings.GameplayRecordingContainer,
                 settings.GameplayRecordingVideoCodec,
                 settings.GameplayRecordingFps,
                 settings.GameplayRecordingBitrateKbps,
-                ResolveGameplayRecordingProcessId()))
+                ResolveGameplayRecordingProcessId(),
+                OperatingSystem.IsLinux() ? _linuxCompositorPid : 0))
         {
+            settings.ResumeGameplayRecordingAudioLevelMonitor();
             return;
         }
 
@@ -150,6 +154,7 @@ public partial class EmulationViewModel
             StopRecordingTimers();
             GameplayRecordingStatus = "Recording saved.";
             ConfigureCaptureGameplayRecording(_activeCaptureHost);
+            SettingsViewModel?.ResumeGameplayRecordingAudioLevelMonitor();
         }
         else
         {
@@ -165,6 +170,7 @@ public partial class EmulationViewModel
         StopRecordingTimers();
         GameplayRecordingStatus = message;
         IsGameplayRecording = false;
+        SettingsViewModel?.ResumeGameplayRecordingAudioLevelMonitor();
         NotifyGameplayRecordingAvailabilityChanged();
     }
 
@@ -191,6 +197,26 @@ public partial class EmulationViewModel
             return "Wait for the emulator launch to finish.";
 
         return "Recording is not available right now.";
+    }
+
+    internal void NotifyGameplayRecordingSessionContext()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        SettingsViewModel?.SetGameplayRecordingSessionContext(
+            _linuxCompositorPid,
+            ResolveGameplayRecordingProcessId());
+    }
+
+    internal void RefreshGameplayRecordingSessionPids()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        SettingsViewModel?.ApplyGameplayRecordingSessionPids(
+            _linuxCompositorPid,
+            ResolveGameplayRecordingProcessId());
     }
 
     private int ResolveGameplayRecordingProcessId()

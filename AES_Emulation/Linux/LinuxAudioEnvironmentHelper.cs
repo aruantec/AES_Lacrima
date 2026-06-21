@@ -30,10 +30,31 @@ public static class LinuxAudioEnvironmentHelper
         "DBUS_SESSION_BUS_ADDRESS",
     ];
 
-    public static void Apply(ProcessStartInfo startInfo)
+    public static void Apply(ProcessStartInfo startInfo) => Apply(startInfo, includeSdlDriver: true);
+
+    public static void Apply(ProcessStartInfo startInfo, bool includeSdlDriver, int compositorLaunchPid)
+    {
+        Apply(startInfo, includeSdlDriver);
+        ApplyCompositorSessionEnvironment(startInfo, compositorLaunchPid);
+    }
+
+    /// <summary>
+    /// Child processes must inherit the full session environment; assigning only a few keys
+    /// replaces the entire environment in .NET and breaks Pulse/FFmpeg under gamescope.
+    /// </summary>
+    public static void Apply(ProcessStartInfo startInfo, bool includeSdlDriver)
     {
         if (!OperatingSystem.IsLinux())
             return;
+
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            var key = entry.Key?.ToString();
+            if (string.IsNullOrEmpty(key))
+                continue;
+
+            startInfo.Environment[key] = entry.Value?.ToString() ?? string.Empty;
+        }
 
         foreach (var key in KeysToPropagate)
         {
@@ -42,8 +63,52 @@ public static class LinuxAudioEnvironmentHelper
                 startInfo.Environment[key] = value;
         }
 
-        if (!startInfo.Environment.ContainsKey("SDL_AUDIODRIVER"))
+        if (includeSdlDriver && !startInfo.Environment.ContainsKey("SDL_AUDIODRIVER"))
             startInfo.Environment["SDL_AUDIODRIVER"] = "pipewire";
+    }
+
+    /// <summary>
+    /// Prefer the gamescope/emulator PipeWire session when the UI process was started without
+    /// a full desktop session environment (IDE debuggers, detached launches).
+    /// </summary>
+    public static void ApplyCompositorSessionEnvironment(ProcessStartInfo startInfo, int compositorLaunchPid)
+    {
+        if (!OperatingSystem.IsLinux() || compositorLaunchPid <= 0)
+            return;
+
+        var candidatePids = new List<int> { compositorLaunchPid };
+        var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(compositorLaunchPid);
+        if (compositorRoot > 0)
+            candidatePids.Add(compositorRoot);
+
+        var emulatorPid = LinuxCompositorProcessHelper.FindPrimaryEmulatorPid(compositorRoot > 0 ? compositorRoot : compositorLaunchPid);
+        if (emulatorPid > 0)
+            candidatePids.Add(emulatorPid);
+
+        foreach (var key in new[]
+                 {
+                     "XDG_RUNTIME_DIR",
+                     "PULSE_SERVER",
+                     "PULSE_RUNTIME_PATH",
+                     "PIPEWIRE_RUNTIME_DIR",
+                     "PIPEWIRE_KEY",
+                     "DBUS_SESSION_BUS_ADDRESS",
+                     "WAYLAND_DISPLAY",
+                     "DISPLAY",
+                 })
+        {
+            foreach (var pid in candidatePids.Distinct())
+            {
+                if (!LinuxGamescopeEnvironmentHelper.TryReadProcessEnvironment(pid, out var environment))
+                    continue;
+
+                if (!environment.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                startInfo.Environment[key] = value;
+                break;
+            }
+        }
     }
 
     internal static string? ResolveRuntimeDir()
@@ -133,6 +198,12 @@ public static class LinuxAudioEnvironmentHelper
 
     internal static string? ResolveWpctlExecutable()
         => ResolveExecutable("wpctl", "/usr/bin/wpctl", "/bin/wpctl");
+
+    internal static string? ResolvePwRecordExecutable()
+        => ResolveExecutable("pw-record", "/usr/bin/pw-record", "/bin/pw-record");
+
+    internal static string? ResolveParecExecutable()
+        => ResolveExecutable("parec", "/usr/bin/parec", "/bin/parec");
 
     internal static string? ResolvePwDumpExecutable()
         => ResolveExecutable("pw-dump", "/usr/bin/pw-dump", "/bin/pw-dump");

@@ -274,10 +274,13 @@ namespace AES_Lacrima.ViewModels
 
                 if (!pcsx2PortableLaunchWrapped && !rpcs3LinuxLaunchPrepared && !steamLinuxLaunchPrepared)
                 {
-                    if (!string.IsNullOrWhiteSpace(resolvedFlatpakAppId))
-                        FlatpakLaunchHelper.Apply(startInfo, resolvedFlatpakAppId, launchRomPath);
-                    else
-                        PrepareLinuxAppImageStartInfo(startInfo);
+                    if (OperatingSystem.IsLinux())
+                    {
+                        if (!string.IsNullOrWhiteSpace(resolvedFlatpakAppId))
+                            FlatpakLaunchHelper.Apply(startInfo, resolvedFlatpakAppId, launchRomPath);
+                        else
+                            PrepareLinuxAppImageStartInfo(startInfo);
+                    }
                 }
 
                 if (OperatingSystem.IsLinux() &&
@@ -324,6 +327,7 @@ namespace AES_Lacrima.ViewModels
                     if (_linuxCompositorPid <= 0)
                         _linuxCompositorPid = process.Id;
                     SLog.Info($"Started fresh gamescope session pid={process.Id}, compositorRoot={_linuxCompositorPid}.");
+                    NotifyGameplayRecordingSessionContext();
                 }
                 else
                 {
@@ -456,7 +460,7 @@ namespace AES_Lacrima.ViewModels
 
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (!IsEmulatorRunning || _linuxCompositorPid <= 0)
+                    if (!OperatingSystem.IsLinux() || !IsEmulatorRunning || _linuxCompositorPid <= 0)
                         return;
 
                     try
@@ -654,6 +658,7 @@ namespace AES_Lacrima.ViewModels
             var compositorPid = _linuxCompositorPid;
             _linuxCompositorSession = null;
             _linuxCompositorPid = 0;
+            SettingsViewModel?.SetGameplayRecordingSessionContext(0, 0);
 
             try
             {

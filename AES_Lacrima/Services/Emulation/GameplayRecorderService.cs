@@ -79,7 +79,8 @@ public partial class GameplayRecorderService : IGameplayRecorder
         GameplayRecordingVideoCodec codec,
         int fps,
         int videoBitrateKbps,
-        int emulatorProcessId)
+        int emulatorProcessId,
+        int compositorLaunchPid = 0)
     {
         if (_isRecording)
             return false;

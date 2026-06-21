@@ -1,8 +1,13 @@
 using System;
+using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using AES_Core.Logging;
 using AES_Emulation.Services;
 using log4net;
@@ -19,123 +24,169 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
 
     private Process? _captureProcess;
     private Stream? _stdout;
+    private Task? _stderrDrainTask;
+    private readonly MemoryStream _readAheadBuffer = new();
+    private readonly object _readAheadLock = new();
     private bool _isCapturing;
+    private int _compositorLaunchPid;
 
     public static bool IsSupported => OperatingSystem.IsLinux();
 
-    /// <summary>
-    /// Resolves a PulseAudio/PipeWire source name for FFmpeg's pulse input.
-    /// </summary>
-    public static string? ResolvePulseInputForRecording(
-        GameplayRecordingAudioSource source,
-        int processId,
-        string? deviceId)
+    public static bool CanCaptureAudio()
     {
-        if (source == GameplayRecordingAudioSource.None)
-            return null;
+        if (!IsSupported || !HasUsableAudioSession())
+            return false;
 
-        if (source == GameplayRecordingAudioSource.OutputDevice)
-            return string.IsNullOrWhiteSpace(deviceId) ? "@DEFAULT_MONITOR@" : deviceId;
+        if (LinuxAudioEnvironmentHelper.ResolvePwRecordExecutable() != null
+            || LinuxAudioEnvironmentHelper.ResolveParecExecutable() != null)
+        {
+            return true;
+        }
 
-        if (processId > 0 && TryResolveMonitorSourceForProcess(processId, out var monitor))
-            return monitor;
-
-        return "@DEFAULT_MONITOR@";
+        return CanQueryPulse();
     }
+
+    /// <summary>
+    /// Legacy name retained for callers; prefer <see cref="CanCaptureAudio"/>.
+    /// </summary>
+    public static bool CanCapturePulse() => CanCaptureAudio();
 
     public static void ApplyAudioEnvironment(ProcessStartInfo startInfo) => LinuxAudioEnvironmentHelper.Apply(startInfo);
-
-    public static bool CanCapturePulse()
-    {
-        if (!IsSupported)
-            return false;
-
-        var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-        if (string.IsNullOrWhiteSpace(runtimeDir))
-            return false;
-
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "/usr/bin/pactl",
-                Arguments = "info",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            LinuxAudioEnvironmentHelper.Apply(startInfo);
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                return false;
-
-            process.WaitForExit(1500);
-            return process.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            Log.Debug("LinuxGameplayAudioCapture pulse availability check failed.", ex);
-            return false;
-        }
-    }
 
     public int SampleRate { get; private set; } = 48_000;
     public int Channels { get; private set; } = 2;
     public int BitsPerSample { get; private set; } = 16;
     public int BytesPerSample => Channels * BitsPerSample / 8;
 
-    public bool TryStart(GameplayRecordingAudioSource source, int processId, string? deviceId)
+    public static int ComputePeakAmplitude(ReadOnlySpan<byte> buffer, int length)
+    {
+        if (length < 2)
+            return 0;
+
+        var peak = 0;
+        var sampleCount = length / 2;
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var sample = Math.Abs(BinaryPrimitives.ReadInt16LittleEndian(buffer[(i * 2)..]));
+            if (sample > peak)
+                peak = sample;
+        }
+
+        return peak;
+    }
+
+    public bool TryStart(
+        GameplayRecordingAudioSource source,
+        int processId,
+        string? deviceId,
+        int compositorPid = 0)
     {
         if (!IsSupported || source == GameplayRecordingAudioSource.None)
             return false;
 
         Stop();
 
-        ProcessStartInfo? startInfo = source switch
+        _compositorLaunchPid = compositorPid;
+        var targets = LinuxGameplayAudioTargetResolver.ResolveTargets(source, processId, compositorPid, deviceId);
+        if (targets.Count == 0)
         {
-            GameplayRecordingAudioSource.OutputDevice => BuildMonitorCaptureStartInfo(deviceId),
-            GameplayRecordingAudioSource.Application or GameplayRecordingAudioSource.EmulatorProcess =>
-                BuildProcessCaptureStartInfo(processId),
-            _ => null,
-        };
-
-        if (startInfo == null)
+            Log.Warn("Linux gameplay audio capture: no PipeWire targets were resolved.");
             return false;
-
-        try
-        {
-            var process = Process.Start(startInfo);
-            if (process == null)
-                return false;
-
-            _stdout = process.StandardOutput.BaseStream;
-            _captureProcess = process;
-            _isCapturing = true;
-            return true;
         }
-        catch (Exception ex)
+
+        if (source == GameplayRecordingAudioSource.OutputDevice && !string.IsNullOrWhiteSpace(deviceId))
         {
-            Log.Warn("LinuxGameplayAudioCapture failed to start.", ex);
+            foreach (var target in targets)
+            {
+                if (TryStartTarget(target, out _, validationMs: 250, requireSignal: false))
+                    return true;
+
+                Stop();
+            }
+
+            Log.Warn($"Linux gameplay audio capture: could not open selected output device '{deviceId}'.");
+            return false;
+        }
+
+        LinuxGameplayAudioTargetResolver.RecordTarget? bestTarget = null;
+        var bestPeak = -1;
+
+        foreach (var target in targets)
+        {
+            if (!TryStartTarget(target, out var peak))
+                continue;
+
+            if (peak > bestPeak)
+            {
+                bestPeak = peak;
+                bestTarget = target;
+            }
+
             Stop();
+        }
+
+        if (bestTarget == null)
+        {
+            Log.Warn("Linux gameplay audio capture: all targets were silent or unavailable.");
             return false;
         }
+
+        if (!TryStartTarget(bestTarget.Value, out _))
+            return false;
+
+        Log.Info($"Linux gameplay audio capture selected '{bestTarget.Value.Target}' (peak={bestPeak}).");
+        return true;
+    }
+
+    /// <summary>
+    /// Starts capture on a single PipeWire target without probing other sources (for the level meter).
+    /// </summary>
+    public bool TryStartDirectTarget(string target, int compositorPid = 0)
+    {
+        if (!IsSupported || string.IsNullOrWhiteSpace(target))
+            return false;
+
+        Stop();
+        _compositorLaunchPid = compositorPid;
+
+        var recordTarget = new LinuxGameplayAudioTargetResolver.RecordTarget(target, target, 100);
+        return TryStartTarget(recordTarget, out _, validationMs: 100, requireSignal: false);
     }
 
     public int Read(byte[] buffer)
     {
-        if (!_isCapturing || _stdout == null || buffer.Length == 0)
+        if (!_isCapturing || buffer.Length == 0)
             return 0;
+
+        var totalRead = 0;
+        lock (_readAheadLock)
+        {
+            if (_readAheadBuffer.Length > 0)
+            {
+                _readAheadBuffer.Position = 0;
+                totalRead = _readAheadBuffer.Read(buffer, 0, buffer.Length);
+                if (totalRead >= buffer.Length)
+                {
+                    CompactReadAheadBuffer(totalRead);
+                    return totalRead;
+                }
+
+                CompactReadAheadBuffer(totalRead);
+            }
+        }
+
+        if (_stdout == null)
+            return totalRead;
 
         try
         {
-            return _stdout.Read(buffer, 0, buffer.Length);
+            var read = _stdout.Read(buffer, totalRead, buffer.Length - totalRead);
+            return read > 0 ? totalRead + read : totalRead;
         }
         catch (Exception ex)
         {
             Log.Debug("LinuxGameplayAudioCapture read failed.", ex);
-            return 0;
+            return totalRead;
         }
     }
 
@@ -171,68 +222,266 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
             try { _captureProcess.Dispose(); } catch { /* ignored */ }
             _captureProcess = null;
         }
+
+        try
+        {
+            _stderrDrainTask?.Wait(500);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        _stderrDrainTask = null;
+        lock (_readAheadLock)
+        {
+            _readAheadBuffer.SetLength(0);
+            _readAheadBuffer.Position = 0;
+        }
     }
 
     public void Dispose() => Stop();
 
-    private static ProcessStartInfo? BuildMonitorCaptureStartInfo(string? deviceId)
+    internal static IReadOnlyList<int> CollectAudioCandidateProcessIds(int primaryPid, int compositorPid)
     {
-        var monitor = string.IsNullOrWhiteSpace(deviceId) ? "@DEFAULT_MONITOR@" : deviceId;
+        var ordered = new List<int>();
+        void Add(int pid)
+        {
+            if (pid > 0 && !ordered.Contains(pid))
+                ordered.Add(pid);
+        }
+
+        Add(primaryPid);
+
+        if (compositorPid <= 0)
+            return ordered;
+
+        var compositorRoot = LinuxCompositorProcessHelper.ResolveCompositorRootPid(compositorPid);
+        var tree = new HashSet<int>();
+        LinuxCompositorProcessHelper.CollectCompositorTreePids(compositorRoot, tree);
+
+        foreach (var pid in tree.OrderByDescending(static pid => pid))
+            Add(pid);
+
+        return ordered;
+    }
+
+    private bool TryStartTarget(
+        LinuxGameplayAudioTargetResolver.RecordTarget target,
+        out int peakAmplitude,
+        int validationMs = 750,
+        bool requireSignal = true)
+    {
+        peakAmplitude = 0;
+        var isMonitor = target.Target.Contains(".monitor", StringComparison.OrdinalIgnoreCase)
+            || target.Target.StartsWith('@');
+
+        if (isMonitor && TryStartParec(target.Target) &&
+            ValidateCaptureReceivingData(out peakAmplitude, validationMs, requireSignal))
+        {
+            Log.Info($"Linux gameplay audio capture started via parec: {target.Description}.");
+            return true;
+        }
+
+        Stop();
+
+        if (TryStartPwRecord(target.Target) &&
+            ValidateCaptureReceivingData(out peakAmplitude, validationMs, requireSignal))
+        {
+            Log.Debug(
+                $"Linux gameplay audio capture via pw-record target='{target.Target}' " +
+                $"(peak={peakAmplitude}, {target.Description}).");
+            return true;
+        }
+
+        Stop();
+        return false;
+    }
+
+    private bool ValidateCaptureReceivingData(out int peakAmplitude, int validationMs = 750, bool requireSignal = true)
+    {
+        peakAmplitude = 0;
+        if (_stdout == null)
+            return false;
+
+        var scratch = new byte[4096];
+        var deadline = Environment.TickCount64 + validationMs;
+        var totalBytes = 0;
+        var minBytes = requireSignal ? 2048 : 256;
+
+        while (Environment.TickCount64 < deadline)
+        {
+            int read;
+            try
+            {
+                read = _stdout.Read(scratch, 0, scratch.Length);
+            }
+            catch
+            {
+                break;
+            }
+
+            if (read <= 0)
+            {
+                Thread.Sleep(5);
+                continue;
+            }
+
+            peakAmplitude = Math.Max(peakAmplitude, ComputePeakAmplitude(scratch, read));
+
+            lock (_readAheadLock)
+            {
+                _readAheadBuffer.Position = _readAheadBuffer.Length;
+                _readAheadBuffer.Write(scratch, 0, read);
+            }
+
+            totalBytes += read;
+            if (totalBytes >= 4096 && (!requireSignal || peakAmplitude >= 64))
+                return true;
+        }
+
+        return totalBytes >= minBytes;
+    }
+
+    private void CompactReadAheadBuffer(int consumed)
+    {
+        if (consumed <= 0)
+            return;
+
+        var remaining = (int)(_readAheadBuffer.Length - consumed);
+        if (remaining <= 0)
+        {
+            _readAheadBuffer.SetLength(0);
+            _readAheadBuffer.Position = 0;
+            return;
+        }
+
+        var temp = new byte[remaining];
+        _readAheadBuffer.Position = consumed;
+        _readAheadBuffer.Read(temp, 0, remaining);
+        _readAheadBuffer.SetLength(0);
+        _readAheadBuffer.Write(temp, 0, remaining);
+        _readAheadBuffer.Position = 0;
+    }
+
+    private bool TryStartParec(string monitor)
+    {
+        var parec = LinuxAudioEnvironmentHelper.ResolveParecExecutable();
+        if (parec == null || string.IsNullOrWhiteSpace(monitor))
+            return false;
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = "/usr/bin/parec",
+            FileName = parec,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
-        startInfo.ArgumentList.Add("--device=" + monitor);
+        startInfo.ArgumentList.Add($"--device={monitor}");
         startInfo.ArgumentList.Add("--format=s16le");
         startInfo.ArgumentList.Add("--rate=48000");
         startInfo.ArgumentList.Add("--channels=2");
-        LinuxAudioEnvironmentHelper.Apply(startInfo);
-        return startInfo;
+        startInfo.ArgumentList.Add("--latency-msec=50");
+        LinuxAudioEnvironmentHelper.Apply(startInfo, includeSdlDriver: false, _compositorLaunchPid);
+        return TryStartProcess(startInfo);
     }
 
-    private static ProcessStartInfo? BuildProcessCaptureStartInfo(int processId)
+    private bool TryStartPwRecord(string target)
     {
-        if (processId <= 0)
-            return null;
-
-        if (!TryResolveSinkInputTarget(processId, out var target))
-            return null;
+        var pwRecord = LinuxAudioEnvironmentHelper.ResolvePwRecordExecutable();
+        if (pwRecord == null || string.IsNullOrWhiteSpace(target))
+            return false;
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "/usr/bin/pw-record",
+            FileName = pwRecord,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
+        if (target.Contains(".monitor", StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith('@'))
+        {
+            // pw-record on a sink name already captures loopback; Monitor category can break some nodes.
+        }
+
         startInfo.ArgumentList.Add("--target");
         startInfo.ArgumentList.Add(target);
-        startInfo.ArgumentList.Add("--rate=48000");
-        startInfo.ArgumentList.Add("--channels=2");
+        startInfo.ArgumentList.Add("--format");
+        startInfo.ArgumentList.Add("s16");
+        startInfo.ArgumentList.Add("--rate");
+        startInfo.ArgumentList.Add("48000");
+        startInfo.ArgumentList.Add("--channels");
+        startInfo.ArgumentList.Add("2");
+        startInfo.ArgumentList.Add("--raw");
         startInfo.ArgumentList.Add("-");
-        LinuxAudioEnvironmentHelper.Apply(startInfo);
-        return startInfo;
+        LinuxAudioEnvironmentHelper.Apply(startInfo, includeSdlDriver: false, _compositorLaunchPid);
+        return TryStartProcess(startInfo);
     }
 
-    private static bool TryResolveSinkInputTarget(int processId, out string target)
+    private bool TryStartProcess(ProcessStartInfo startInfo)
     {
-        target = string.Empty;
-        if (processId <= 0)
+        try
+        {
+            var process = Process.Start(startInfo);
+            if (process == null)
+                return false;
+
+            _stdout = process.StandardOutput.BaseStream;
+            _captureProcess = process;
+            _isCapturing = true;
+            _stderrDrainTask = Task.Run(() => DrainStreamAsync(process.StandardError.BaseStream));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("LinuxGameplayAudioCapture failed to start.", ex);
+            Stop();
+            return false;
+        }
+    }
+
+    private static async Task DrainStreamAsync(Stream stream)
+    {
+        var buffer = new byte[4096];
+        try
+        {
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer).ConfigureAwait(false);
+                if (read <= 0)
+                    break;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+    }
+
+    private static bool HasUsableAudioSession()
+    {
+        var runtimeDir = LinuxAudioEnvironmentHelper.ResolveRuntimeDir()
+            ?? Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        return !string.IsNullOrWhiteSpace(runtimeDir) && Directory.Exists(runtimeDir);
+    }
+
+    private static bool CanQueryPulse()
+    {
+        var pactl = LinuxAudioEnvironmentHelper.ResolvePactlExecutable();
+        if (pactl == null || !HasUsableAudioSession())
             return false;
 
         try
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = "/usr/bin/pactl",
-                Arguments = "-f json list sink-inputs",
+                FileName = pactl,
+                Arguments = "info",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -244,203 +493,13 @@ public sealed class LinuxGameplayAudioCapture : IDisposable
             if (process == null)
                 return false;
 
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(5000);
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
-                return false;
-
-            using var document = JsonDocument.Parse(output);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                return false;
-
-            foreach (var element in document.RootElement.EnumerateArray())
-            {
-                if (!element.TryGetProperty("properties", out var properties))
-                    continue;
-
-                if (!TryGetProcessId(properties, out var pid) || pid != processId)
-                    continue;
-
-                if (properties.TryGetProperty("node.name", out var nodeName) &&
-                    nodeName.ValueKind == JsonValueKind.String)
-                {
-                    var name = nodeName.GetString();
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        target = name;
-                        return true;
-                    }
-                }
-
-                if (element.TryGetProperty("index", out var indexElement) &&
-                    indexElement.ValueKind == JsonValueKind.Number)
-                {
-                    target = indexElement.GetInt32().ToString();
-                    return true;
-                }
-            }
+            process.WaitForExit(1500);
+            return process.ExitCode == 0;
         }
         catch (Exception ex)
         {
-            Log.Debug($"LinuxGameplayAudioCapture failed to resolve sink input for pid={processId}.", ex);
-        }
-
-        return false;
-    }
-
-    private static bool TryResolveMonitorSourceForProcess(int processId, out string monitorSource)
-    {
-        monitorSource = string.Empty;
-        if (processId <= 0)
+            Log.Debug("LinuxGameplayAudioCapture pulse availability check failed.", ex);
             return false;
-
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "/usr/bin/pactl",
-                Arguments = "-f json list sink-inputs",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            LinuxAudioEnvironmentHelper.Apply(startInfo);
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                return false;
-
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(5000);
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
-                return false;
-
-            using var document = JsonDocument.Parse(output);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                return false;
-
-            foreach (var element in document.RootElement.EnumerateArray())
-            {
-                if (!element.TryGetProperty("properties", out var properties))
-                    continue;
-
-                if (!TryGetProcessId(properties, out var pid) || pid != processId)
-                    continue;
-
-                if (!element.TryGetProperty("sink", out var sinkElement))
-                    continue;
-
-                var sinkIndex = sinkElement.ValueKind == JsonValueKind.Number
-                    ? sinkElement.GetInt32()
-                    : -1;
-
-                if (sinkIndex < 0)
-                    continue;
-
-                return TryResolveMonitorForSinkIndex(sinkIndex, out monitorSource);
-            }
         }
-        catch (Exception ex)
-        {
-            Log.Debug($"LinuxGameplayAudioCapture failed to resolve monitor for pid={processId}.", ex);
-        }
-
-        return false;
     }
-
-    private static bool TryResolveMonitorForSinkIndex(int sinkIndex, out string monitorSource)
-    {
-        monitorSource = string.Empty;
-
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "/usr/bin/pactl",
-                Arguments = "-f json list sinks",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            LinuxAudioEnvironmentHelper.Apply(startInfo);
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                return false;
-
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(5000);
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
-                return false;
-
-            using var document = JsonDocument.Parse(output);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                return false;
-
-            foreach (var element in document.RootElement.EnumerateArray())
-            {
-                if (!element.TryGetProperty("index", out var indexElement) ||
-                    indexElement.ValueKind != JsonValueKind.Number ||
-                    indexElement.GetInt32() != sinkIndex)
-                {
-                    continue;
-                }
-
-                if (element.TryGetProperty("monitor_source", out var monitorElement) &&
-                    monitorElement.ValueKind == JsonValueKind.String)
-                {
-                    var name = monitorElement.GetString();
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        monitorSource = name;
-                        return true;
-                    }
-                }
-
-                if (element.TryGetProperty("name", out var sinkNameElement) &&
-                    sinkNameElement.ValueKind == JsonValueKind.String)
-                {
-                    var sinkName = sinkNameElement.GetString();
-                    if (!string.IsNullOrWhiteSpace(sinkName))
-                    {
-                        monitorSource = sinkName + ".monitor";
-                        return true;
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Debug($"LinuxGameplayAudioCapture failed to resolve monitor for sink={sinkIndex}.", ex);
-        }
-
-        return false;
-    }
-
-    private static bool TryGetProcessId(JsonElement properties, out int pid)
-    {
-        pid = 0;
-        foreach (var key in new[] { "application.process.id", "application.process.pid", "module-stream-restore.process.id" })
-        {
-            if (!properties.TryGetProperty(key, out var pidProperty))
-                continue;
-
-            if (pidProperty.ValueKind == JsonValueKind.String &&
-                int.TryParse(pidProperty.GetString(), out pid))
-            {
-                return true;
-            }
-
-            if (pidProperty.ValueKind == JsonValueKind.Number &&
-                pidProperty.TryGetInt32(out pid))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
 }
