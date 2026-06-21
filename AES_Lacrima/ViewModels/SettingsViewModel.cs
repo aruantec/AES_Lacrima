@@ -2752,9 +2752,15 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
             section.LaunchSettings?.RetroArchRepositoryOverride, section.LaunchSettings?.IncludeRetroArchCores ?? true, forceRefresh: true).ConfigureAwait(false);
 
-        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            handlerItem.DownloadStatusMessage = info.StatusMessage;
+            RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, info.ResolvedLauncherPath);
+            if (handler.HasLauncherPath)
+                SaveSettings();
+        });
 
-        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        if (info.IsUpdateAvailable)
         {
             handlerItem.DownloadStatusMessage = "Downloading...";
             var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath,
@@ -2771,17 +2777,17 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             {
                 handlerItem.DownloadProgress = 100;
                 handlerItem.DownloadStatusMessage = state.StatusMessage;
-                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
-                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    handler.LauncherPath = state.ResolvedLauncherPath;
+                RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, state.ResolvedLauncherPath);
+                if (handler.HasLauncherPath)
                     SaveSettings();
-                }
             });
         }
         else
         {
-            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                handlerItem.DownloadStatusMessage = handler.HasLauncherPath
+                    ? "Already up to date."
+                    : info.StatusMessage);
         }
     }
 
@@ -4007,6 +4013,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
 
         ApplyPersistedEmulationSectionOrder();
+        DiscoverInstalledRetroArchLaunchers();
         RefreshRetroArchCores();
         RefreshHandlerFlatpakApplications(forceRefresh: true);
         CheckForAppUpdatesOnStartup = ReadBoolSetting(section, nameof(CheckForAppUpdatesOnStartup), CheckForAppUpdatesOnStartup);
@@ -4175,6 +4182,35 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         foreach (var handlerItem in EmulationSections.SelectMany(section => section.Handlers))
             handlerItem.RefreshFlatpakApplications(forceRefresh);
+    }
+
+    private void DiscoverInstalledRetroArchLaunchers()
+    {
+        var updater = DiLocator.ResolveViewModel<RetroArchEmulatorUpdateService>();
+        if (updater == null)
+            return;
+
+        var changed = false;
+        foreach (var section in EmulationSections)
+        {
+            var handler = GetConfiguredEmulatorHandlerForSection(section);
+            if (handler == null || !handler.UsesRetroArchCores || handler.HasLauncherPath)
+                continue;
+
+            var resolved = updater.DiscoverInstalledLauncherPath(
+                section.SectionKey,
+                section.SectionTitle,
+                handler.LauncherPath);
+            if (string.IsNullOrWhiteSpace(resolved))
+                continue;
+
+            RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, resolved);
+            if (handler.HasLauncherPath)
+                changed = true;
+        }
+
+        if (changed)
+            SaveSettings();
     }
 
     private void MigrateLegacySectionLauncherPath(string? sectionTitle, string? launcherPath)

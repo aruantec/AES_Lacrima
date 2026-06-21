@@ -145,9 +145,6 @@ public sealed partial class EmulationCoverLoaderService : ViewModelBase
         if (metadataService == null)
             return false;
 
-        if (IsOnlineLookupExhausted(romPath))
-            return false;
-
         return await metadataService.TryFetchEmulationCoverOnlineAsync(
                 item,
                 albumTitle,
@@ -247,6 +244,6 @@ public readonly record struct EmulationCoverLoadRequest(
     public static EmulationCoverLoadRequest LocalOnly { get; } = new(false, AutoCoverLookupOptions.FastSkip);
 
     public static EmulationCoverLoadRequest WithOnline(AutoCoverLookupOptions? options = null) =>
-        new(true, options ?? AutoCoverLookupOptions.EmulationAlbumScan);
+        new(true, options ?? AutoCoverLookupOptions.FastSkip);
 }
 

@@ -189,11 +189,9 @@ namespace AES_Lacrima.Services
 
             try
             {
-                var results = await SearchWebImagesAsync(new[] { query }, isRomSearch: true)
-                    .WaitAsync(searchTimeout.Token)
-                    .ConfigureAwait(false);
+                var results = await FindAutoCoverWebImageResultsAsync(query, searchTimeout.Token).ConfigureAwait(false);
 
-                return results
+                return AutoCoverImageHeuristics.OrderByPreferredFormat(results)
                     .Take(options.MaxCandidatesPerQuery)
                     .ToList();
             }
@@ -458,6 +456,60 @@ namespace AES_Lacrima.Services
                     metadata.Title = titleName;
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
+        }
+
+        private async Task PersistPspMetadataToMetadataCacheAsync(string? filePath, string? pspTitleId, string? titleName = null)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var cachePath = GetMetadataCachePath(filePath);
+            await Task.Run(() =>
+            {
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+                if (!string.IsNullOrWhiteSpace(pspTitleId))
+                    metadata.PspTitleId = pspTitleId;
+                if (!string.IsNullOrWhiteSpace(titleName))
+                    metadata.Title = titleName;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }).ConfigureAwait(false);
+        }
+
+        private async Task LoadPspMetadataAsync(MediaItem item)
+        {
+            if (!EmulationHashTitleResolver.IsSupportedAlbum(item.Album, out var platform) || platform == null)
+                return;
+
+            var romInfo = await Task.Run(() => RomInspector.Inspect(item.FileName!, DiscSection.PSP)).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(romInfo?.GameId))
+                PspTitleId = romInfo.GameId;
+
+            var resolvedTitle = EmulationHashTitleResolver.TryResolveOffline(item.FileName!, platform)
+                ?? romInfo?.InternalTitle;
+            if (!string.IsNullOrWhiteSpace(resolvedTitle))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    item.Title = resolvedTitle.Trim();
+                    if (_currentSelectedMedia == item)
+                        Title = resolvedTitle.Trim();
+                }, DispatcherPriority.Background);
+            }
+
+            if (!string.IsNullOrWhiteSpace(PspTitleId) || !string.IsNullOrWhiteSpace(resolvedTitle))
+                await PersistPspMetadataToMetadataCacheAsync(item.FileName, PspTitleId, resolvedTitle).ConfigureAwait(false);
+        }
+
+        private static bool IsPspAlbum(string? albumTitle)
+        {
+            if (EmulationConsoleCatalog.TryGetDefinition(albumTitle, out var definition))
+                return string.Equals(definition.Key, "PSP", StringComparison.OrdinalIgnoreCase);
+
+            if (string.IsNullOrWhiteSpace(albumTitle))
+                return false;
+
+            return string.Equals(albumTitle, "PlayStation Portable", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(albumTitle, "PSP", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task LoadNintendoDiscMetadataAsync(MediaItem item, DiscSection section, string? albumContext = null)
@@ -1266,6 +1318,26 @@ namespace AES_Lacrima.Services
             }).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Background auto-cover search: DuckDuckGo first, then Google/Bing as fallback.
+        /// </summary>
+        private async Task<IReadOnlyList<WebImageSearchResult>> FindAutoCoverWebImageResultsAsync(
+            string query,
+            CancellationToken cancellationToken)
+        {
+            var results = new List<WebImageSearchResult>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await LoadDuckDuckGoImageResultsForExactQuery(query, seen, results, cancellationToken).ConfigureAwait(false);
+            if (results.Count == 0)
+                await LoadGoogleImageResultsForExactQuery(query, seen, results, cancellationToken).ConfigureAwait(false);
+            if (results.Count == 0)
+                await LoadBingImageResultsForExactQuery(query, seen, results, cancellationToken).ConfigureAwait(false);
+
+            return results;
+        }
+
         private async Task<IReadOnlyList<WebImageSearchResult>> FindWebImageResultsAsync(string query, CancellationToken cancellationToken)
         {
             var results = new List<WebImageSearchResult>();
@@ -1281,6 +1353,70 @@ namespace AES_Lacrima.Services
             }
 
             return results;
+        }
+
+        private static async Task LoadDuckDuckGoImageResultsForExactQuery(
+            string query,
+            HashSet<string> seen,
+            List<WebImageSearchResult> sink,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (sink.Count >= MaxImageSearchResults)
+                    return;
+
+                var mainUrl = $"https://duckduckgo.com/?q={Uri.EscapeDataString(query)}&iax=images&ia=images";
+                using var mainRequest = new HttpRequestMessage(HttpMethod.Get, mainUrl);
+                mainRequest.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+
+                using var mainResponse = await ImageHttpClient
+                    .SendAsync(mainRequest, HttpCompletionOption.ResponseContentRead, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!mainResponse.IsSuccessStatusCode)
+                {
+                    SLog.Warn($"DuckDuckGo image search returned HTTP {(int)mainResponse.StatusCode} for exact query '{query}'.");
+                    return;
+                }
+
+                var mainHtml = await mainResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var vqdMatch = Regex.Match(mainHtml, @"vqd=['""](?<vqd>[^'""]+)['""]|vqd=(?<vqd2>[^&'""\s]+)", RegexOptions.IgnoreCase);
+                var vqd = vqdMatch.Groups["vqd"].Value;
+                if (string.IsNullOrEmpty(vqd))
+                    vqd = vqdMatch.Groups["vqd2"].Value;
+
+                if (string.IsNullOrEmpty(vqd))
+                {
+                    SLog.Debug($"DuckDuckGo image search could not resolve VQD token for query '{query}'.");
+                    return;
+                }
+
+                var apiUrl = $"https://duckduckgo.com/i.js?l=us-en&o=json&q={Uri.EscapeDataString(query)}&vqd={vqd}&f=,,,";
+                using var apiRequest = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+                apiRequest.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
+                apiRequest.Headers.Referrer = new Uri(mainUrl);
+
+                using var apiResponse = await ImageHttpClient
+                    .SendAsync(apiRequest, HttpCompletionOption.ResponseContentRead, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!apiResponse.IsSuccessStatusCode)
+                {
+                    SLog.Warn($"DuckDuckGo image API returned HTTP {(int)apiResponse.StatusCode} for exact query '{query}'.");
+                    return;
+                }
+
+                var json = await apiResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                ExtractDuckDuckGoImageResults(json, seen, sink);
+                SLog.Debug($"DuckDuckGo image search extracted {sink.Count} candidate URLs for exact query '{query}'.");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"DuckDuckGo image search failed for exact query: {query}", ex);
+            }
         }
 
         private static async Task LoadBingImageResultsForExactQuery(string query, HashSet<string> seen, List<WebImageSearchResult> sink, CancellationToken cancellationToken)
@@ -1510,6 +1646,43 @@ namespace AES_Lacrima.Services
                 BinaryMetadataHelper.WriteMetadataImages(metadata, preserved);
                 BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
             }).ConfigureAwait(false);
+        }
+
+        private static Task<bool> IsCoverLookupExhaustedAsync(string? filePath, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return Task.FromResult(false);
+
+            return Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var cachePath = GetMetadataCachePath(filePath);
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                return metadata?.CoverLookupExhausted == true;
+            }, cancellationToken);
+        }
+
+        private async Task TryClearCoverLookupExhaustedForResolvedTitleAsync(
+            MediaItem item,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            if (NintendoDiscMetadataHelper.IsFilenameLikeTitle(item.Title, item.FileName))
+                return;
+
+            await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var cachePath = GetMetadataCachePath(item.FileName);
+                var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+                if (metadata?.CoverLookupExhausted != true)
+                    return;
+
+                metadata.CoverLookupExhausted = false;
+                BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+            }, cancellationToken).ConfigureAwait(false);
         }
 
         private static Task<bool> IsCoverLookupAlreadyScannedAsync(string? filePath, CancellationToken cancellationToken)

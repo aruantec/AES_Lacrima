@@ -48,7 +48,7 @@ namespace AES_Lacrima.Services
         private const int MaxImageSearchResults = 24;
         private const int MaxAutoCoverQueries = 8;
         private const int MaxAutoCoverCandidatesPerQuery = 6;
-        private const int MaxAutoCoverParallelDownloads = 4;
+        private const int MaxAutoCoverParallelDownloads = 2;
         private const int NormalizedCoverMaxDimension = 384;
         private const int AutoCoverSearchTimeoutSeconds = 10;
         private const int AutoCoverDownloadTimeoutSeconds = 4;
@@ -121,6 +121,8 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _nintendo3dsTitleId;
         [ObservableProperty] private bool _isSwitchMetadata;
         [ObservableProperty] private string? _switchTitleId;
+        [ObservableProperty] private bool _isPspMetadata;
+        [ObservableProperty] private string? _pspTitleId;
         [ObservableProperty] private double _replayGainTrackGain;
         [ObservableProperty] private double _replayGainAlbumGain;
         [ObservableProperty] private TagImageKind _selectedImageKind;

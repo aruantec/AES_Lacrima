@@ -107,6 +107,7 @@ namespace AES_Lacrima.ViewModels
 
             RefreshCurrentSectionLaunchOptionsState();
             SyncCurrentSectionRetroArchCoreSelection();
+            TryDiscoverInstalledRetroArchLauncher();
 
             if (!IsEmulatorRunning && !IsGameplayRecording)
                 RefreshCurrentSectionFlatpakApplications();

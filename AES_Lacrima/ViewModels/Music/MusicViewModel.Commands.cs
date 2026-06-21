@@ -346,9 +346,9 @@ namespace AES_Lacrima.ViewModels
             if (PointedIndex >= 0 && PointedIndex < CoverItems.Count)
                 return CoverItems[PointedIndex];
 
-            var centeredIndex = GetRoundedSelectedIndex(SelectedIndex);
-            if (centeredIndex >= 0 && centeredIndex < CoverItems.Count)
-                return CoverItems[centeredIndex];
+            int displayIndex = ResolveCarouselDisplayIndex();
+            if (displayIndex >= 0 && displayIndex < CoverItems.Count)
+                return CoverItems[displayIndex];
 
             return SelectedMediaItem ?? HighlightedItem ?? AudioPlayer?.CurrentMediaItem;
         }

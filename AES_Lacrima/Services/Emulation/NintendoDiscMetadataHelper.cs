@@ -82,7 +82,18 @@ public static class NintendoDiscMetadataHelper
     }
 
     public static bool ShouldLoadNintendoDiscMetadata(string? albumTitle, string? filePath) =>
-        IsNintendoDiscAlbum(albumTitle) || IsNintendoDiscFile(filePath);
+        IsNintendoDiscAlbum(albumTitle) ||
+        (IsNintendoDiscFile(filePath) && !IsAmbiguousSharedDiscExtension(filePath));
+
+    private static bool IsAmbiguousSharedDiscExtension(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return false;
+
+        var extension = Path.GetExtension(filePath);
+        return extension.Equals(".iso", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".bin", StringComparison.OrdinalIgnoreCase);
+    }
 
     public static string? ResolveAlbumTitle(string? itemAlbum, string? albumContext)
     {

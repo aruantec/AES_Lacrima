@@ -59,6 +59,8 @@ public class CustomMetadata
     public string PsXTitleId { get; set; } = "";
     /// <summary>Gets or sets the PSX version for emulation metadata.</summary>
     public string PsXVersion { get; set; } = "";
+    /// <summary>Gets or sets the PSP title ID (serial) for emulation metadata.</summary>
+    public string PspTitleId { get; set; } = "";
     /// <summary>Gets or sets the PS2 title ID (serial) for emulation metadata.</summary>
     public string Ps2TitleId { get; set; } = "";
     /// <summary>Gets or sets the PS2 version for emulation metadata.</summary>

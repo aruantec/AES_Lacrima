@@ -1,7 +1,7 @@
+using AES_Lacrima.Services.Emulation;
 using AES_Code.Models;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
-using AES_Lacrima.Services.Emulation;
 using System;
 using System.Linq;
 using System.Threading;
@@ -43,23 +43,13 @@ public partial class MetadataService
             if (EmulationCoverCacheHelper.HasCover(item.FileName))
                 return await TryApplyEmulationCoverSidecarAsync(item, effectiveToken).ConfigureAwait(false);
 
-            if (await IsCoverLookupAlreadyScannedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
-            {
-                if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(item.FileName))
-                    return await TryApplyEmulationCoverSidecarAsync(item, effectiveToken).ConfigureAwait(false);
+            if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(item.FileName))
+                return await TryApplyEmulationCoverSidecarAsync(item, effectiveToken).ConfigureAwait(false);
 
-                if (options.MarkExhaustedOnFailure)
-                    await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
+            await TryClearCoverLookupExhaustedForResolvedTitleAsync(item, effectiveToken).ConfigureAwait(false);
+
+            if (await IsCoverLookupExhaustedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
                 return false;
-            }
-
-            await TryApplyTitleFromPs3InstalledGameAsync(item, effectiveToken).ConfigureAwait(false);
-
-            if (await TryApplyCoverFromPs3InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
-                return true;
-
-            if (await TryApplyCoverFromPs4InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
-                return true;
 
             var searchQueries = BuildAutoCoverQueries(item, albumName)
                 .Take(MaxAutoCoverQueries)
@@ -71,8 +61,8 @@ public partial class MetadataService
             {
                 effectiveToken.ThrowIfCancellationRequested();
 
-                var candidates = AutoCoverImageHeuristics.RankCandidates(
-                    await FindImageResultsForAutoCoverAsync(searchQuery, effectiveToken, options).ConfigureAwait(false));
+                var candidates = await FindImageResultsForAutoCoverAsync(searchQuery, effectiveToken, options)
+                    .ConfigureAwait(false);
                 if (candidates.Count == 0)
                     continue;
 
@@ -116,6 +106,30 @@ public partial class MetadataService
 
     public Task<bool> TryApplyEmulationCoverSidecarAsync(MediaItem item, CancellationToken cancellationToken = default) =>
         EmulationCoverLoaderService.ApplyLocalCoverToItemAsync(item, cancellationToken);
+
+    private async Task<bool> TryFetchEmulationCoverFromHashProvidersAsync(
+        MediaItem item,
+        string? albumName,
+        CancellationToken cancellationToken)
+    {
+        var result = await EmulationOnlineCoverResolver
+            .TryResolveCoverAsync(item, albumName, cancellationToken)
+            .ConfigureAwait(false);
+        if (result == null)
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(result.ResolvedTitle) &&
+            EmulationOnlineCoverResolver.ShouldApplyResolvedTitle(item, result.ResolvedTitle))
+        {
+            item.Title = result.ResolvedTitle;
+        }
+
+        await SaveEmulationCoverSidecarAsync(item, result.Bytes).ConfigureAwait(false);
+        await TryApplyEmulationCoverSidecarAsync(item, cancellationToken).ConfigureAwait(false);
+        await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
+        SLog.Info($"Emulation cover applied for '{item.Title}' via {result.Source}.");
+        return true;
+    }
 
     private async Task SaveEmulationCoverSidecarAsync(MediaItem item, byte[] bytes)
     {

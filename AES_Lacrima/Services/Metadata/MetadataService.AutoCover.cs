@@ -1,37 +1,17 @@
 using AES_Code.Models;
 using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
-using AES_Core.DI;
-using AES_Core.IO;
-using AES_Lacrima.Helpers;
-using AES_Lacrima.Services.Emulation;
 using AES_Lacrima.ViewModels;
-using Avalonia;
-using Avalonia.Collections;
-using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Input;
-using Avalonia.Input.Platform;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using log4net;
+using SkiaSharp;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using TagLib;
-using File = System.IO.File;
 using Path = System.IO.Path;
 
 
@@ -77,11 +57,13 @@ namespace AES_Lacrima.Services
                     return true;
                 }
 
-                if (await IsCoverLookupAlreadyScannedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
+                if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(item.FileName))
                 {
-                    if (options.MarkExhaustedOnFailure)
-                        await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
-                    return false;
+                    if (await TryApplyCoverFromLocalMetadataAsync(item, effectiveToken).ConfigureAwait(false))
+                    {
+                        await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
+                        return true;
+                    }
                 }
 
                 await TryApplyTitleFromPs3InstalledGameAsync(item, effectiveToken).ConfigureAwait(false);
@@ -91,6 +73,16 @@ namespace AES_Lacrima.Services
 
                 if (await TryApplyCoverFromPs4InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
                     return true;
+
+                if (await TryFetchEmulationCoverFromHashProvidersAsync(item, albumName, cancellationToken).ConfigureAwait(false))
+                    return true;
+
+                if (await IsCoverLookupExhaustedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
+                {
+                    if (options.MarkExhaustedOnFailure)
+                        await MarkCoverLookupCompleteAsync(item, coverFound: false).ConfigureAwait(false);
+                    return false;
+                }
 
                 var searchQueries = BuildAutoCoverQueries(item, albumName)
                     .Take(MaxAutoCoverQueries)
@@ -104,15 +96,15 @@ namespace AES_Lacrima.Services
                 {
                     effectiveToken.ThrowIfCancellationRequested();
 
-                    var candidates = AutoCoverImageHeuristics.RankCandidates(
-                        await FindImageResultsForAutoCoverAsync(searchQuery, effectiveToken, options).ConfigureAwait(false));
+                    var candidates = await FindImageResultsForAutoCoverAsync(searchQuery, effectiveToken, options)
+                        .ConfigureAwait(false);
                     if (candidates.Count == 0)
                     {
                         SLog.Debug($"Auto cover lookup returned no candidates for query '{searchQuery}'.");
                         continue;
                     }
 
-                    SLog.Debug($"Auto cover lookup returned {candidates.Count} ranked candidates for query '{searchQuery}'.");
+                    SLog.Debug($"Auto cover lookup returned {candidates.Count} search-order candidates for query '{searchQuery}'.");
 
                     var download = await TryDownloadFirstViableAutoCoverAsync(candidates, effectiveToken, options)
                         .ConfigureAwait(false);
@@ -197,15 +189,18 @@ namespace AES_Lacrima.Services
             if (candidates.Count == 0)
                 return null;
 
-            var ranked = AutoCoverImageHeuristics.RankCandidates(candidates)
+            var orderedCandidates = AutoCoverImageHeuristics.OrderByPreferredFormat(candidates)
+                .Where(candidate => !AutoCoverImageHeuristics.ShouldSkipSearchResultUrl(candidate.FullImageUrl))
                 .Take(options.MaxCandidatesPerQuery)
                 .ToList();
-            if (ranked.Count == 0)
+            if (orderedCandidates.Count == 0)
                 return null;
+
+            int parallelLimit = Math.Clamp(options.MaxParallelDownloads, 1, MaxAutoCoverParallelDownloads);
 
             if (options.PreferSequentialDownloads)
             {
-                foreach (var candidate in ranked)
+                foreach (var candidate in orderedCandidates)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var download = await TryDownloadImageBytesAsync(candidate.FullImageUrl, cancellationToken, options)
@@ -225,10 +220,10 @@ namespace AES_Lacrima.Services
                 return null;
             }
 
-            for (int offset = 0; offset < ranked.Count; offset += MaxAutoCoverParallelDownloads)
+            for (int offset = 0; offset < orderedCandidates.Count; offset += parallelLimit)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var batch = ranked.Skip(offset).Take(MaxAutoCoverParallelDownloads).ToList();
+                var batch = orderedCandidates.Skip(offset).Take(parallelLimit).ToList();
                 using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var tasks = batch
                     .Select(candidate => TryDownloadImageBytesAsync(candidate.FullImageUrl, attemptCts.Token, options))
@@ -291,6 +286,8 @@ namespace AES_Lacrima.Services
             Nintendo3dsTitleId = null;
             IsSwitchMetadata = false;
             SwitchTitleId = null;
+            IsPspMetadata = false;
+            PspTitleId = null;
             IsMetadataLoading = false;
             IsMetadataLoaded = false;
         }
@@ -377,13 +374,22 @@ namespace AES_Lacrima.Services
             rejectReason = string.Empty;
             try
             {
-                using var stream = new MemoryStream(bytes, writable: false);
-                var bitmap = new Bitmap(stream);
-                var width = bitmap.PixelSize.Width;
-                var height = bitmap.PixelSize.Height;
-                if (AutoCoverImageHeuristics.ShouldRejectDownloadedImage(bytes, width, height))
+                using var decoded = SKBitmap.Decode(bytes);
+                if (decoded == null)
                 {
-                    rejectReason = $"{width}x{height}";
+                    rejectReason = "decode-failed";
+                    return false;
+                }
+
+                if (AutoCoverImageHeuristics.ShouldRejectDownloadedImage(bytes, decoded.Width, decoded.Height))
+                {
+                    rejectReason = $"{decoded.Width}x{decoded.Height}";
+                    return false;
+                }
+
+                if (AutoCoverImageHeuristics.LooksLikeMarketplacePhoto(decoded))
+                {
+                    rejectReason = "marketplace-border";
                     return false;
                 }
 

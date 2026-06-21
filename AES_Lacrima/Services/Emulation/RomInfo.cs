@@ -21,6 +21,10 @@ public class RomInfo
     public string? ArchiveMd5 { get; set; }
     public string? ArchiveSha1 { get; set; }
     public string? ArchiveCrc32 { get; set; }
+    /// <summary>Hashes of a cartridge-normalized payload (e.g. deinterleaved Genesis, headerless NES).</summary>
+    public string? AltMd5 { get; set; }
+    public string? AltSha1 { get; set; }
+    public string? AltCrc32 { get; set; }
     
     // Cover image as raw BGRA pixel data (4 bytes per pixel)
     public byte[]? CoverImageData { get; set; }

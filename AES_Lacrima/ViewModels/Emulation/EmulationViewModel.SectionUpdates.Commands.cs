@@ -126,13 +126,6 @@ namespace AES_Lacrima.ViewModels
                 {
                     CurrentSectionRetroArchDownloadProgress = 100;
                     ApplyRetroArchUpdateState(state);
-
-                    if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
-                        !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        handler.LauncherPath = state.ResolvedLauncherPath;
-                        SettingsViewModel?.SaveSettings();
-                    }
                 });
             }
             finally
@@ -140,6 +133,38 @@ namespace AES_Lacrima.ViewModels
                 IsCurrentSectionRetroArchBusy = false;
                 IsCurrentSectionRetroArchDownloading = false;
             }
+        }
+
+        private void TryApplyRetroArchResolvedLauncher(string? resolvedLauncherPath)
+        {
+            var handler = CurrentSectionEmulatorHandler;
+            if (handler == null || !handler.UsesRetroArchCores)
+                return;
+
+            if (handler.HasLauncherPath)
+                return;
+
+            RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, resolvedLauncherPath);
+            if (handler.HasLauncherPath)
+                SettingsViewModel?.SaveSettings();
+        }
+
+        private void TryDiscoverInstalledRetroArchLauncher()
+        {
+            var section = CurrentEmulationSectionItem;
+            var handler = CurrentSectionEmulatorHandler;
+            if (section == null || handler == null || !handler.UsesRetroArchCores || handler.HasLauncherPath)
+                return;
+
+            var updater = _retroArchEmulatorUpdateService;
+            if (updater == null)
+                return;
+
+            var resolved = updater.DiscoverInstalledLauncherPath(
+                section.SectionKey,
+                section.SectionTitle,
+                handler.LauncherPath);
+            TryApplyRetroArchResolvedLauncher(resolved);
         }
 
         private void ApplyRetroArchUpdateState(RetroArchUpdateState state)
@@ -150,6 +175,8 @@ namespace AES_Lacrima.ViewModels
             CurrentSectionRetroArchStatus = state.StatusMessage;
             CurrentSectionRetroArchEmulatorPath = state.EmulatorDirectory;
             CurrentSectionRetroArchUpdatePath = state.UpdateDirectory;
+
+            TryApplyRetroArchResolvedLauncher(state.ResolvedLauncherPath);
 
             CurrentSectionRetroArchAvailableVersions.Clear();
             foreach (var version in state.AvailableVersions.Take(10))

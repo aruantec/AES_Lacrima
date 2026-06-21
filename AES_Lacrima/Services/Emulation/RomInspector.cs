@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using AES_Lacrima.Services;
+using AES_Controls.Helpers;
 
 
 using log4net;
@@ -36,7 +37,9 @@ namespace AES_Lacrima.Services.Emulation
         /// <summary>PlayStation 4 installed package folder</summary>
         PS4 = 8,
         /// <summary>Nintendo Switch package (NSP, XCI, NCA, etc.)</summary>
-        Switch = 9
+        Switch = 9,
+        /// <summary>PlayStation Portable UMD ISO / PBP package</summary>
+        PSP = 10
     }
 
     /// <summary>
@@ -67,6 +70,11 @@ namespace AES_Lacrima.Services.Emulation
         private static readonly string[] SwitchExtensions =
         [
             ".nsp", ".xci", ".nca", ".nsz", ".xcz"
+        ];
+
+        private static readonly string[] PspExtensions =
+        [
+            ".cso", ".pbp", ".chd"
         ];
 
         /// <summary>
@@ -134,7 +142,18 @@ namespace AES_Lacrima.Services.Emulation
                 }
             }
 
-            if (ext == ".zip")
+            if (section == DiscSection.PSP || IsPspExtension(ext))
+            {
+                var pspInfo = InspectPspPackage(path);
+                if (!string.IsNullOrEmpty(pspInfo.GameId) ||
+                    !string.IsNullOrEmpty(pspInfo.InternalTitle) ||
+                    !string.IsNullOrEmpty(pspInfo.Md5))
+                {
+                    return pspInfo;
+                }
+            }
+
+            if (RomArchiveInspectionHelper.IsRomArchivePath(path))
                 return InspectArchive(path);
 
             if (ext == ".cue")
@@ -318,44 +337,25 @@ namespace AES_Lacrima.Services.Emulation
         }
 
         /// <summary>
-        /// Inspect a zip archive and choose the largest candidate ROM entry.
+        /// Inspect a compressed ROM archive (zip/7z/rar) and hash the largest inner ROM file.
         /// </summary>
-        public static RomInfo InspectArchive(string zipPath)
+        public static RomInfo InspectArchive(string archivePath)
         {
-            var archiveHashes = ComputeArchiveHashes(zipPath);
+            var archiveHashes = ComputeArchiveHashes(archivePath);
 
-            using var zf = File.OpenRead(zipPath);
-            using var za = new ZipArchive(zf, ZipArchiveMode.Read, leaveOpen: false);
-
-            string[] exts = new[] { ".z64", ".v64", ".n64", ".rom", ".bin", ".iso", ".img", ".sfc", ".smc", ".nes", ".md", ".gen", ".smd", ".gb", ".gbc", ".gba", ".sms", ".gg" };
-            var entry = za.Entries
-                          .Where(e => !string.IsNullOrEmpty(Path.GetExtension(e.FullName)) &&
-                                      exts.Contains(Path.GetExtension(e.FullName).ToLowerInvariant()))
-                          .OrderByDescending(e => e.Length)
-                          .FirstOrDefault();
-
-            if (entry == null)
+            if (!RomArchiveInspectionHelper.TryExtractPrimaryRomEntry(
+                    archivePath,
+                    out var temp,
+                    out var displayPath))
             {
-                // Fallback: pick the largest file that isn't a text file or common metadata
-                var candidate = za.Entries
-                                  .Where(e => !string.IsNullOrEmpty(Path.GetExtension(e.FullName)))
-                                  .OrderByDescending(e => e.Length)
-                                  .FirstOrDefault();
-                
-                if (candidate != null) entry = candidate;
-                else return new RomInfo { FilePath = zipPath, Format = RomFormat.Unknown };
+                return new RomInfo { FilePath = archivePath, Format = RomFormat.Unknown };
             }
 
-            var temp = Path.Combine(Path.GetTempPath(), $"romtools_{Guid.NewGuid():N}{Path.GetExtension(entry.FullName)}");
             try
             {
-                using (var entryStream = entry.Open())
-                using (var outFs = File.Create(temp))
-                    entryStream.CopyTo(outFs);
-
                 using var fs = File.Open(temp, FileMode.Open, FileAccess.Read, FileShare.Read);
-                var displayPath = $"{zipPath}::{entry.FullName}";
                 var info = InspectFromStream(fs, displayPath);
+                info.FilePath = archivePath;
                 info.ArchiveMd5 = archiveHashes.Md5;
                 info.ArchiveSha1 = archiveHashes.Sha1;
                 info.ArchiveCrc32 = archiveHashes.Crc32;
@@ -363,7 +363,7 @@ namespace AES_Lacrima.Services.Emulation
             }
             finally
             {
-                try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception logEx) { Log.Warn("Exception caught", logEx); }
+                RomArchiveInspectionHelper.TryDeleteTemp(temp);
             }
         }
 
@@ -386,6 +386,7 @@ namespace AES_Lacrima.Services.Emulation
                 md5.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
                 sha1.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
 
+                stream.Seek(0, SeekOrigin.Begin);
                 uint crc = RomToolHelpers.Crc32.Compute(stream);
 
                 string? md5Hex = md5.Hash is not null
@@ -512,23 +513,26 @@ namespace AES_Lacrima.Services.Emulation
             if (WiiUInstalledGameHelper.IsWiiUFileExtension(ext))
                 return info;
 
-            var discExts = new[] { ".bin", ".iso", ".img", ".cdi", ".gdi" };
-            if (discExts.Contains(ext) || fs.Length >= 0x8000)
+            if (!IsCartridgeFormat(info.Format))
             {
-                var isoInfo = InspectDiscFromStream(fs, displayPath, section);
-                if (!string.IsNullOrEmpty(isoInfo.SystemCnf) ||
-                    !string.IsNullOrEmpty(isoInfo.DiscVolumeLabel) ||
-                    !string.IsNullOrEmpty(isoInfo.GameId))
+                var discExts = new[] { ".bin", ".iso", ".img", ".cdi", ".gdi" };
+                if (discExts.Contains(ext) || fs.Length >= 0x8000)
                 {
-                    info.Format = RomFormat.Iso;
-                    info.DiscVolumeLabel = isoInfo.DiscVolumeLabel;
-                    info.SystemCnf = isoInfo.SystemCnf;
-                    info.BootFilePath = isoInfo.BootFilePath;
-                    info.GameId = isoInfo.GameId;
-                    info.Md5 = isoInfo.Md5;
-                    info.Sha1 = isoInfo.Sha1;
-                    info.Crc32 = isoInfo.Crc32;
-                    return info;
+                    var isoInfo = InspectDiscFromStream(fs, displayPath, section);
+                    if (!string.IsNullOrEmpty(isoInfo.SystemCnf) ||
+                        !string.IsNullOrEmpty(isoInfo.DiscVolumeLabel) ||
+                        !string.IsNullOrEmpty(isoInfo.GameId))
+                    {
+                        info.Format = RomFormat.Iso;
+                        info.DiscVolumeLabel = isoInfo.DiscVolumeLabel;
+                        info.SystemCnf = isoInfo.SystemCnf;
+                        info.BootFilePath = isoInfo.BootFilePath;
+                        info.GameId = isoInfo.GameId;
+                        info.Md5 = isoInfo.Md5;
+                        info.Sha1 = isoInfo.Sha1;
+                        info.Crc32 = isoInfo.Crc32;
+                        return info;
+                    }
                 }
             }
 
@@ -539,27 +543,28 @@ namespace AES_Lacrima.Services.Emulation
                 info.HeaderCrc2 = ReadUInt32BE(normHeader, 0x14);
             }
 
-            // Full-file hashes only for reasonably small files
-            if (fs.Length <= FullHashThreshold)
+            // Full-file hashes only for reasonably small cartridge files — never for disc images.
+            if (!IsDiscMediaCandidate(info, displayPath, section) && fs.Length <= FullHashThreshold)
             {
                 fs.Seek(0, SeekOrigin.Begin);
-                using var md5 = MD5.Create();
-                using var sha1 = SHA1.Create();
-                info.Md5 = BitConverter.ToString(md5.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
-                fs.Seek(0, SeekOrigin.Begin);
-                info.Sha1 = BitConverter.ToString(sha1.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+                var bytes = new byte[(int)fs.Length];
+                if (fs.Read(bytes, 0, bytes.Length) == bytes.Length &&
+                    !TryApplyGenesisCartridgeInspection(bytes, displayPath, info))
+                {
+                    ApplyCartridgeHashes(bytes, info, usePrimaryFields: true);
+                }
+            }
+            else if (string.IsNullOrEmpty(info.Crc32) && !IsDiscMediaCandidate(info, displayPath, section))
+            {
                 fs.Seek(0, SeekOrigin.Begin);
                 info.Crc32 = $"0x{RomToolHelpers.Crc32.Compute(fs):X8}";
             }
 
-            if (string.IsNullOrEmpty(info.Crc32))
-            {
-                fs.Seek(0, SeekOrigin.Begin);
-                info.Crc32 = $"0x{RomToolHelpers.Crc32.Compute(fs):X8}";
-            }
+            PopulateAlternateCartridgeHashes(fs, info, displayPath);
 
-            // Normalized SHA1 when reasonable
-            if (fs.Length <= NormSha1Threshold)
+            // Normalized SHA1 when reasonable (N64 header variants only)
+            if (fs.Length <= NormSha1Threshold &&
+                (info.Format == RomFormat.N64 || info.Format == RomFormat.Z64 || info.Format == RomFormat.V64))
             {
                 fs.Seek(0, SeekOrigin.Begin);
                 info.NormSha1 = ComputeNormalizedSha1(fs, detectedFormat);
@@ -567,6 +572,14 @@ namespace AES_Lacrima.Services.Emulation
 
             return info;
         }
+
+        private static bool IsCartridgeFormat(RomFormat format) =>
+            format is RomFormat.Nes
+                or RomFormat.Snes
+                or RomFormat.Gba
+                or RomFormat.Gbx
+                or RomFormat.Genesis
+                or RomFormat.Sms;
 
         /// <summary>
         /// Inspect ISO/BIN content without reading entire file; supports 2048 and 2352 sector sizes and header shifts.
@@ -1511,10 +1524,21 @@ namespace AES_Lacrima.Services.Emulation
 
         private static string? ExtractGenesisTitle(Stream fs)
         {
-            fs.Seek(0x150, SeekOrigin.Begin);
-            byte[] title = new byte[48];
-            fs.ReadExactly(title, 0, 48);
-            return Encoding.ASCII.GetString(title).TrimEnd('\0', ' ');
+            if (!fs.CanSeek || fs.Length < 0x200)
+                return null;
+
+            fs.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[(int)fs.Length];
+            if (fs.Read(bytes, 0, bytes.Length) != bytes.Length)
+                return null;
+
+            if (TryBuildGenesisLookupRom(bytes, null, out var normalized))
+                return ExtractGenesisTitleFromBytes(normalized);
+
+            if (bytes.Length < 0x180)
+                return null;
+
+            return Encoding.ASCII.GetString(bytes, 0x150, 48).TrimEnd('\0', ' ');
         }
 
         private static void SwapPairs(byte[] buf, int len)
@@ -2122,6 +2146,331 @@ namespace AES_Lacrima.Services.Emulation
 
         private static bool IsSwitchExtension(string extension)
             => SwitchExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+
+        private static void PopulateAlternateCartridgeHashes(Stream fs, RomInfo info, string? displayPath)
+        {
+            if (!fs.CanSeek || fs.Length <= 0 || fs.Length > FullHashThreshold)
+                return;
+
+            if (info.Format == RomFormat.Genesis)
+                return;
+
+            try
+            {
+                fs.Seek(0, SeekOrigin.Begin);
+                var bytes = new byte[(int)fs.Length];
+                if (fs.Read(bytes, 0, bytes.Length) != bytes.Length)
+                    return;
+
+                byte[]? normalized = info.Format == RomFormat.Nes
+                    ? TryNormalizeNesRomForHash(bytes)
+                    : null;
+
+                if (normalized == null || normalized.Length == 0)
+                    return;
+
+                ApplyCartridgeHashes(normalized, info, usePrimaryFields: false);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed to compute alternate cartridge hashes for '{info.FilePath}'.", ex);
+            }
+        }
+
+        private static bool TryApplyGenesisCartridgeInspection(byte[] data, string? displayPath, RomInfo info)
+        {
+            if (!TryBuildGenesisLookupRom(data, displayPath, out var normalized))
+                return false;
+
+            info.Format = RomFormat.Genesis;
+            ApplyCartridgeHashes(normalized, info, usePrimaryFields: true);
+
+            var title = ExtractGenesisTitleFromBytes(normalized);
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                title = CleanAsciiText(title);
+                if (IsValidTitle(title))
+                    info.InternalTitle = title;
+            }
+
+            return true;
+        }
+
+        private static bool TryBuildGenesisLookupRom(byte[] data, string? displayPath, out byte[] normalized)
+        {
+            normalized = Array.Empty<byte>();
+            var payload = data;
+
+            if (LooksLikeSmdContainer(data, displayPath))
+            {
+                if (data.Length <= 512)
+                    return false;
+
+                payload = data.AsSpan(512).ToArray();
+            }
+
+            if (payload.Length < 0x200)
+                return false;
+
+            if (HasSegaTag(payload, 0x100))
+            {
+                normalized = payload;
+                return true;
+            }
+
+            if (payload.Length % 16384 != 0)
+                return false;
+
+            var deinterleaved = DeinterleaveGenesisPayload(payload);
+            if (HasSegaTag(deinterleaved, 0x100))
+            {
+                normalized = deinterleaved;
+                return true;
+            }
+
+            if (!HasEsagTag(deinterleaved, 0x100))
+                return false;
+
+            var swapped = SwapPairsCopy(deinterleaved);
+            if (!HasSegaTag(swapped, 0x100))
+                return false;
+
+            normalized = swapped;
+            return true;
+        }
+
+        private static bool LooksLikeSmdContainer(byte[] data, string? displayPath)
+        {
+            var entryName = displayPath;
+            if (!string.IsNullOrWhiteSpace(displayPath))
+            {
+                int separator = displayPath.LastIndexOf("::", StringComparison.Ordinal);
+                if (separator >= 0 && separator + 2 < displayPath.Length)
+                    entryName = displayPath[(separator + 2)..];
+
+                if (entryName!.EndsWith(".smd", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return data.Length > 512 && (data.Length - 512) % 16384 == 0;
+        }
+
+        private static bool HasSegaTag(byte[] buffer, int offset) =>
+            offset + 4 <= buffer.Length &&
+            buffer[offset] == (byte)'S' &&
+            buffer[offset + 1] == (byte)'E' &&
+            buffer[offset + 2] == (byte)'G' &&
+            buffer[offset + 3] == (byte)'A';
+
+        private static bool HasEsagTag(byte[] buffer, int offset) =>
+            offset + 4 <= buffer.Length &&
+            buffer[offset] == (byte)'E' &&
+            buffer[offset + 1] == (byte)'S' &&
+            buffer[offset + 2] == (byte)'A' &&
+            buffer[offset + 3] == (byte)'G';
+
+        private static byte[] SwapPairsCopy(byte[] buffer)
+        {
+            var copy = (byte[])buffer.Clone();
+            SwapPairs(copy, copy.Length);
+            return copy;
+        }
+
+        private static string? ExtractGenesisTitleFromBytes(byte[] normalized)
+        {
+            if (normalized.Length < 0x180)
+                return null;
+
+            var international = ReadGenesisAsciiField(normalized, 0x150, 48);
+            var domestic = ReadGenesisAsciiField(normalized, 0x120, 48);
+
+            if (!string.IsNullOrWhiteSpace(international))
+            {
+                var cleaned = CleanAsciiText(international);
+                if (IsValidTitle(cleaned))
+                    return cleaned;
+            }
+
+            if (!string.IsNullOrWhiteSpace(domestic))
+            {
+                int slash = domestic.IndexOf('/');
+                if (slash > 0)
+                {
+                    var shortDomestic = CleanAsciiText(domestic[..slash]);
+                    if (IsValidTitle(shortDomestic))
+                        return shortDomestic;
+                }
+
+                var cleanedDomestic = CleanAsciiText(domestic);
+                if (IsValidTitle(cleanedDomestic))
+                    return cleanedDomestic;
+            }
+
+            return null;
+        }
+
+        private static string ReadGenesisAsciiField(byte[] buffer, int offset, int length)
+        {
+            if (offset >= buffer.Length)
+                return string.Empty;
+
+            int max = Math.Min(buffer.Length, offset + length);
+            int end = offset;
+            while (end < max && buffer[end] >= 32 && buffer[end] <= 126)
+                end++;
+
+            return end <= offset
+                ? string.Empty
+                : Encoding.ASCII.GetString(buffer, offset, end - offset).TrimEnd();
+        }
+
+        private static void ApplyCartridgeHashes(byte[] bytes, RomInfo info, bool usePrimaryFields)
+        {
+            using var md5 = MD5.Create();
+            using var sha1 = SHA1.Create();
+            var md5Hex = BitConverter.ToString(md5.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+            var sha1Hex = BitConverter.ToString(sha1.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+            using var crcStream = new MemoryStream(bytes, writable: false);
+            var crcHex = $"0x{RomToolHelpers.Crc32.Compute(crcStream):X8}";
+
+            if (usePrimaryFields)
+            {
+                info.Md5 = md5Hex;
+                info.Sha1 = sha1Hex;
+                info.Crc32 = crcHex;
+                return;
+            }
+
+            info.AltMd5 = md5Hex;
+            info.AltSha1 = sha1Hex;
+            info.AltCrc32 = crcHex;
+        }
+
+        private static byte[] DeinterleaveGenesisPayload(byte[] interleaved)
+        {
+            if (interleaved.Length == 0 || interleaved.Length % 16384 != 0)
+                return interleaved;
+
+            var output = new byte[interleaved.Length];
+            for (int block = 0; block < interleaved.Length / 16384; block++)
+            {
+                int blockStart = block * 16384;
+                for (int i = 0; i < 8192; i++)
+                {
+                    output[blockStart + (i * 2)] = interleaved[blockStart + i];
+                    output[blockStart + (i * 2) + 1] = interleaved[blockStart + 8192 + i];
+                }
+            }
+
+            return output;
+        }
+
+        private static byte[]? TryNormalizeNesRomForHash(byte[] data)
+        {
+            if (data.Length <= 16 || data[0] != (byte)'N' || data[1] != (byte)'E' || data[2] != (byte)'S' || data[3] != 0x1A)
+                return null;
+
+            int trainerSize = (data[6] & 0x04) != 0 ? 512 : 0;
+            int offset = 16 + trainerSize;
+            if (offset >= data.Length)
+                return null;
+
+            var body = new byte[data.Length - offset];
+            Buffer.BlockCopy(data, offset, body, 0, body.Length);
+            return body;
+        }
+
+        private static bool IsPspExtension(string extension)
+            => PspExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsDiscMediaCandidate(RomInfo info, string displayPath, DiscSection section)
+        {
+            if (info.Format == RomFormat.Iso)
+                return true;
+
+            if (section is DiscSection.PSX or DiscSection.PS2 or DiscSection.Dreamcast
+                or DiscSection.GameCube or DiscSection.Wii or DiscSection.WiiU or DiscSection.PSP)
+                return true;
+
+            var ext = Path.GetExtension(displayPath);
+            return ext.Equals(".iso", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".bin", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".img", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".cue", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".gdi", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".chd", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".cso", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".pbp", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static RomInfo InspectPspPackage(string path)
+        {
+            var info = new RomInfo
+            {
+                FilePath = path,
+                Format = RomFormat.Iso
+            };
+
+            try
+            {
+                using var fs = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var ext = Path.GetExtension(path);
+
+                string? discId = null;
+                string? title = null;
+                bool readSfo = false;
+                if (string.Equals(ext, ".pbp", StringComparison.OrdinalIgnoreCase))
+                    readSfo = PspParamSfoReader.TryReadFromPbp(fs, out discId, out title);
+                else if (string.Equals(ext, ".cso", StringComparison.OrdinalIgnoreCase))
+                    readSfo = PspParamSfoReader.TryReadFromCso(fs, out discId, out title);
+                else if (string.Equals(ext, ".iso", StringComparison.OrdinalIgnoreCase))
+                    readSfo = PspParamSfoReader.TryReadFromIso(fs, out discId, out title);
+
+                if (readSfo)
+                {
+                    if (!string.IsNullOrWhiteSpace(discId))
+                        info.GameId = NormalizePspGameId(discId) ?? discId.Trim();
+
+                    if (!string.IsNullOrWhiteSpace(title))
+                        info.InternalTitle = CleanAsciiText(title.Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"PSP package inspection failed for '{path}'.", ex);
+            }
+
+            if (!string.IsNullOrEmpty(info.InternalTitle) && !IsValidTitle(info.InternalTitle))
+                info.InternalTitle = null;
+
+            return info;
+        }
+
+        internal static void EnsurePspDiscHashes(RomInfo info)
+        {
+            // Disc images are never fully hashed — serial/header metadata is enough.
+        }
+
+        private static string? NormalizePspGameId(string? rawId)
+        {
+            if (string.IsNullOrWhiteSpace(rawId))
+                return null;
+
+            var cleaned = rawId.Trim().Replace("_", string.Empty).Replace("-", string.Empty).Replace(".", string.Empty);
+            var match = Regex.Match(
+                cleaned,
+                @"^(UL[A-Z]{2}|UC[A-Z]{2}|NPU[A-Z]|NPE[A-Z]|NPJ[A-Z]|NPH[A-Z]|UL[A-Z]\d?)(\d{4,5})",
+                RegexOptions.IgnoreCase);
+            if (!match.Success)
+                return null;
+
+            var prefix = match.Groups[1].Value.ToUpperInvariant();
+            var digits = match.Groups[2].Value.PadLeft(5, '0');
+            if (digits.Length > 5)
+                digits = digits[^5..];
+
+            return $"{prefix}-{digits}";
+        }
 
         private static bool IsSwitchContext(string extension, DiscSection section)
             => section == DiscSection.Switch || IsSwitchExtension(extension);

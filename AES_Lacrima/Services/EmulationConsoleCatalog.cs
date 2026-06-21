@@ -65,7 +65,7 @@ namespace AES_Lacrima.Services
                 "GENESIS",
                 "Sega Genesis",
                 ["Sega Genesis", "Genesis", "Mega Drive", "MegaDrive", "Mega Drive / Genesis", "MD"],
-                ["*.gen", "*.md", "*.smd", "*.bin", "*.zip", "*.7z"]),
+                ["*.gen", "*.md", "*.smd", "*.32x", "*.sg", "*.bin", "*.zip", "*.7z"]),
             new(
                 "NDS",
                 "Nintendo DS",

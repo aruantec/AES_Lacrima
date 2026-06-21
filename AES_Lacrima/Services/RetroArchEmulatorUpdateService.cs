@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using AES_Controls.Helpers;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation.EmulationHandlers;
 using AES_Lacrima.Serialization;
 using log4net;
 
@@ -62,6 +63,30 @@ public partial class RetroArchEmulatorUpdateService
         string? ReleaseNotes = null);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
+
+    public static void ApplyResolvedLauncher(IEmulatorHandler handler, string? resolvedLauncherPath)
+    {
+        if (handler == null || string.IsNullOrWhiteSpace(resolvedLauncherPath))
+            return;
+
+        var normalized = handler.NormalizeLauncherPath(resolvedLauncherPath);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        if (string.Equals(handler.LauncherPath, normalized, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        handler.LauncherPath = normalized;
+    }
+
+    public string? DiscoverInstalledLauncherPath(string sectionKey, string sectionTitle, string? configuredLauncherPath = null)
+    {
+        var (emulatorDirectory, _) = EnsureDirectories(sectionKey, sectionTitle);
+        if (OperatingSystem.IsLinux())
+            TryMarkRetroArchLinuxBinaryExecutable(emulatorDirectory);
+
+        return ResolveLauncherPath(configuredLauncherPath, emulatorDirectory);
+    }
 
     private static readonly Regex NightlyAssetRegex = new(
         "<a\\s+href=\"(?<href>[^\"]+)\"[^>]*>(?<name>[^<]+)</a>",

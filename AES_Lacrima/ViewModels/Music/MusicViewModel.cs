@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Controls.Composition;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Code.Models;
@@ -571,7 +572,7 @@ namespace AES_Lacrima.ViewModels
             SettingsViewModel?.IsCoverCarouselMode == true && CoverItems.Count > 0;
 
         /// <summary>
-        /// Item driving carousel title overlay labels; follows live scroll preview when set.
+        /// Item driving carousel title overlay labels; follows the visually centered carousel item.
         /// </summary>
         public MediaItem? CarouselOverlayItem
         {
@@ -580,13 +581,24 @@ namespace AES_Lacrima.ViewModels
                 if (CoverItems.Count == 0)
                     return null;
 
-                double index = CarouselSliderPreview ?? SelectedIndex;
-                int roundedIndex = GetRoundedSelectedIndex(index);
-                if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
-                    return CoverItems[roundedIndex];
+                int index = ResolveCarouselDisplayIndex();
+                if (index >= 0 && index < CoverItems.Count)
+                    return CoverItems[index];
 
                 return HighlightedItem;
             }
+        }
+
+        protected int ResolveCarouselDisplayIndex()
+        {
+            if (CarouselSliderPreview is double preview && !double.IsNaN(preview))
+                return GetRoundedSelectedIndex(preview);
+
+            int visible = CompositionViewportState.VisibleCenterIndex;
+            if (visible >= 0 && visible < CoverItems.Count)
+                return visible;
+
+            return GetRoundedSelectedIndex(SelectedIndex);
         }
 
         protected void NotifyCarouselOverlayItemChanged()

@@ -1,3 +1,4 @@
+using AES_Controls.Composition;
 using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
@@ -61,7 +62,11 @@ namespace AES_Lacrima.ViewModels
                 Album = string.Empty
             };
 
+            CompositionViewportState.VisibleCenterIndexChanged += OnCarouselVisibleCenterIndexChanged;
         }
+
+        private void OnCarouselVisibleCenterIndexChanged(int index)
+            => NotifyCarouselOverlayItemChanged();
 
         public override void Prepare()
         {

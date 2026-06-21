@@ -166,8 +166,8 @@ namespace AES_Lacrima.ViewModels
 
         private MediaItem? GetCurrentCarouselSelectedItem()
         {
-            var roundedIndex = GetRoundedSelectedIndex(SelectedIndex);
-            return GetCarouselItemByIndex(roundedIndex);
+            int idx = ResolveCarouselDisplayIndex();
+            return GetCarouselItemByIndex(idx);
         }
 
         private MediaItem? GetCarouselItemByIndex(int idx)

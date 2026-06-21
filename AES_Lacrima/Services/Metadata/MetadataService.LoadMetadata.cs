@@ -364,6 +364,20 @@ namespace AES_Lacrima.Services
             }
         }
 
+        /// <summary>
+        /// Closes the metadata editor and clears stale selection state (e.g. when switching albums).
+        /// </summary>
+        public void DismissEditorIfOpen()
+        {
+            if (!IsMetadataLoaded)
+                return;
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Close();
+            else
+                Dispatcher.UIThread.Post(Close);
+        }
+
         private async Task LoadMetadataForItemCoreAsync(MediaItem item, string? albumContext)
         {
             OpenMetadataEditorShell(item, albumContext);
@@ -434,6 +448,8 @@ namespace AES_Lacrima.Services
              IsSwitchMetadata = IsSwitchAlbum(item.Album) ||
                                 SwitchRomMetadataHelper.IsSwitchFile(item.FileName);
              SwitchTitleId = null;
+             IsPspMetadata = IsPspAlbum(item.Album);
+             PspTitleId = null;
 
             Title = item.Title;
             Artists = item.Artist;
@@ -518,6 +534,8 @@ namespace AES_Lacrima.Services
                         Nintendo3dsTitleId = metadata.Nintendo3dsTitleId;
                     if (string.IsNullOrWhiteSpace(SwitchTitleId))
                         SwitchTitleId = metadata.SwitchTitleId;
+                    if (string.IsNullOrWhiteSpace(PspTitleId))
+                        PspTitleId = metadata.PspTitleId;
 
                     NintendoDiscMetadataHelper.ApplyMetadataFlags(
                         nintendoAlbumTitle,
@@ -752,6 +770,11 @@ namespace AES_Lacrima.Services
             if (IsSwitchMetadata && !string.IsNullOrWhiteSpace(item.FileName))
             {
                 await LoadSwitchMetadataAsync(item).ConfigureAwait(false);
+            }
+
+            if (IsPspMetadata && !string.IsNullOrWhiteSpace(item.FileName))
+            {
+                await LoadPspMetadataAsync(item).ConfigureAwait(false);
             }
         }
 

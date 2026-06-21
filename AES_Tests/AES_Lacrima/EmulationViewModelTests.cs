@@ -16,6 +16,32 @@ public sealed class EmulationViewModelTests
 {
     private static readonly ILog Log = LogHelper.For<EmulationViewModelTests>();
     [Fact]
+    public void ScanFolderForRomPaths_GenesisRomExtensions_AreDiscovered()
+    {
+        using var tempDir = new TempDirectory();
+        File.WriteAllBytes(Path.Combine(tempDir.Path, "Sonic The Hedgehog.md"), [0x00]);
+        File.WriteAllBytes(Path.Combine(tempDir.Path, "Streets of Rage.gen"), [0x00]);
+        File.WriteAllBytes(Path.Combine(tempDir.Path, "Golden Axe.smd"), [0x00]);
+
+        var nestedDir = Path.Combine(tempDir.Path, "nested");
+        Directory.CreateDirectory(nestedDir);
+        File.WriteAllBytes(Path.Combine(nestedDir, "Comix Zone.bin"), [0x00]);
+
+        var method = typeof(EmulationViewModel)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(m => m.Name == "ScanFolderForRomPaths" && m.GetParameters().Length == 3);
+
+        var patterns = EmulationConsoleCatalog.GetScanPatterns("Sega Genesis");
+        var result = method.Invoke(null, new object?[] { tempDir.Path, "Sega Genesis", patterns });
+        Assert.NotNull(result);
+
+        var paths = Assert.IsAssignableFrom<IReadOnlyList<string>>(result);
+        Assert.Equal(4, paths.Count);
+        Assert.Contains(Path.Combine(tempDir.Path, "Sonic The Hedgehog.md"), paths, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(Path.Combine(nestedDir, "Comix Zone.bin"), paths, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ScanFolderForRomPaths_WiiUPackageDirectory_ReturnsFolderPath()
     {
         using var tempDir = new TempDirectory();

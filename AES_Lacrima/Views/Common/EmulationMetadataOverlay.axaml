@@ -154,6 +154,10 @@
                                     <TextBlock Text="Title ID" Foreground="#D8D8D8" FontSize="14" />
                                     <TextBox Text="{Binding SwitchTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
                                 </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsPspMetadata}">
+                                    <TextBlock Text="Title ID (Serial)" Foreground="#D8D8D8" FontSize="14" />
+                                    <TextBox Text="{Binding PspTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
+                                </StackPanel>
 
                                 <Button Content="Add Gameplay"
                                         Command="{Binding AddGameplayCommand}"

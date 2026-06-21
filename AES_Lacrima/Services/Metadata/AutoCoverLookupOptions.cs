@@ -15,8 +15,9 @@ public sealed class AutoCoverLookupOptions
         SearchTimeoutSeconds = 5,
         DownloadTimeoutSeconds = 2.5,
         TotalBudgetSeconds = 9,
-        MaxCandidatesPerQuery = 6,
-        PreferSequentialDownloads = true,
+        MaxCandidatesPerQuery = 4,
+        MaxParallelDownloads = 2,
+        PreferSequentialDownloads = false,
         MarkExhaustedOnFailure = true,
         MarkExhaustedOnTimeout = false
     };
@@ -29,8 +30,9 @@ public sealed class AutoCoverLookupOptions
         SearchTimeoutSeconds = 10,
         DownloadTimeoutSeconds = 5,
         TotalBudgetSeconds = 18,
-        MaxCandidatesPerQuery = 8,
-        PreferSequentialDownloads = true,
+        MaxCandidatesPerQuery = 4,
+        MaxParallelDownloads = 2,
+        PreferSequentialDownloads = false,
         MarkExhaustedOnFailure = true,
         MarkExhaustedOnTimeout = false
     };
@@ -38,7 +40,17 @@ public sealed class AutoCoverLookupOptions
     public int SearchTimeoutSeconds { get; init; } = 10;
     public double DownloadTimeoutSeconds { get; init; } = 4;
     public int TotalBudgetSeconds { get; init; }
-    public int MaxCandidatesPerQuery { get; init; } = 6;
+    /// <summary>
+    /// Leading search hits to try, in the same order as the metadata editor "Use Title" search.
+    /// </summary>
+    public int MaxCandidatesPerQuery { get; init; } = 4;
+    /// <summary>
+    /// Max concurrent candidate downloads per batch (capped at 2 for background scans).
+    /// </summary>
+    public int MaxParallelDownloads { get; init; } = 2;
+    /// <summary>
+    /// When true, downloads one candidate at a time instead of batching.
+    /// </summary>
     public bool PreferSequentialDownloads { get; init; }
     public bool MarkExhaustedOnFailure { get; init; } = true;
     public bool MarkExhaustedOnTimeout { get; init; } = true;

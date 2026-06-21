@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Controls.Composition;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
@@ -81,7 +82,6 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumCoverScanDebounceMap = [];
         private readonly HashSet<string> _deferredCoverLookupPaths = new(StringComparer.OrdinalIgnoreCase);
-        private int _activeAlbumCoverScans;
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = [];
         private readonly HashSet<FolderMediaItem> _activeAlbumPreviewCoverLoads = [];
         private readonly object _albumPreviewCoverLoadGate = new();
@@ -90,10 +90,13 @@ namespace AES_Lacrima.ViewModels
         private const int FolderPreviewCoverCount = FolderMediaItem.AlbumTilePresentationCoverCount;
         private const int InitialCoverLoadingRadius = 12;
         private const int AlbumCoverLoadBatchSize = 8;
+        private const int LoadedAlbumCoverLoadBatchSize = 20;
         private const int AlbumCoverLoadParallelism = 3;
+        private const int LoadedAlbumCoverLoadParallelism = 6;
         private const int AlbumCoverScanDebounceMs = 350;
         private const int VisibleCoverPriorityRadius = 18;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
+        private int _activeAlbumCoverScans;
         private AvaloniaList<string> _pendingAlbumOrder = [];
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
         private int _albumCoverDisplayRevision;
@@ -414,7 +417,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool IsCarouselPositionSliderVisible => CoverItems.Count > 1;
 
         /// <summary>
-        /// Item driving carousel title overlay labels; follows live scroll preview when set.
+        /// Item driving carousel title overlay labels; follows the visually centered carousel item.
         /// </summary>
         public MediaItem? CarouselOverlayItem
         {
@@ -423,13 +426,24 @@ private bool _isShadPs4PatchesOverlayOpen;
                 if (!HasCarouselTitleOverlayItem)
                     return null;
 
-                double index = CarouselSliderPreview ?? SelectedIndex;
-                int roundedIndex = GetRoundedSelectedIndex(index);
-                if (roundedIndex >= 0 && roundedIndex < CoverItems.Count)
-                    return CoverItems[roundedIndex];
+                int index = ResolveCarouselDisplayIndex();
+                if (index >= 0 && index < CoverItems.Count)
+                    return CoverItems[index];
 
                 return null;
             }
+        }
+
+        private int ResolveCarouselDisplayIndex()
+        {
+            if (CarouselSliderPreview is double preview && !double.IsNaN(preview))
+                return GetRoundedSelectedIndex(preview);
+
+            int visible = CompositionViewportState.VisibleCenterIndex;
+            if (visible >= 0 && visible < CoverItems.Count)
+                return visible;
+
+            return GetRoundedSelectedIndex(SelectedIndex);
         }
 
         private bool HasCarouselTitleOverlayItem =>
@@ -1212,10 +1226,14 @@ private bool _isShadPs4PatchesOverlayOpen;
             AlbumList.CollectionChanged += AlbumList_CollectionChanged;
             CoverItems.CollectionChanged += OnCoverItemsCollectionChanged;
             PropertyChanged += EmulationViewModel_PropertyChanged;
+            CompositionViewportState.VisibleCenterIndexChanged += OnCarouselVisibleCenterIndexChanged;
             _selectedShaderFileItem = ShaderFileItems.FirstOrDefault() ?? new(string.Empty, string.Empty);
             _selectedShaderPath = _selectedShaderFileItem.FilePath;
             _clearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(_selectedShaderFileItem.FilePath);
         }
+
+        private void OnCarouselVisibleCenterIndexChanged(int index)
+            => NotifyCarouselOverlayItemChanged();
 
         partial void OnCoverItemsChanged(AvaloniaList<MediaItem>? oldValue, AvaloniaList<MediaItem> newValue)
         {
@@ -1586,6 +1604,11 @@ private bool _isShadPs4PatchesOverlayOpen;
             ApplyFilter();
         }
 
+        private void DismissMetadataEditorIfOpen()
+        {
+            MetadataService?.DismissEditorIfOpen();
+        }
+
         private void MetadataService_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(MetadataService.IsMetadataLoaded) && MetadataService != null && !MetadataService.IsMetadataLoaded)
@@ -1818,6 +1841,8 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
 
             CancelAllAlbumCoverScans(exceptAlbum: value);
+            CancelAllAlbumPreviewCoverLoads();
+            DismissMetadataEditorIfOpen();
 
             if (value is EmulationAlbumItem emulationAlbum)
                 _ = OnLoadedAlbumChangedAsync(emulationAlbum);

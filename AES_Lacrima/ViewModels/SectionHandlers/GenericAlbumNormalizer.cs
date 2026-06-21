@@ -12,6 +12,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 
 using log4net;
@@ -108,11 +109,18 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
                     return switchTitle;
             }
 
-            if (IsSnesAlbum(albumTitle) || IsNesAlbum(albumTitle) || IsN64Album(albumTitle))
+            if (IsSnesAlbum(albumTitle) || IsN64Album(albumTitle))
             {
                 var cartridgeTitle = ResolveCartridgeRomTitle(filePath);
                 if (!string.IsNullOrWhiteSpace(cartridgeTitle))
                     return cartridgeTitle;
+            }
+
+            if (EmulationHashTitleResolver.IsSupportedAlbum(albumTitle, out var hashPlatform) && hashPlatform != null)
+            {
+                var hashTitle = ResolveHashTitle(filePath, hashPlatform);
+                if (!string.IsNullOrWhiteSpace(hashTitle))
+                    return hashTitle;
             }
 
             if (EmulationConsoleCatalog.IsSteamSection(albumTitle) || SteamInstalledGameHelper.IsSteamGamePath(filePath))
@@ -420,6 +428,108 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
 
             return string.IsNullOrWhiteSpace(metadata.Title) ? null : metadata.Title.Trim();
+        }
+
+        private static string? ResolveHashTitle(string? filePath, EmulationHashTitlePlatform platform)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return null;
+
+            var cachePath = GetLocalMetadataCachePath(filePath);
+            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+
+            if (metadata?.RomScanned == true || _inspectionAttempted.ContainsKey(filePath))
+            {
+                if (!string.IsNullOrWhiteSpace(metadata?.Title) &&
+                    !EmulationHashTitleResolver.NeedsBetterTitle(metadata.Title, filePath))
+                {
+                    return metadata.Title.Trim();
+                }
+
+                if (metadata != null)
+                    metadata.RomScanned = false;
+            }
+
+            _inspectionAttempted[filePath] = 1;
+
+            var resolved = EmulationHashTitleResolver.TryResolveOffline(filePath, platform);
+            metadata ??= new CustomMetadata();
+            if (ShouldUpdateMetadataTitle(metadata.Title, resolved))
+                metadata.Title = resolved!.Trim();
+
+            ApplyHashPlatformMetadata(filePath, platform, metadata);
+            metadata.RomScanned = true;
+            BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+
+            return string.IsNullOrWhiteSpace(metadata.Title) ? null : metadata.Title.Trim();
+        }
+
+        /// <summary>
+        /// Applies the online title chain (Hasheous, then Redump) when the current title still looks like a filename.
+        /// </summary>
+        public static async Task<string?> TryImproveHashTitleAsync(
+            string? filePath,
+            string? albumTitle,
+            string? currentTitle,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return null;
+
+            if (!EmulationHashTitleResolver.IsSupportedAlbum(albumTitle, out var platform) || platform == null)
+                return null;
+
+            if (!EmulationHashTitleResolver.NeedsBetterTitle(currentTitle, filePath))
+                return null;
+
+            var resolved = await EmulationHashTitleResolver.TryResolveFullAsync(filePath, platform, cancellationToken)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(resolved))
+                return null;
+
+            if (string.Equals(currentTitle, resolved, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var cachePath = GetLocalMetadataCachePath(filePath);
+            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath) ?? new CustomMetadata();
+            if (ShouldUpdateMetadataTitle(metadata.Title, resolved))
+                metadata.Title = resolved.Trim();
+
+            ApplyHashPlatformMetadata(filePath, platform, metadata);
+            metadata.RomScanned = true;
+            BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+
+            return resolved;
+        }
+
+        public static Task<string?> TryImproveGenesisTitleAsync(
+            string? filePath,
+            string? currentTitle,
+            CancellationToken cancellationToken = default)
+            => TryImproveHashTitleAsync(filePath, "Sega Genesis", currentTitle, cancellationToken);
+
+        private static void ApplyHashPlatformMetadata(
+            string filePath,
+            EmulationHashTitlePlatform platform,
+            CustomMetadata metadata)
+        {
+            if (!string.Equals(platform.ConsoleKey, "PSP", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            try
+            {
+                var section = EmulationDiscSectionResolver.Resolve(platform.ConsoleKey, filePath);
+                var romInfo = RomInspector.Inspect(filePath, section);
+                if (!string.IsNullOrWhiteSpace(romInfo?.GameId) &&
+                    string.IsNullOrWhiteSpace(metadata.PspTitleId))
+                {
+                    metadata.PspTitleId = romInfo.GameId.Trim();
+                }
+            }
+            catch (Exception logEx)
+            {
+                Log.Warn("Failed to persist PSP title metadata.", logEx);
+            }
         }
 
         private static bool ShouldUpdateMetadataTitle(string? currentTitle, string? extractedTitle)

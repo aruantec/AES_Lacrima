@@ -6,10 +6,24 @@ namespace AES_Controls.Composition;
 public static class CompositionViewportState
 {
     private static int _motionDepth;
+    private static int _visibleCenterIndex = -1;
 
     public static bool IsInMotion => _motionDepth > 0;
 
-    public static int VisibleCenterIndex { get; set; } = -1;
+    public static int VisibleCenterIndex
+    {
+        get => _visibleCenterIndex;
+        set
+        {
+            if (_visibleCenterIndex == value)
+                return;
+
+            _visibleCenterIndex = value;
+            VisibleCenterIndexChanged?.Invoke(value);
+        }
+    }
+
+    public static event Action<int>? VisibleCenterIndexChanged;
 
     public static void EnterMotion()
     {
