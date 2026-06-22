@@ -869,6 +869,11 @@ public partial class EmulationView : UserControl
                     _ = TransitionToCaptureAsync(cancellation.Token);
                 }
             }
+            else if (!vm.IsEmulatorLaunchInProgress && vm.IsActive && UseInlineCaptureHost &&
+                     !vm.IsCompositionCaptureVisible)
+            {
+                RestorePresentationAfterAbortedCaptureTransition();
+            }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayRecording))
         {
@@ -882,6 +887,7 @@ public partial class EmulationView : UserControl
             ApplyCoverLayoutMode(vm);
             EnsureCarouselVisibleWhenIdle(vm, vm.IsCompositionCaptureVisible);
             UpdateCaptureChromeVisibilityFromOpacity();
+            RomCover.ReloadCoverImages();
         }
         else if (e.PropertyName == nameof(EmulationViewModel.AlbumCoverDisplayRevision))
         {
@@ -1060,6 +1066,26 @@ public partial class EmulationView : UserControl
         _viewportTransitionCancellation?.Cancel();
     }
 
+    private void RestorePresentationAfterAbortedCaptureTransition()
+    {
+        CancelPresentationTransitions();
+        _inlinePortalPresentationActive = false;
+        _captureHostPresentationVisible = false;
+        CapturePresentationOpacity = 0;
+
+        if (CarouselOpacity < 0.95)
+            CarouselOpacity = 1;
+
+        if (AlbumRowOpacity < 0.95)
+            AlbumRowOpacity = 1;
+
+        if (DataContext is EmulationViewModel vm)
+        {
+            UpdateInlineCaptureHostVisibility(vm);
+            SetCaptureChromeVisible(false);
+        }
+    }
+
     private async Task FadeOutPresentationForNavigationAsync(CancellationToken cancellationToken)
     {
         _inlinePortalPresentationActive = false;
@@ -1162,7 +1188,10 @@ public partial class EmulationView : UserControl
 
             EnsureInlineCaptureHost();
             if (_inlineCaptureHost == null)
+            {
+                RestorePresentationAfterAbortedCaptureTransition();
                 return;
+            }
 
             _inlinePortalPresentationActive = true;
             _captureHostPresentationVisible = true;
@@ -1184,15 +1213,25 @@ public partial class EmulationView : UserControl
             if (cancellationToken.IsCancellationRequested)
                 return;
 
-            if (DataContext is not EmulationViewModel { IsActive: true, IsCompositionCaptureVisible: true })
+            if (DataContext is not EmulationViewModel launchVm ||
+                !launchVm.IsActive ||
+                !launchVm.IsCompositionCaptureVisible)
+            {
+                RestorePresentationAfterAbortedCaptureTransition();
                 return;
+            }
 
             await WaitForEmulatorLaunchGateToClearAsync(cancellationToken).ConfigureAwait(true);
             if (cancellationToken.IsCancellationRequested)
                 return;
 
-            if (DataContext is not EmulationViewModel { IsActive: true, IsCompositionCaptureVisible: true })
+            if (DataContext is not EmulationViewModel captureVm ||
+                !captureVm.IsActive ||
+                !captureVm.IsCompositionCaptureVisible)
+            {
+                RestorePresentationAfterAbortedCaptureTransition();
                 return;
+            }
 
             CapturePresentationOpacity = 1;
             AlbumRowOpacity = 1;

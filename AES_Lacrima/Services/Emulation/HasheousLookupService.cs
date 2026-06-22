@@ -25,7 +25,7 @@ internal static class HasheousLookupService
     private static readonly ILog Log = LogHelper.For(typeof(HasheousLookupService));
     private const string LookupUrl = "https://hasheous.org/api/v1/Lookup/ByHash";
     private const string UserAgent = "Mozilla/5.0 (compatible; AES_Lacrima/1.0; +https://github.com/AES-Team/AES_Lacrima)";
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(8) };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

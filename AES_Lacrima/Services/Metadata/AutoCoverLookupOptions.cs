@@ -27,10 +27,10 @@ public sealed class AutoCoverLookupOptions
     /// </summary>
     public static AutoCoverLookupOptions EmulationAlbumScan { get; } = new()
     {
-        SearchTimeoutSeconds = 8,
+        SearchTimeoutSeconds = 6,
         DownloadTimeoutSeconds = 3,
-        TotalBudgetSeconds = 14,
-        MaxCandidatesPerQuery = 16,
+        TotalBudgetSeconds = 8,
+        MaxCandidatesPerQuery = 12,
         MaxParallelDownloads = 1,
         PreferSequentialDownloads = true,
         MarkExhaustedOnFailure = true,

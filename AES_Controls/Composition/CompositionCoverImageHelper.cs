@@ -53,6 +53,18 @@ internal static class CompositionCoverImageHelper
         !string.IsNullOrWhiteSpace(path) &&
         Path.GetExtension(path) is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif";
 
+    public static bool HasResolvableLocalCoverFile(MediaItem mediaItem)
+    {
+        if (!string.IsNullOrWhiteSpace(mediaItem.LocalCoverPath) && File.Exists(mediaItem.LocalCoverPath))
+            return true;
+
+        if (string.IsNullOrWhiteSpace(mediaItem.FileName))
+            return false;
+
+        var sidecar = CompositionMetadataCoverHelper.GetCoverCachePath(mediaItem.FileName);
+        return !string.IsNullOrWhiteSpace(sidecar) && File.Exists(sidecar);
+    }
+
     public static bool ShouldPreferFileOverBitmap(
         MediaItem? item,
         Bitmap? bitmapValue,

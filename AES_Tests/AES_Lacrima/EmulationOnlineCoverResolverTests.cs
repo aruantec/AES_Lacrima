@@ -38,6 +38,13 @@ public sealed class EmulationOnlineCoverResolverTests
     }
 
     [Fact]
+    public void LibRetroPlatformCatalog_ResolvesGbaAlbum()
+    {
+        Assert.True(LibRetroPlatformCatalog.TryResolveFolder("GBA", null, out var folder));
+        Assert.Equal("Nintendo - Game Boy Advance", folder);
+    }
+
+    [Fact]
     public void LibRetroThumbnailCoverService_BuildsRegionalVariants()
     {
         var urls = LibRetroThumbnailCoverService
@@ -47,6 +54,18 @@ public sealed class EmulationOnlineCoverResolverTests
 
         Assert.Contains(urls, url => url.Contains("Super%20Mario%20World%20(USA).png", StringComparison.Ordinal));
         Assert.Contains(urls, url => url.Contains("Super%20Mario%20World.png", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void LibRetroThumbnailCoverService_BuildsGbaCoverUrl()
+    {
+        var urls = LibRetroThumbnailCoverService
+            .BuildCoverUrls("Nintendo - Game Boy Advance", ["Pokemon Emerald (USA, Europe)"])
+            .Take(4)
+            .ToList();
+
+        Assert.Contains(urls, url => url.Contains("Pokemon%20Emerald%20(USA%2C%20Europe).png", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("Pokemon%20Emerald.png", StringComparison.Ordinal));
     }
 
     [Fact]

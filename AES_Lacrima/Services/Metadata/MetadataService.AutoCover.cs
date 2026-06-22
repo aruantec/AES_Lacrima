@@ -74,6 +74,9 @@ namespace AES_Lacrima.Services
                 if (await TryApplyCoverFromPs4InstalledGameAsync(item, effectiveToken).ConfigureAwait(false))
                     return true;
 
+                if (await TryFetchEmulationCoverFromHashProvidersAsync(item, albumName, effectiveToken).ConfigureAwait(false))
+                    return true;
+
                 if (await IsCoverLookupExhaustedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
                 {
                     if (options.MarkExhaustedOnFailure)

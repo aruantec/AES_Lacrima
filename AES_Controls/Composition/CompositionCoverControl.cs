@@ -462,7 +462,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             if (!ReferenceEquals(_carousel.ItemsSource, source))
                 _carousel.ItemsSource = source;
             else if (source != null)
-                _carousel.RefreshItemsFromCurrentSource();
+                _carousel.SyncItemsSourceLightweight(source, forceRebuild: true);
             _cardGrid.SyncItemsSourceLightweight(source);
             _carousel.HydrateCoverImagesFrom(_cardGrid);
         }
@@ -470,8 +470,8 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         {
             _carousel.SetCoverLoadingActive(false);
             _cardGrid.SetCoverLoadingActive(true);
-            _cardGrid.SyncItemsSourceLightweight(source);
-            _carousel.SyncItemsSourceLightweight(source);
+            _cardGrid.SyncItemsSourceLightweight(source, forceCompleteSync: true);
+            _carousel.SyncItemsSourceLightweight(source, forceRebuild: true);
             _cardGrid.HydrateCoverImagesFrom(_carousel);
         }
 
@@ -537,11 +537,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         Control outgoing = toCarousel ? _cardGrid : _carousel;
         Control incoming = toCarousel ? _carousel : _cardGrid;
 
-        if (outgoing == _carousel)
-            _carousel.SetCoverLoadingActive(false);
-        else
-            _cardGrid.SetCoverLoadingActive(false);
-
         _appliedLayoutMode = targetMode;
         incoming.IsVisible = true;
         incoming.IsHitTestVisible = false;
@@ -600,25 +595,25 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         if (targetMode == CoverLayoutMode.Carousel)
         {
             _carousel.SetCoverLoadingActive(true);
-            _cardGrid.SetCoverLoadingActive(false);
             if (!ReferenceEquals(_carousel.ItemsSource, source))
                 _carousel.ItemsSource = source;
             else if (source != null)
-                _carousel.RefreshItemsFromCurrentSource();
+                _carousel.SyncItemsSourceLightweight(source, forceRebuild: true);
             _cardGrid.SyncItemsSourceLightweight(source);
         }
         else
         {
             _cardGrid.SetCoverLoadingActive(true);
-            _carousel.SetCoverLoadingActive(false);
-            if (!_cardGrid.SyncItemsSourceLightweight(source) && source != null)
-                _cardGrid.RefreshItemsFromCurrentSource();
-            _carousel.SyncItemsSourceLightweight(source);
+            _cardGrid.SyncItemsSourceLightweight(source, forceCompleteSync: true);
+            _carousel.SyncItemsSourceLightweight(source, forceRebuild: true);
         }
     }
 
     private void PrepareIncomingLayoutHeavy(CoverLayoutMode targetMode)
     {
+        if (targetMode != _appliedLayoutMode)
+            return;
+
         if (targetMode == CoverLayoutMode.Carousel)
         {
             _carousel.HydrateCoverImagesFrom(_cardGrid);
@@ -637,6 +632,11 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         SyncGridOpacity();
         if (targetMode != CoverLayoutMode.Carousel)
             _cardGrid.SetImageRevealHold(false);
+
+        if (targetMode == CoverLayoutMode.Carousel)
+            _cardGrid.SetCoverLoadingActive(false);
+        else
+            _carousel.SetCoverLoadingActive(false);
     }
 
     private void ScheduleSiblingCoverHydrate()

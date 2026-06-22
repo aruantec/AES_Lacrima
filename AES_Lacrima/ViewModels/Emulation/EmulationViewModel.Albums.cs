@@ -301,8 +301,8 @@ namespace AES_Lacrima.ViewModels
                         if (ReferenceEquals(LoadedAlbum, album))
                         {
                             ApplyFilter();
-                            PrepareAlbumItemsForCoverDisplay(album);
-                            QueueSelectedAlbumCoverScan(album);
+                            PrepareAlbumItemsForLocalDisplay(album);
+                            QueueLocalAlbumPresentation(album);
                         }
                     }, DispatcherPriority.Background);
 
@@ -340,6 +340,73 @@ namespace AES_Lacrima.ViewModels
             {
                 if (AlbumList[i] is EmulationAlbumItem album && album.Children.Count > 0)
                     QueueAlbumPreviewCoverLoad(album);
+            }
+        }
+
+        private void PrepareAlbumItemsForLocalDisplay(FolderMediaItem album)
+        {
+            if (album.Children.Count == 0)
+                return;
+
+            for (int i = 0; i < album.Children.Count; i++)
+            {
+                var item = album.Children[i];
+                item.CoverBitmap ??= album.CoverBitmap;
+                if (HasLocalCoverFile(item.FileName))
+                {
+                    item.LocalCoverPath = EmulationCoverCacheHelper.GetCoverCachePath(item.FileName);
+                    TryApplyLocalCoverBitmap(item, album);
+                }
+                else if (!string.IsNullOrWhiteSpace(item.FileName) &&
+                         EmulationCoverCacheHelper.HasCover(item.FileName))
+                {
+                    item.LocalCoverPath = EmulationCoverCacheHelper.GetCoverCachePath(item.FileName);
+                    TryApplyLocalCoverBitmap(item, album);
+                }
+
+                if (SectionHandlers.GenericAlbumNormalizer.IsRomMetadataAlreadyScanned(item.FileName))
+                {
+                    var cachedTitle = TryReadCachedMetadataTitle(item.FileName);
+                    if (string.IsNullOrWhiteSpace(cachedTitle))
+                    {
+                        cachedTitle = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(
+                            item.FileName,
+                            album.Title,
+                            item.Title);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(cachedTitle) &&
+                        !string.Equals(item.Title, cachedTitle, StringComparison.Ordinal))
+                    {
+                        item.Title = cachedTitle;
+                    }
+                }
+
+                item.IsLoadingCover = false;
+            }
+        }
+
+        private static void TryApplyLocalCoverBitmap(MediaItem item, FolderMediaItem album)
+        {
+            if (item.CoverBitmap != null && !ReferenceEquals(item.CoverBitmap, album.CoverBitmap))
+                return;
+
+            if (string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            try
+            {
+                var bytes = EmulationCoverCacheHelper.TryReadCoverBytes(item.FileName);
+                if (bytes is not { Length: > 0 })
+                    return;
+
+                using var ms = new MemoryStream(bytes);
+                item.CoverBitmap = Bitmap.DecodeToWidth(ms, 384);
+                item.CoverFound = true;
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug($"Failed to decode local cover for '{item.Title}'.", ex);
             }
         }
 
@@ -417,7 +484,10 @@ namespace AES_Lacrima.ViewModels
 
         private int GetCoverLoadFocusIndex(FolderMediaItem album)
         {
-            if (!ReferenceEquals(album, LoadedAlbum) || CoverItems.Count == 0)
+            if (!ReferenceEquals(album, LoadedAlbum) || album.Children.Count == 0)
+                return 0;
+
+            if (CoverItems.Count == 0)
                 return 0;
 
             int center = CompositionViewportState.VisibleCenterIndex;
@@ -436,16 +506,96 @@ namespace AES_Lacrima.ViewModels
             return childIndex >= 0 ? childIndex : selected;
         }
 
-        private List<(MediaItem Item, int Index)> GetNextCoverLoadBatch(FolderMediaItem album)
+        private List<(MediaItem Item, int Index)> GetNextCoverLoadBatch(FolderMediaItem album, int? maxItems = null)
         {
             int center = GetCoverLoadFocusIndex(album);
+            int take = maxItems ?? GetCoverLoadBatchSize(album);
             return album.Children
                 .Select((item, index) => (Item: item, Index: index))
                 .Where(pair => NeedsCoverLookup(pair.Item, album))
-                .OrderBy(pair => !string.IsNullOrWhiteSpace(pair.Item.FileName) && _deferredCoverLookupPaths.Contains(pair.Item.FileName) ? 1 : 0)
-                .ThenBy(pair => Math.Abs(pair.Index - center))
-                .Take(GetCoverLoadBatchSize(album))
+                .Where(pair => string.IsNullOrWhiteSpace(pair.Item.FileName) ||
+                               (!_coverLookupAttemptedPaths.Contains(pair.Item.FileName) &&
+                                !_coverLookupInFlightPaths.Contains(pair.Item.FileName)))
+                .OrderBy(pair => Math.Abs(pair.Index - center))
+                .Take(take)
                 .ToList();
+        }
+
+        private bool TryTakeNextCoverLoadItem(FolderMediaItem album, out MediaItem item)
+        {
+            item = null!;
+            if (!ReferenceEquals(LoadedAlbum, album))
+                return false;
+
+            var next = GetNextCoverLoadBatch(album, maxItems: 1);
+            if (next.Count == 0)
+                return false;
+
+            item = next[0].Item;
+            if (!string.IsNullOrWhiteSpace(item.FileName))
+                _coverLookupInFlightPaths.Add(item.FileName);
+
+            return true;
+        }
+
+        private async Task RunAlbumCoverLoadWorkersAsync(
+            FolderMediaItem album,
+            int parallelism,
+            CancellationToken cancellationToken)
+        {
+            var workers = new Task[parallelism];
+            for (int i = 0; i < parallelism; i++)
+                workers[i] = RunAlbumCoverLoadWorkerAsync(album, cancellationToken);
+
+            await Task.WhenAll(workers).ConfigureAwait(false);
+        }
+
+        private async Task RunAlbumCoverLoadWorkerAsync(FolderMediaItem album, CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested && ReferenceEquals(LoadedAlbum, album))
+            {
+                if (!TryTakeNextCoverLoadItem(album, out var item))
+                    break;
+
+                await LoadSingleAlbumCoverAsync(album, item, cancellationToken).ConfigureAwait(false);
+                ScheduleThrottledAlbumCoverDisplayNotify(album);
+            }
+        }
+
+        private void ScheduleThrottledAlbumCoverDisplayNotify(FolderMediaItem album)
+        {
+            _coverDisplayNotifyAlbum = album;
+
+            _coverDisplayNotifyTimer ??= new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(CoverDisplayNotifyMinIntervalMs)
+            };
+
+            _coverDisplayNotifyTimer.Stop();
+            _coverDisplayNotifyTimer.Tick -= OnCoverDisplayNotifyDebounceTick;
+            _coverDisplayNotifyTimer.Tick += OnCoverDisplayNotifyDebounceTick;
+            _coverDisplayNotifyTimer.Start();
+        }
+
+        private void OnCoverDisplayNotifyDebounceTick(object? sender, EventArgs e)
+        {
+            _coverDisplayNotifyTimer?.Stop();
+
+            var album = _coverDisplayNotifyAlbum;
+            if (album != null && ReferenceEquals(LoadedAlbum, album))
+                NotifyAlbumCoverDisplayChanged(album);
+        }
+
+        private void CancelCoverDisplayNotifyDebounce()
+        {
+            _coverDisplayNotifyTimer?.Stop();
+            _coverDisplayNotifyAlbum = null;
+        }
+
+        private static bool IsItemNearVisibleCenter(MediaItem item, FolderMediaItem album, int centerIndex)
+        {
+            int idx = album.Children.IndexOf(item);
+            return idx >= 0 && Math.Abs(idx - centerIndex) <= 2;
         }
 
         private async Task<bool> TryPopulateRomCoverAsync(
@@ -480,23 +630,43 @@ namespace AES_Lacrima.ViewModels
             MediaItem item,
             CancellationToken cancellationToken)
         {
-            var wasPreviouslyScanned = IsRomCoverAlreadyScanned(item.FileName);
             try
             {
-                await Dispatcher.UIThread.InvokeAsync(
-                    () =>
-                    {
-                        item.IsLoadingCover = true;
-                        SetRomCarouselCoverStatus($"Searching cover art for {item.Title}...");
-                    },
-                    DispatcherPriority.Background);
+                int focusIndex = GetCoverLoadFocusIndex(album);
+                bool showStatus = IsItemNearVisibleCenter(item, album, focusIndex);
+
+                if (showStatus)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(
+                        () =>
+                        {
+                            item.IsLoadingCover = true;
+                            SetRomCarouselCoverStatus($"Searching cover art for {item.Title}...");
+                        },
+                        DispatcherPriority.Background);
+                }
+                else
+                {
+                    await Dispatcher.UIThread.InvokeAsync(
+                        () => item.IsLoadingCover = true,
+                        DispatcherPriority.Background);
+                }
 
                 if (!string.IsNullOrWhiteSpace(item.FileName))
                     TryInvalidateStaleCoverLookupState(item);
 
-                await EnsureItemTitleBeforeCoverAsync(item, album.Title, cancellationToken).ConfigureAwait(false);
+                using var itemTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                itemTimeoutCts.CancelAfter(TimeSpan.FromSeconds(PerRomCoverLoadTimeoutSeconds));
 
-                await TryPopulateRomCoverAsync(item, album.Title, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await EnsureItemTitleBeforeCoverAsync(item, album.Title, itemTimeoutCts.Token).ConfigureAwait(false);
+                    await TryPopulateRomCoverAsync(item, album.Title, itemTimeoutCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    SLog.Debug($"Cover lookup timed out for '{item.Title}' in album '{album.Title}'; moving on.");
+                }
             }
             catch (OperationCanceledException)
             {
@@ -508,6 +678,12 @@ namespace AES_Lacrima.ViewModels
             }
             finally
             {
+                if (!string.IsNullOrWhiteSpace(item.FileName))
+                {
+                    _coverLookupInFlightPaths.Remove(item.FileName);
+                    _coverLookupAttemptedPaths.Add(item.FileName);
+                }
+
                 if (item.IsLoadingCover)
                 {
                     try
@@ -520,18 +696,6 @@ namespace AES_Lacrima.ViewModels
                     {
                         SLog.Warn($"Failed to clear cover loading state for '{item.Title}'.", ex);
                     }
-                }
-            }
-
-            if (!wasPreviouslyScanned)
-            {
-                try
-                {
-                    await Task.Delay(24, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
                 }
             }
         }
@@ -826,6 +990,19 @@ namespace AES_Lacrima.ViewModels
             };
         }
 
+        private void ClearAlbumCoverScanSessionState(FolderMediaItem album)
+        {
+            lock (_albumsWithMetadataScanned)
+            {
+                _albumsWithMetadataScanned.Remove(album);
+            }
+
+            lock (_albumsWithLocalCoversHydrated)
+            {
+                _albumsWithLocalCoversHydrated.Remove(album);
+            }
+        }
+
         [RelayCommand(CanExecute = nameof(CanClearLoadedAlbum))]
         private async Task ClearAlbumCache()
         {
@@ -864,12 +1041,11 @@ namespace AES_Lacrima.ViewModels
                 if (album is EmulationAlbumItem emulationAlbum)
                     emulationAlbum.IsLoadingCover = true;
 
-                lock (_albumsWithMetadataScanned)
-                {
-                    _albumsWithMetadataScanned.Remove(album);
-                }
+                ClearAlbumCoverScanSessionState(album);
 
                 _deferredCoverLookupPaths.Clear();
+                _coverLookupAttemptedPaths.Clear();
+                _coverLookupInFlightPaths.Clear();
                 ApplyFilter();
                 NotifyAlbumCoverDisplayChanged(album);
                 QueueAlbumPreviewCoverLoad(album as EmulationAlbumItem);
@@ -900,13 +1076,50 @@ namespace AES_Lacrima.ViewModels
 
             album.Children.Clear();
             album.TotalChildCount = 0;
-            lock (_albumsWithMetadataScanned)
-            {
-                _albumsWithMetadataScanned.Remove(album);
-            }
+            ClearAlbumCoverScanSessionState(album);
             ApplyFilter();
             SaveSettings();
             return Task.CompletedTask;
+        }
+
+        private bool CanRefreshCoverAndTitle(object? parameter) =>
+            HasActiveAlbumItems && !IsEmulatorRunning;
+
+        [RelayCommand(CanExecute = nameof(CanRefreshCoverAndTitle))]
+        private async Task RefreshCoverAndTitle(object? parameter)
+        {
+            var album = GetBrowseAlbum();
+            var item = ResolveMetadataMenuTarget(parameter);
+            if (album == null || item == null || string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            ClearAlbumCoverScanSessionState(album);
+
+            _coverLookupAttemptedPaths.Remove(item.FileName);
+            _coverLookupInFlightPaths.Remove(item.FileName);
+            TryInvalidateStaleCoverLookupState(item);
+            item.IsLoadingCover = true;
+            NotifyAlbumCoverDisplayChanged(album);
+
+            try
+            {
+                await EnsureItemTitleBeforeCoverAsync(item, album.Title, CancellationToken.None).ConfigureAwait(false);
+                await TryPopulateRomCoverAsync(item, album.Title, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Manual cover/title refresh failed for '{item.Title}'.", ex);
+            }
+            finally
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    MarkRomItemCoverLoadComplete(item, album);
+                    UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: false);
+                    NotifyAlbumCoverDisplayChanged(album);
+                    RefreshCoverAndTitleCommand.NotifyCanExecuteChanged();
+                });
+            }
         }
 
         private bool CanOpenMetadata(object? parameter) =>
@@ -1241,7 +1454,33 @@ namespace AES_Lacrima.ViewModels
 
                     try
                     {
-                        await EnsureItemTitleBeforeCoverAsync(item, album.Title, cancellationToken).ConfigureAwait(false);
+                        if (skipOnlineLookup)
+                        {
+                            if (SectionHandlers.GenericAlbumNormalizer.IsRomMetadataAlreadyScanned(item.FileName))
+                            {
+                                var cachedTitle = TryReadCachedMetadataTitle(item.FileName);
+                                if (string.IsNullOrWhiteSpace(cachedTitle))
+                                {
+                                    cachedTitle = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(
+                                        item.FileName,
+                                        album.Title,
+                                        item.Title);
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(cachedTitle) &&
+                                    !string.Equals(item.Title, cachedTitle, StringComparison.Ordinal))
+                                {
+                                    await Dispatcher.UIThread.InvokeAsync(
+                                        () => item.Title = cachedTitle,
+                                        DispatcherPriority.Background);
+                                }
+                            }
+                        }
+                        else if (!SectionHandlers.GenericAlbumNormalizer.IsRomMetadataAlreadyScanned(item.FileName))
+                        {
+                            await EnsureItemTitleBeforeCoverAsync(item, album.Title, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
 
                         if (SteamInstalledGameHelper.IsSteamGamePath(item.FileName))
                         {
@@ -1334,10 +1573,7 @@ namespace AES_Lacrima.ViewModels
         {
             // Newly imported ROMs need a fresh metadata pass; clear the
             // session-scoped scanned marker so the queued scan actually runs.
-            lock (_albumsWithMetadataScanned)
-            {
-                _albumsWithMetadataScanned.Remove(album);
-            }
+            ClearAlbumCoverScanSessionState(album);
 
             if (ReferenceEquals(SelectedAlbum, album) && !ReferenceEquals(LoadedAlbum, album))
                 LoadedAlbum = album;
@@ -1611,6 +1847,62 @@ namespace AES_Lacrima.ViewModels
 
                 _albumScanCtsMap.Remove(album);
             }
+
+            if (exceptAlbum == null || !_albumScanCtsMap.ContainsKey(exceptAlbum))
+                ForceEndAlbumCoverScanUi();
+        }
+
+        private void CancelAllAlbumCoverScanDebounces(FolderMediaItem? exceptAlbum = null)
+        {
+            foreach (var (album, cts) in _albumCoverScanDebounceMap.ToList())
+            {
+                if (exceptAlbum != null && ReferenceEquals(album, exceptAlbum))
+                    continue;
+
+                try
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn($"Failed to cancel emulation cover scan debounce for '{album.Title}'.", ex);
+                }
+
+                _albumCoverScanDebounceMap.Remove(album);
+            }
+        }
+
+        private void ForceEndAlbumCoverScanUi()
+        {
+            if (_activeAlbumCoverScans == 0)
+                return;
+
+            _activeAlbumCoverScans = 0;
+            SetRomCarouselCoverStatus(null);
+            OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
+        }
+
+        private void QueueLocalAlbumPresentation(FolderMediaItem? album)
+        {
+            if (album == null || album.Children.Count == 0)
+                return;
+
+            if (EmulationConsoleCatalog.UsesAutoLibrarySync(album.Title))
+                return;
+
+            if (!ReferenceEquals(LoadedAlbum, album))
+                return;
+
+            if (_albumsWithLocalCoversHydrated.Contains(album))
+                return;
+
+            if (_activeAlbumCoverScans > 0)
+                return;
+
+            CancelAllAlbumCoverScans(exceptAlbum: album);
+            CancelAllAlbumPreviewCoverLoads();
+            StartAlbumCoverScan(album, AlbumCoverScanMode.LocalPresentation);
         }
 
         private void QueueSelectedAlbumCoverScan(FolderMediaItem? album)
@@ -1624,7 +1916,7 @@ namespace AES_Lacrima.ViewModels
             if (ReferenceEquals(LoadedAlbum, album))
             {
                 CancelAllAlbumPreviewCoverLoads();
-                StartAlbumCoverScan(album);
+                StartAlbumCoverScan(album, AlbumCoverScanMode.FullOnline);
                 return;
             }
 
@@ -1651,7 +1943,7 @@ namespace AES_Lacrima.ViewModels
                 try
                 {
                     await Task.Delay(AlbumCoverScanDebounceMs, debounceToken).ConfigureAwait(false);
-                    StartAlbumCoverScan(album);
+                    StartAlbumCoverScan(album, AlbumCoverScanMode.LocalPresentation);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1666,9 +1958,20 @@ namespace AES_Lacrima.ViewModels
             }, debounceToken);
         }
 
-        private void StartAlbumCoverScan(FolderMediaItem album)
+        private enum AlbumCoverScanMode
+        {
+            LocalPresentation,
+            FullOnline
+        }
+
+        private void StartAlbumCoverScan(
+            FolderMediaItem album,
+            AlbumCoverScanMode mode = AlbumCoverScanMode.FullOnline)
         {
             if (album.Children.Count == 0)
+                return;
+
+            if (mode == AlbumCoverScanMode.LocalPresentation && _albumsWithLocalCoversHydrated.Contains(album))
                 return;
 
             CancelAllAlbumCoverScans(exceptAlbum: album);
@@ -1690,14 +1993,23 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Failed to cancel previous emulation album cover scan for '{album.Title}'.", ex);
             }
 
-            _deferredCoverLookupPaths.Clear();
+            if (mode == AlbumCoverScanMode.FullOnline)
+            {
+                _albumsWithLocalCoversHydrated.Remove(album);
+                _deferredCoverLookupPaths.Clear();
+                _coverLookupAttemptedPaths.Clear();
+                _coverLookupInFlightPaths.Clear();
+            }
 
-            SLog.Debug($"Queueing emulation metadata and cover scan for album '{album.Title}' with {album.Children.Count} items.");
+            SLog.Debug(
+                mode == AlbumCoverScanMode.LocalPresentation
+                    ? $"Queueing local cover presentation for album '{album.Title}' with {album.Children.Count} items."
+                    : $"Queueing emulation metadata and cover scan for album '{album.Title}' with {album.Children.Count} items.");
 
             var cts = new CancellationTokenSource();
             _albumScanCtsMap[album] = cts;
             var cancellationToken = cts.Token;
-            _ = Task.Run(() => LoadAlbumCoversAsync(album, cancellationToken), cancellationToken);
+            _ = Task.Run(() => LoadAlbumCoversAsync(album, cancellationToken, mode), cancellationToken);
         }
 
         private AvaloniaList<MediaItem> RestoreAlbumRoms(string albumKey, string albumTitle, Bitmap? previewBitmap)
@@ -1733,20 +2045,28 @@ namespace AES_Lacrima.ViewModels
                     StringComparer.OrdinalIgnoreCase);
         }
 
-        private async Task LoadAlbumCoversAsync(FolderMediaItem album, CancellationToken cancellationToken)
+        private async Task LoadAlbumCoversAsync(
+            FolderMediaItem album,
+            CancellationToken cancellationToken,
+            AlbumCoverScanMode mode = AlbumCoverScanMode.FullOnline)
         {
+            var localOnly = mode == AlbumCoverScanMode.LocalPresentation;
+
             try
             {
-                await Dispatcher.UIThread.InvokeAsync(
-                    () => PrepareAlbumItemsForCoverDisplay(album),
-                    DispatcherPriority.Normal);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (localOnly)
+                        PrepareAlbumItemsForLocalDisplay(album);
+                    else
+                        PrepareAlbumItemsForCoverDisplay(album);
+                }, DispatcherPriority.Normal);
             }
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to prepare album '{album.Title}' for cover scan.", ex);
             }
 
-            BeginAlbumCoverScan();
             try
             {
                 try
@@ -1760,11 +2080,36 @@ namespace AES_Lacrima.ViewModels
 
                 try
                 {
+                    if (localOnly)
+                    {
+                        await ApplyLocalCachedAlbumMetadataAsync(album, cancellationToken).ConfigureAwait(false);
+                        await HydrateLocalAlbumCoversAsync(album, cancellationToken, skipTitleResolution: true)
+                            .ConfigureAwait(false);
+                        await FinishAlbumCoverLoadingStateAsync(album).ConfigureAwait(false);
+
+                        lock (_albumsWithLocalCoversHydrated)
+                        {
+                            _albumsWithLocalCoversHydrated.Add(album);
+                        }
+
+                        if (ReferenceEquals(LoadedAlbum, album))
+                        {
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                UpdatePreviewItems(album as EmulationAlbumItem, rebuildStructure: true);
+                                NotifyAlbumCoverDisplayChanged(album);
+                            }, DispatcherPriority.Input);
+                        }
+
+                        return;
+                    }
+
                     if (MetadataService == null)
                     {
                         SLog.Warn($"MetadataService unavailable for album '{album.Title}'; online cover lookup skipped.");
-                        await ApplyAlbumRomMetadataAsync(album, cancellationToken).ConfigureAwait(false);
-                        await HydrateLocalAlbumCoversAsync(album, cancellationToken).ConfigureAwait(false);
+                        await ApplyLocalCachedAlbumMetadataAsync(album, cancellationToken).ConfigureAwait(false);
+                        await HydrateLocalAlbumCoversAsync(album, cancellationToken, skipTitleResolution: true)
+                            .ConfigureAwait(false);
                         if (ReferenceEquals(LoadedAlbum, album))
                         {
                             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -1780,34 +2125,9 @@ namespace AES_Lacrima.ViewModels
                     await ApplyAlbumRomMetadataAsync(album, cancellationToken).ConfigureAwait(false);
                     await HydrateLocalAlbumCoversAsync(album, cancellationToken).ConfigureAwait(false);
 
+                    BeginAlbumCoverScan();
                     int parallelism = GetCoverLoadParallelism(album);
-                    while (!cancellationToken.IsCancellationRequested && ReferenceEquals(LoadedAlbum, album))
-                    {
-                        var batch = GetNextCoverLoadBatch(album);
-                        if (batch.Count == 0)
-                            break;
-
-                        await Parallel.ForEachAsync(
-                            batch,
-                            new ParallelOptions
-                            {
-                                MaxDegreeOfParallelism = parallelism,
-                                CancellationToken = cancellationToken
-                            },
-                            async (pair, ct) =>
-                            {
-                                ct.ThrowIfCancellationRequested();
-                                if (!ReferenceEquals(LoadedAlbum, album))
-                                    return;
-
-                                await LoadSingleAlbumCoverAsync(album, pair.Item, ct).ConfigureAwait(false);
-                            }).ConfigureAwait(false);
-
-                        if (!ReferenceEquals(LoadedAlbum, album))
-                            break;
-
-                        await Task.Yield();
-                    }
+                    await RunAlbumCoverLoadWorkersAsync(album, parallelism, cancellationToken).ConfigureAwait(false);
 
                     await FinishAlbumCoverLoadingStateAsync(album).ConfigureAwait(false);
 
@@ -1839,11 +2159,15 @@ namespace AES_Lacrima.ViewModels
             }
             finally
             {
+                CancelCoverDisplayNotifyDebounce();
                 EndAlbumCoverScan();
             }
         }
 
-        private async Task HydrateLocalAlbumCoversAsync(FolderMediaItem album, CancellationToken cancellationToken)
+        private async Task HydrateLocalAlbumCoversAsync(
+            FolderMediaItem album,
+            CancellationToken cancellationToken,
+            bool skipTitleResolution = false)
         {
             List<MediaItem> candidates;
             try
@@ -1880,7 +2204,11 @@ namespace AES_Lacrima.ViewModels
 
                     try
                     {
-                        await EnsureItemTitleBeforeCoverAsync(item, album.Title, ct).ConfigureAwait(false);
+                        if (!skipTitleResolution &&
+                            !SectionHandlers.GenericAlbumNormalizer.IsRomMetadataAlreadyScanned(item.FileName))
+                        {
+                            await EnsureItemTitleBeforeCoverAsync(item, album.Title, ct).ConfigureAwait(false);
+                        }
 
                         if (ShouldRetryCoverLookupAfterTitleImprovement(item))
                             return;
@@ -2160,6 +2488,49 @@ namespace AES_Lacrima.ViewModels
             };
         }
 
+        private async Task ApplyLocalCachedAlbumMetadataAsync(FolderMediaItem album, CancellationToken cancellationToken)
+        {
+            if (album.Children.Count == 0)
+                return;
+
+            var items = await Dispatcher.UIThread.InvokeAsync(
+                () => album.Children.ToList(),
+                DispatcherPriority.Background);
+
+            foreach (var item in items)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (string.IsNullOrWhiteSpace(item.FileName))
+                    continue;
+
+                var previousTitle = item.Title;
+                string? resolvedTitle = TryReadCachedMetadataTitle(item.FileName);
+                if (string.IsNullOrWhiteSpace(resolvedTitle))
+                {
+                    resolvedTitle = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(
+                        item.FileName,
+                        album.Title,
+                        item.Title);
+                }
+
+                if (string.IsNullOrWhiteSpace(resolvedTitle) ||
+                    string.Equals(previousTitle, resolvedTitle, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    TryInvalidateAutoFetchedCoverAfterTitleChange(item, previousTitle, resolvedTitle);
+                    item.Title = resolvedTitle;
+
+                    if (ReferenceEquals(LoadedAlbum, album) && !string.IsNullOrWhiteSpace(SearchText?.Trim()))
+                        ApplyFilter();
+                }, DispatcherPriority.Background);
+            }
+        }
+
         private async Task ApplyAlbumRomMetadataAsync(FolderMediaItem album, CancellationToken cancellationToken)
         {
             if (album.Children.Count == 0)
@@ -2227,11 +2598,26 @@ namespace AES_Lacrima.ViewModels
                         SectionHandlers.GenericAlbumNormalizer.IsRomMetadataAlreadyScanned(item.FileName);
 
                     var previousTitle = item.Title;
-                    var resolvedTitle = await SectionHandlers.GenericAlbumNormalizer.EnsureRomTitleResolvedAsync(
-                        item.FileName,
-                        album.Title,
-                        item.Title,
-                        cancellationToken).ConfigureAwait(false);
+                    string? resolvedTitle;
+                    if (wasPreviouslyScanned)
+                    {
+                        resolvedTitle = TryReadCachedMetadataTitle(item.FileName);
+                        if (string.IsNullOrWhiteSpace(resolvedTitle))
+                        {
+                            resolvedTitle = SectionHandlers.GenericAlbumNormalizer.ResolveRomTitle(
+                                item.FileName,
+                                album.Title,
+                                item.Title);
+                        }
+                    }
+                    else
+                    {
+                        resolvedTitle = await SectionHandlers.GenericAlbumNormalizer.EnsureRomTitleResolvedAsync(
+                            item.FileName,
+                            album.Title,
+                            item.Title,
+                            cancellationToken).ConfigureAwait(false);
+                    }
 
                     if (!string.IsNullOrWhiteSpace(resolvedTitle) &&
                         !string.Equals(previousTitle, resolvedTitle, StringComparison.Ordinal))
@@ -2567,6 +2953,7 @@ namespace AES_Lacrima.ViewModels
             ClearAlbumCommand.NotifyCanExecuteChanged();
             ClearAlbumCacheCommand.NotifyCanExecuteChanged();
             OpenMetadataCommand.NotifyCanExecuteChanged();
+            RefreshCoverAndTitleCommand.NotifyCanExecuteChanged();
         }
 
         private void RestoreCarouselAfterMetadataClosed()
@@ -2596,6 +2983,7 @@ namespace AES_Lacrima.ViewModels
             RefreshActiveAlbumState();
             NotifyAlbumCoverDisplayChanged(album);
             OpenMetadataCommand.NotifyCanExecuteChanged();
+            RefreshCoverAndTitleCommand.NotifyCanExecuteChanged();
         }
 
         private void SyncSelectedAlbumIndexFromAlbum(FolderMediaItem? album)

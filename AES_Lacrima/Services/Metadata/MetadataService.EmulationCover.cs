@@ -37,20 +37,23 @@ public partial class MetadataService
 
         var effectiveToken = budgetCts?.Token ?? cancellationToken;
 
-            try
-            {
-                await AutoCoverLookupThrottle.WaitAsync(cancellationToken);
-                acquired = true;
+        try
+        {
+            await AutoCoverLookupThrottle.WaitAsync(cancellationToken);
+            acquired = true;
 
-                await EnsureEmulationTitleBeforeCoverLookupAsync(item, albumName, effectiveToken).ConfigureAwait(false);
+            await EnsureEmulationTitleBeforeCoverLookupAsync(item, albumName, effectiveToken).ConfigureAwait(false);
 
-                if (EmulationCoverCacheHelper.HasCover(item.FileName))
+            if (EmulationCoverCacheHelper.HasCover(item.FileName))
                 return await TryApplyEmulationCoverSidecarAsync(item, effectiveToken).ConfigureAwait(false);
 
             if (EmulationCoverCacheHelper.TryEnsureCoverSidecar(item.FileName))
                 return await TryApplyEmulationCoverSidecarAsync(item, effectiveToken).ConfigureAwait(false);
 
             await TryClearCoverLookupExhaustedForResolvedTitleAsync(item, effectiveToken).ConfigureAwait(false);
+
+            if (await TryFetchEmulationCoverFromHashProvidersAsync(item, albumName, effectiveToken).ConfigureAwait(false))
+                return true;
 
             if (await IsCoverLookupExhaustedAsync(item.FileName, effectiveToken).ConfigureAwait(false))
                 return false;
@@ -133,6 +136,32 @@ public partial class MetadataService
         }
 
         await Dispatcher.UIThread.InvokeAsync(() => item.Title = resolved, DispatcherPriority.Background);
+    }
+
+    private async Task<bool> TryFetchEmulationCoverFromHashProvidersAsync(
+        MediaItem item,
+        string? albumName,
+        CancellationToken cancellationToken)
+    {
+        var result = await EmulationOnlineCoverResolver
+            .TryResolveCoverAsync(item, albumName, cancellationToken)
+            .ConfigureAwait(false);
+        if (result == null)
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(result.ResolvedTitle) &&
+            EmulationOnlineCoverResolver.ShouldApplyResolvedTitle(item, result.ResolvedTitle))
+        {
+            await Dispatcher.UIThread.InvokeAsync(
+                () => item.Title = result.ResolvedTitle,
+                DispatcherPriority.Background);
+        }
+
+        await SaveEmulationCoverSidecarAsync(item, result.Bytes).ConfigureAwait(false);
+        await TryApplyEmulationCoverSidecarAsync(item, cancellationToken).ConfigureAwait(false);
+        await MarkCoverLookupCompleteAsync(item, coverFound: true).ConfigureAwait(false);
+        SLog.Info($"Emulation cover applied for '{item.Title}' via {result.Source}.");
+        return true;
     }
 
     private async Task SaveEmulationCoverSidecarAsync(MediaItem item, byte[] bytes)

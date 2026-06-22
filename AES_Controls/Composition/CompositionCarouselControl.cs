@@ -636,11 +636,12 @@ namespace AES_Controls.Composition
             return false;
         }
 
-        internal void SyncItemsSourceLightweight(IEnumerable? source)
+        internal void SyncItemsSourceLightweight(IEnumerable? source, bool forceRebuild = false)
         {
             int sourceCount = source?.Cast<object?>().Count() ?? 0;
             bool sourceChanged = !ReferenceEquals(_subscribedItemsSource, source);
-            if (!sourceChanged &&
+            if (!forceRebuild &&
+                !sourceChanged &&
                 _itemsSnapshot.Length > 0 &&
                 sourceCount == _itemsSnapshot.Length)
                 return;
@@ -667,7 +668,7 @@ namespace AES_Controls.Composition
             UpdateItemsSnapshot(items);
             string? bitmapProp = ImageBitmapProperty;
             string? fileProp = ImageFileNameProperty;
-            _sectionPlaceholderBitmap = CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue);
+            SetSectionPlaceholderBitmap(CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue));
 
             _images.Clear();
             for (int i = 0; i < items.Length; i++)
@@ -874,6 +875,49 @@ namespace AES_Controls.Composition
             return GetPlaceholder();
         }
 
+        private void SetSectionPlaceholderBitmap(Bitmap? bitmap)
+        {
+            if (ReferenceEquals(_sectionPlaceholderBitmap, bitmap))
+                return;
+
+            var previousSectionImage = _sectionPlaceholderSkImage;
+            _sectionPlaceholderBitmap = bitmap;
+            _sectionPlaceholderSkImage = null;
+
+            if (previousSectionImage == null)
+                return;
+
+            PurgeCachedImage(previousSectionImage);
+
+            for (int i = 0; i < _images.Count; i++)
+            {
+                if (!ReferenceEquals(_images[i], previousSectionImage))
+                    continue;
+
+                var replacement = GetPlaceholder();
+                _images[i] = replacement;
+                _visual?.SendHandlerMessage(new UpdateImageMessage(i, replacement));
+            }
+
+            DisposeImage(previousSectionImage);
+        }
+
+        private void PurgeCachedImage(SKImage image)
+        {
+            lock (_imageCacheLock)
+            {
+                foreach (var key in _imageCache.Keys.ToList())
+                {
+                    if (!ReferenceEquals(_imageCache[key], image))
+                        continue;
+
+                    RemoveCacheNodeUnsafe(key);
+                    _imageCache.Remove(key);
+                    _itemImageSourceKeys.Remove(key);
+                }
+            }
+        }
+
         private SKImage GetOrCreateSectionPlaceholderSkImage(Bitmap? sourceBitmap)
         {
             if (_sectionPlaceholderSkImage != null)
@@ -1017,8 +1061,8 @@ namespace AES_Controls.Composition
             startIndex = Math.Clamp(startIndex, 0, merged.Count);
             merged.InsertRange(startIndex, newItems);
             UpdateItemsSnapshot(merged);
-            _sectionPlaceholderBitmap = CompositionCoverImageHelper.DetectSectionPlaceholder(
-                _itemsSnapshot, ImageBitmapProperty, GetBitmapValue);
+            SetSectionPlaceholderBitmap(CompositionCoverImageHelper.DetectSectionPlaceholder(
+                _itemsSnapshot, ImageBitmapProperty, GetBitmapValue));
 
             for (int i = 0; i < newItems.Length; i++)
                 _images.Insert(startIndex + i, GetPlaceholder());
@@ -1266,7 +1310,9 @@ namespace AES_Controls.Composition
         }
 
         private bool IsPlaceholderImage(SKImage? image) =>
-            image == null || ReferenceEquals(image, _sharedPlaceholder);
+            image == null ||
+            ReferenceEquals(image, _sharedPlaceholder) ||
+            ReferenceEquals(image, _sectionPlaceholderSkImage);
 
         private bool IsPlaceholderSourceKey(object? sourceKey) =>
             sourceKey is Bitmap bmp &&
@@ -2076,9 +2122,7 @@ namespace AES_Controls.Composition
                 _itemImageSourceKeys.Clear();
             }
             _sharedPlaceholder = null;
-            _sectionPlaceholderBitmap = null;
-            _sectionPlaceholderSkImage?.Dispose();
-            _sectionPlaceholderSkImage = null;
+            SetSectionPlaceholderBitmap(null);
             _images.Clear();
             _itemsSnapshot = Array.Empty<object?>();
             _itemIndices.Clear();
@@ -2448,7 +2492,7 @@ namespace AES_Controls.Composition
             UpdateItemsSnapshot(items);
             string? bitmapProp = ImageBitmapProperty;
             string? fileProp = ImageFileNameProperty;
-            _sectionPlaceholderBitmap = CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue);
+            SetSectionPlaceholderBitmap(CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue));
 
             var activeItems = new HashSet<object>(ReferenceEqualityComparer.Instance);
             foreach (var item in items)
@@ -2713,8 +2757,7 @@ namespace AES_Controls.Composition
 
             if (item is MediaItem mediaItem && mediaItem.IsLoadingCover && !mediaItem.CoverFound)
             {
-                var localCoverPath = mediaItem.LocalCoverPath;
-                if (string.IsNullOrWhiteSpace(localCoverPath) || !File.Exists(localCoverPath))
+                if (!CompositionCoverImageHelper.HasResolvableLocalCoverFile(mediaItem))
                     return false;
             }
 

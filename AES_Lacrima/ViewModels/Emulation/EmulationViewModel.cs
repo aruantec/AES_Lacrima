@@ -82,6 +82,8 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumCoverScanDebounceMap = [];
         private readonly HashSet<string> _deferredCoverLookupPaths = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _coverLookupAttemptedPaths = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _coverLookupInFlightPaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = [];
         private readonly HashSet<FolderMediaItem> _activeAlbumPreviewCoverLoads = [];
         private readonly object _albumPreviewCoverLoadGate = new();
@@ -93,9 +95,14 @@ namespace AES_Lacrima.ViewModels
         private const int LoadedAlbumCoverLoadBatchSize = 20;
         private const int AlbumCoverLoadParallelism = 3;
         private const int LoadedAlbumCoverLoadParallelism = 6;
+        private const int PerRomCoverLoadTimeoutSeconds = 8;
+        private const int CoverDisplayNotifyMinIntervalMs = 150;
         private const int AlbumCoverScanDebounceMs = 350;
         private const int VisibleCoverPriorityRadius = 18;
+        private DispatcherTimer? _coverDisplayNotifyTimer;
+        private FolderMediaItem? _coverDisplayNotifyAlbum;
         private readonly HashSet<FolderMediaItem> _albumsWithMetadataScanned = [];
+        private readonly HashSet<FolderMediaItem> _albumsWithLocalCoversHydrated = [];
         private int _activeAlbumCoverScans;
         private string _romCarouselCoverStatus = string.Empty;
         public string RomCarouselCoverStatus => _romCarouselCoverStatus;
@@ -384,6 +391,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyPropertyChangedFor(nameof(CarouselIndexMaximum))]
         [NotifyPropertyChangedFor(nameof(IsCarouselPositionSliderVisible))]
         [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCoverAndTitleCommand))]
         private AvaloniaList<MediaItem> _coverItems = [];
 
         [ObservableProperty]
@@ -398,6 +406,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         [NotifyCanExecuteChangedFor(nameof(ScanFolderCommand))]
         [NotifyCanExecuteChangedFor(nameof(ClearAlbumCommand))]
         [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCoverAndTitleCommand))]
         [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
         [NotifyPropertyChangedFor(nameof(CanShowRenderOptions))]
         private FolderMediaItem? _selectedAlbum;
@@ -405,6 +414,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(CanShowRenderOptions))]
         [NotifyCanExecuteChangedFor(nameof(OpenMetadataCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RefreshCoverAndTitleCommand))]
         [NotifyPropertyChangedFor(nameof(HasActiveAlbumItems))]
         private FolderMediaItem? _loadedAlbum;
 
@@ -1245,7 +1255,35 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
         private void OnCarouselVisibleCenterIndexChanged(int index)
-            => NotifyCarouselOverlayItemChanged();
+        {
+            NotifyCarouselOverlayItemChanged();
+            ReprioritizeActiveCoverScanNearIndex(index);
+        }
+
+        private void ReprioritizeActiveCoverScanNearIndex(int centerIndex)
+        {
+            if (_activeAlbumCoverScans == 0)
+                return;
+
+            var album = LoadedAlbum;
+            if (album == null || album.Children.Count == 0)
+                return;
+
+            if (centerIndex < 0 || centerIndex >= album.Children.Count)
+                centerIndex = CompositionViewportState.VisibleCenterIndex;
+
+            if (centerIndex < 0 || centerIndex >= album.Children.Count)
+                return;
+
+            int start = Math.Max(0, centerIndex - VisibleCoverPriorityRadius);
+            int end = Math.Min(album.Children.Count - 1, centerIndex + VisibleCoverPriorityRadius);
+            for (int i = start; i <= end; i++)
+            {
+                var item = album.Children[i];
+                if (NeedsCoverLookup(item, album) && !string.IsNullOrWhiteSpace(item.FileName))
+                    _coverLookupAttemptedPaths.Remove(item.FileName);
+            }
+        }
 
         partial void OnCoverItemsChanged(AvaloniaList<MediaItem>? oldValue, AvaloniaList<MediaItem> newValue)
         {
@@ -1560,6 +1598,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 IsEmulatorViewportDismissed = false;
                 StopGameplayPreview();
                 OpenMetadataCommand.NotifyCanExecuteChanged();
+                RefreshCoverAndTitleCommand.NotifyCanExecuteChanged();
                 RebootEmulatorCommand.NotifyCanExecuteChanged();
                 NotifyPlayingItemIndexChanged();
                 return;
@@ -1572,6 +1611,7 @@ private bool _isShadPs4PatchesOverlayOpen;
 
             IsRenderOptionsOpen = false;
             OpenMetadataCommand.NotifyCanExecuteChanged();
+            RefreshCoverAndTitleCommand.NotifyCanExecuteChanged();
             RebootEmulatorCommand.NotifyCanExecuteChanged();
             ClearRetroArchErrorState();
             SyncCurrentSectionEmulatorContext();
@@ -1865,7 +1905,12 @@ private bool _isShadPs4PatchesOverlayOpen;
                 _emulatorUpdateNoticeSuppressedAlbumTitle = null;
             }
 
-            CancelAllAlbumCoverScans(exceptAlbum: value);
+            CancelAllAlbumCoverScanDebounces();
+            CancelCoverDisplayNotifyDebounce();
+            _coverLookupAttemptedPaths.Clear();
+            _coverLookupInFlightPaths.Clear();
+            _deferredCoverLookupPaths.Clear();
+            CancelAllAlbumCoverScans();
             CancelAllAlbumPreviewCoverLoads();
             DismissMetadataEditorIfOpen();
 
@@ -1893,7 +1938,14 @@ private bool _isShadPs4PatchesOverlayOpen;
                     return;
 
                 if (value != null && !EmulationConsoleCatalog.UsesAutoLibrarySync(value.Title))
-                    PrepareAlbumItemsForCoverDisplay(value);
+                {
+                    PrepareAlbumItemsForLocalDisplay(value);
+                    NotifyAlbumCoverDisplayChanged(value);
+                }
+                else if (value != null)
+                {
+                    NotifyAlbumCoverDisplayChanged(value);
+                }
 
                 SyncCurrentSectionEmulatorContext();
                 OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
@@ -1903,7 +1955,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 ManageSteamLibraryWatcher(value);
 
                 if (value != null && !EmulationConsoleCatalog.UsesAutoLibrarySync(value.Title))
-                    QueueSelectedAlbumCoverScan(value);
+                    QueueLocalAlbumPresentation(value);
             }, DispatcherPriority.Background);
         }
 

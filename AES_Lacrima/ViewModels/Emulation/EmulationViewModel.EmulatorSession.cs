@@ -912,6 +912,10 @@ namespace AES_Lacrima.ViewModels
                 IsEmulatorLaunchInProgress = false;
                 StopGameplayPreview();
                 ClearActiveCaptureRomPath();
+                ShowEmulatorLaunchFailure(
+                    handler,
+                    gameTitle,
+                    "The emulator process did not start. The game list will be restored.");
                 return;
             }
 
