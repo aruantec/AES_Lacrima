@@ -82,6 +82,7 @@ namespace AES_Lacrima.ViewModels
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumScanCtsMap = [];
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumCoverScanDebounceMap = [];
         private readonly HashSet<string> _deferredCoverLookupPaths = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _coverLookupRetryCounts = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _coverLookupAttemptedPaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _coverLookupInFlightPaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<FolderMediaItem, CancellationTokenSource> _albumTilePreviewCtsMap = [];
@@ -93,9 +94,10 @@ namespace AES_Lacrima.ViewModels
         private const int InitialCoverLoadingRadius = 12;
         private const int AlbumCoverLoadBatchSize = 8;
         private const int LoadedAlbumCoverLoadBatchSize = 20;
-        private const int AlbumCoverLoadParallelism = 3;
-        private const int LoadedAlbumCoverLoadParallelism = 6;
-        private const int PerRomCoverLoadTimeoutSeconds = 8;
+        private const int AlbumCoverLoadParallelism = 4;
+        private const int LoadedAlbumCoverLoadParallelism = 10;
+        private const int PerRomTitleResolveTimeoutSeconds = 6;
+        private const int PerRomCoverLoadTimeoutSeconds = 6;
         private const int CoverDisplayNotifyMinIntervalMs = 150;
         private const int AlbumCoverScanDebounceMs = 350;
         private const int VisibleCoverPriorityRadius = 18;
@@ -114,7 +116,17 @@ namespace AES_Lacrima.ViewModels
         private Dictionary<string, List<MediaItem>> _pendingAlbumRoms = new(StringComparer.OrdinalIgnoreCase);
         private int _albumCoverDisplayRevision;
         private bool _albumCoverDisplayNotifyPending;
+        private bool _albumCoverDisplayNeedsFullRescan;
         public int AlbumCoverDisplayRevision => _albumCoverDisplayRevision;
+
+        internal bool TryConsumeAlbumCoverFullRescan()
+        {
+            if (!_albumCoverDisplayNeedsFullRescan)
+                return false;
+
+            _albumCoverDisplayNeedsFullRescan = false;
+            return true;
+        }
         private bool _isPreparing;
         private bool _isSyncingAlbumSelection;
         private CancellationTokenSource? _albumCoverScanCts;
@@ -1249,6 +1261,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             CoverItems.CollectionChanged += OnCoverItemsCollectionChanged;
             PropertyChanged += EmulationViewModel_PropertyChanged;
             CompositionViewportState.VisibleCenterIndexChanged += OnCarouselVisibleCenterIndexChanged;
+            CompositionViewportState.VisibleIndicesChanged += OnViewportVisibleIndicesChanged;
             _selectedShaderFileItem = ShaderFileItems.FirstOrDefault() ?? new(string.Empty, string.Empty);
             _selectedShaderPath = _selectedShaderFileItem.FilePath;
             _clearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(_selectedShaderFileItem.FilePath);
@@ -1258,6 +1271,35 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             NotifyCarouselOverlayItemChanged();
             ReprioritizeActiveCoverScanNearIndex(index);
+        }
+
+        private void OnViewportVisibleIndicesChanged(IReadOnlyList<int> indices)
+        {
+            NotifyCarouselOverlayItemChanged();
+            if (indices.Count > 0)
+                ReprioritizeActiveCoverScanForIndices(indices);
+            else
+                ReprioritizeActiveCoverScanNearIndex(CompositionViewportState.VisibleCenterIndex);
+        }
+
+        private void ReprioritizeActiveCoverScanForIndices(IReadOnlyList<int> indices)
+        {
+            if (_activeAlbumCoverScans == 0)
+                return;
+
+            var album = LoadedAlbum;
+            if (album == null || album.Children.Count == 0)
+                return;
+
+            foreach (int i in indices)
+            {
+                if (i < 0 || i >= album.Children.Count)
+                    continue;
+
+                var item = album.Children[i];
+                if (NeedsCoverLookup(item, album) && !string.IsNullOrWhiteSpace(item.FileName))
+                    _coverLookupAttemptedPaths.Remove(item.FileName);
+            }
         }
 
         private void ReprioritizeActiveCoverScanNearIndex(int centerIndex)
@@ -1915,16 +1957,9 @@ private bool _isShadPs4PatchesOverlayOpen;
             DismissMetadataEditorIfOpen();
 
             if (value is EmulationAlbumItem emulationAlbum)
-                _ = OnLoadedAlbumChangedAsync(emulationAlbum);
+                Dispatcher.UIThread.Post(() => FinishLoadedAlbumChanged(emulationAlbum), DispatcherPriority.Input);
             else
                 FinishLoadedAlbumChanged(value);
-        }
-
-        private async Task OnLoadedAlbumChangedAsync(EmulationAlbumItem album)
-        {
-            await Dispatcher.UIThread.InvokeAsync(
-                () => FinishLoadedAlbumChanged(album),
-                DispatcherPriority.Normal);
         }
 
         private void FinishLoadedAlbumChanged(FolderMediaItem? value)
@@ -1940,7 +1975,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 if (value != null && !EmulationConsoleCatalog.UsesAutoLibrarySync(value.Title))
                 {
                     PrepareAlbumItemsForLocalDisplay(value);
-                    NotifyAlbumCoverDisplayChanged(value);
+                    QueueLocalAlbumPresentation(value);
                 }
                 else if (value != null)
                 {
@@ -1953,9 +1988,6 @@ private bool _isShadPs4PatchesOverlayOpen;
                 OnPropertyChanged(nameof(ShowSteamProtonVersionMenuItem));
                 RefreshSteamLibraryCommand.NotifyCanExecuteChanged();
                 ManageSteamLibraryWatcher(value);
-
-                if (value != null && !EmulationConsoleCatalog.UsesAutoLibrarySync(value.Title))
-                    QueueLocalAlbumPresentation(value);
             }, DispatcherPriority.Background);
         }
 

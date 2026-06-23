@@ -68,7 +68,7 @@ namespace AES_Lacrima.Services
         private static readonly Regex RomDumpTokenRegex = new(@"\b(?:rev\s*\d+|beta|proto|prototype|demo|sample|unl|hack|translated?|translation|usa|europe|japan|world)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex RomReleaseTokenRegex = new(@"\b(?:complete|fixed|fix|patched?|update(?:d)?|release|final)\b|\bv(?:ersion)?\s*\d+(?:[._-]\d+)*(?:\s+\d+)*\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex CoverSearchTokenRegex = new(@"\b(?:cover(?:\s+art)?|album\s+cover|box\s*art)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        private static readonly SemaphoreSlim AutoCoverLookupThrottle = new(3, 3);
+        private static readonly SemaphoreSlim AutoCoverLookupThrottle = new(6, 6);
         private const string GoogleConsentCookie = "CONSENT=YES+cb.20210328-17-p0.en+FX+471";
         private static readonly object PsTitleLookupLock = new();
         private static Dictionary<string, string>? _psxTitleLookup;

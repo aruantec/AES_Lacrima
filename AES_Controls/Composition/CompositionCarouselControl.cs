@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
@@ -638,7 +639,7 @@ namespace AES_Controls.Composition
 
         internal void SyncItemsSourceLightweight(IEnumerable? source, bool forceRebuild = false)
         {
-            int sourceCount = source?.Cast<object?>().Count() ?? 0;
+            int sourceCount = GetSourceCount(source);
             bool sourceChanged = !ReferenceEquals(_subscribedItemsSource, source);
             if (!forceRebuild &&
                 !sourceChanged &&
@@ -664,8 +665,12 @@ namespace AES_Controls.Composition
                 return;
             }
 
-            var items = source.Cast<object?>().ToArray();
+            var items = CaptureItemsSnapshot(source);
             UpdateItemsSnapshot(items);
+
+            if (!_coverLoadingActive && !forceRebuild)
+                return;
+
             string? bitmapProp = ImageBitmapProperty;
             string? fileProp = ImageFileNameProperty;
             SetSectionPlaceholderBitmap(CompositionCoverImageHelper.DetectSectionPlaceholder(items, bitmapProp, GetBitmapValue));
@@ -688,6 +693,35 @@ namespace AES_Controls.Composition
 
             if (sourceChanged)
                 SnapToSelectedIndex();
+        }
+
+        private static int GetSourceCount(IEnumerable? source) =>
+            source switch
+            {
+                null => 0,
+                ICollection collection => collection.Count,
+                _ => source.Cast<object?>().Count()
+            };
+
+        private static object?[] CaptureItemsSnapshot(IEnumerable source)
+        {
+            if (source is object?[] array)
+                return array;
+
+            if (source is IList list)
+            {
+                var snapshot = new object?[list.Count];
+                for (int i = 0; i < list.Count; i++)
+                    snapshot[i] = list[i];
+                return snapshot;
+            }
+
+            return source.Cast<object?>().ToArray();
+        }
+
+        internal void SyncItemsSourceMetadataOnly(IEnumerable? source)
+        {
+            SyncItemsSourceLightweight(source, forceRebuild: false);
         }
 
         internal void RefreshItemsFromCurrentSource()
@@ -992,7 +1026,8 @@ namespace AES_Controls.Composition
             if (CompositionCoverImageHelper.IsLikelyImageFile(mediaItem.FileName) && File.Exists(mediaItem.FileName))
                 return mediaItem.FileName;
 
-            return CompositionMetadataCoverHelper.GetMetadataCachePath(mediaItem.FileName);
+            return CompositionMetadataCoverHelper.GetCoverCachePath(mediaItem.FileName)
+                ?? CompositionMetadataCoverHelper.GetMetadataCachePath(mediaItem.FileName);
         }
 
         private bool TryGetItemBool(object? item, string propertyName, out bool value)
@@ -3283,7 +3318,17 @@ namespace AES_Controls.Composition
             if (isLoading)
             {
                 if (!HasDisplayedCover(index))
+                {
+                    if (sender is MediaItem mediaItem &&
+                        CompositionCoverImageHelper.HasResolvableLocalCoverFile(mediaItem))
+                    {
+                        ScheduleCoverImageAtIndex(index);
+                        return;
+                    }
+
                     SetLoading(index, true);
+                }
+
                 return;
             }
 
@@ -3352,7 +3397,9 @@ namespace AES_Controls.Composition
             if (!_coverLoadingActive || _pendingCoverImageReloads.Count == 0)
                 return;
 
-            if (IsSelectionInMotion())
+            if (IsSelectionInMotion() &&
+                !_pendingCoverImageReloads.Keys.Any(sender =>
+                    sender is MediaItem { IsLoadingCover: false }))
                 return;
 
             _coverReloadDebounceTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(CoverImageReloadDebounceMs) };

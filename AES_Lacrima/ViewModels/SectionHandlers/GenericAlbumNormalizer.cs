@@ -112,8 +112,11 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             if (IsSnesAlbum(albumTitle) || IsN64Album(albumTitle))
             {
                 var cartridgeTitle = ResolveCartridgeRomTitle(filePath);
-                if (!string.IsNullOrWhiteSpace(cartridgeTitle))
+                if (!string.IsNullOrWhiteSpace(cartridgeTitle) &&
+                    !EmulationHashTitleResolver.NeedsBetterTitle(cartridgeTitle, filePath))
+                {
                     return cartridgeTitle;
+                }
             }
 
             if (EmulationHashTitleResolver.IsSupportedAlbum(albumTitle, out var hashPlatform) && hashPlatform != null)
@@ -157,7 +160,7 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
         {
             var resolved = ResolveRomTitle(filePath, albumTitle, currentTitle);
             if (!string.IsNullOrWhiteSpace(resolved) &&
-                !EmulationHashTitleResolver.NeedsBetterTitle(resolved, filePath))
+                !NeedsRomTitleImprovement(filePath, albumTitle, resolved))
             {
                 return resolved;
             }
@@ -181,6 +184,19 @@ namespace AES_Lacrima.ViewModels.SectionHandlers
             }
 
             return resolved;
+        }
+
+        public static bool NeedsRomTitleImprovement(string? filePath, string? albumTitle, string? currentTitle)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return false;
+
+            if (EmulationHashTitleResolver.NeedsBetterTitle(currentTitle, filePath))
+                return true;
+
+            var cachePath = GetLocalMetadataCachePath(filePath);
+            var metadata = BinaryMetadataHelper.LoadMetadata(cachePath);
+            return EmulationHashTitleResolver.NeedsBetterTitle(metadata?.Title, filePath);
         }
 
         private static bool IsPsxAlbum(string? albumTitle)

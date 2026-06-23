@@ -59,4 +59,70 @@ public sealed class CardGridHorizontalLayoutTests
             }
         }
     }
+
+    [Fact]
+    public void EnumerateVisibleIndices_MultiRow_IncludesEachVisibleRow()
+    {
+        const int itemCount = 856;
+        var metrics = CardGridHorizontalLayout.ComputeMetrics(
+            itemCount,
+            viewportWidth: 1280,
+            viewportHeight: 720,
+            cardScale: 1f,
+            cardSpacing: 12f,
+            topPadding: 24f);
+
+        Assert.True(metrics.Rows > 1, $"Expected multiple rows, got {metrics.Rows}");
+
+        var visible = CardGridHorizontalLayout.EnumerateVisibleIndices(
+            scrollX: 0,
+            viewportWidth: 1280,
+            viewportHeight: 720,
+            itemCount,
+            cardScale: 1f,
+            cardSpacing: 12f,
+            topPadding: 24f,
+            columnBuffer: 0).ToArray();
+
+        Assert.Contains(0, visible);
+        Assert.Contains(metrics.Columns, visible);
+        Assert.DoesNotContain(metrics.Columns / 2, visible);
+    }
+
+    [Fact]
+    public void GetVisibleIndexRange_MultiRow_BoundsActualVisibleRows()
+    {
+        const int itemCount = 856;
+        var metrics = CardGridHorizontalLayout.ComputeMetrics(
+            itemCount,
+            viewportWidth: 1280,
+            viewportHeight: 720,
+            cardScale: 1f,
+            cardSpacing: 12f,
+            topPadding: 24f);
+
+        var visible = CardGridHorizontalLayout.EnumerateVisibleIndices(
+            0,
+            1280,
+            720,
+            itemCount,
+            1f,
+            12f,
+            24f,
+            columnBuffer: 0).ToArray();
+
+        var (start, end) = CardGridHorizontalLayout.GetVisibleIndexRange(
+            0,
+            1280,
+            720,
+            itemCount,
+            1f,
+            12f,
+            24f,
+            columnBuffer: 0);
+
+        Assert.Equal(visible.Min(), start);
+        Assert.Equal(visible.Max(), end);
+        Assert.True(metrics.Rows > 1);
+    }
 }

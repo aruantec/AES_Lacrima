@@ -880,19 +880,23 @@ public partial class EmulationView : UserControl
             EnsureInlineCaptureHost();
             vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);
         }
-        else if (e.PropertyName == nameof(EmulationViewModel.LoadedAlbum) ||
-                 e.PropertyName == nameof(EmulationViewModel.SelectedAlbum))
+        else if (e.PropertyName == nameof(EmulationViewModel.LoadedAlbum))
         {
             IsAlbumListInteractive = true;
-            ApplyCoverLayoutMode(vm);
             EnsureCarouselVisibleWhenIdle(vm, vm.IsCompositionCaptureVisible);
             UpdateCaptureChromeVisibilityFromOpacity();
-            RomCover.ReloadCoverImages();
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.SelectedAlbum))
+        {
+            IsAlbumListInteractive = true;
         }
         else if (e.PropertyName == nameof(EmulationViewModel.AlbumCoverDisplayRevision))
         {
-            RomCover.ReloadCoverImages();
-            this.FindControl<EmulationListView>("AlbumListView")?.RefreshAlbumTileCovers();
+            Dispatcher.UIThread.Post(() =>
+            {
+                RomCover.ReloadCoverImages(vm.TryConsumeAlbumCoverFullRescan());
+                this.FindControl<EmulationListView>("AlbumListView")?.RefreshAlbumTileCovers();
+            }, DispatcherPriority.Background);
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
         {

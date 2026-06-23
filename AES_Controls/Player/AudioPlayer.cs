@@ -1347,10 +1347,29 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
     private void OnMpvInstallationCompleted(object? sender, MpvLibraryManager.InstallationCompletedEventArgs e)
     {
-        if (e.Success && _initTcs.Task.IsFaulted)
+        if (!e.Success || _disposed || !_initTcs.Task.IsFaulted)
+            return;
+
+        try
         {
-            // libmpv was previously missing but now its here, try to re-init
-            _ = Task.Run(InitializeMpvAsync);
+            _mpvQueue.Add(() =>
+            {
+                if (_disposed)
+                    return;
+
+                try
+                {
+                    InitializeMpvAsync().GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("MPV re-initialization after install failed", ex);
+                }
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // Queue completed during shutdown.
         }
     }
 

@@ -10,6 +10,7 @@ namespace AES_Lacrima.Services.Emulation;
 internal static class LibRetroThumbnailCoverService
 {
     private const string BaseUrl = "https://thumbnails.libretro.com/";
+    internal static readonly string[] CoverArtExtensions = [".webp", ".jpg", ".png"];
 
     private static readonly string[] RegionSuffixes =
     [
@@ -45,14 +46,17 @@ internal static class LibRetroThumbnailCoverService
 
                 var encodedPlatform = Uri.EscapeDataString(platformFolder);
                 var encodedTitle = Uri.EscapeDataString(title);
-                var url = $"{BaseUrl}{encodedPlatform}/Named_Boxarts/{encodedTitle}.png";
-                if (seen.Add(url))
-                    yield return url;
+                foreach (var extension in CoverArtExtensions)
+                {
+                    var url = $"{BaseUrl}{encodedPlatform}/Named_Boxarts/{encodedTitle}{extension}";
+                    if (seen.Add(url))
+                        yield return url;
+                }
             }
         }
     }
 
-    public static async Task<byte[]?> TryDownloadCoverAsync(
+    public static async Task<LibRetroCoverDownloadResult?> TryDownloadCoverAsync(
         string? albumName,
         string? hasheousPlatformName,
         IEnumerable<string> titleCandidates,
@@ -66,11 +70,47 @@ internal static class LibRetroThumbnailCoverService
             cancellationToken.ThrowIfCancellationRequested();
             var bytes = await EmulationCoverImageDownload.TryDownloadValidatedCoverAsync(url, cancellationToken)
                 .ConfigureAwait(false);
-            if (bytes != null)
-                return bytes;
+            if (bytes == null)
+                continue;
+
+            var matchedTitle = ExtractTitleFromBoxArtUrl(url);
+            if (string.IsNullOrWhiteSpace(matchedTitle))
+                matchedTitle = titleCandidates.FirstOrDefault() ?? string.Empty;
+
+            return new LibRetroCoverDownloadResult
+            {
+                Bytes = bytes,
+                MatchedTitle = matchedTitle
+            };
         }
 
         return null;
+    }
+
+    internal static string? ExtractTitleFromBoxArtUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        const string marker = "/Named_Boxarts/";
+        var index = url.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+            return null;
+
+        var encodedTitle = url[(index + marker.Length)..];
+        foreach (var extension in CoverArtExtensions)
+        {
+            if (encodedTitle.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            {
+                encodedTitle = encodedTitle[..^extension.Length];
+                break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(encodedTitle))
+            return null;
+
+        return Uri.UnescapeDataString(encodedTitle).Trim();
     }
 
     internal static IEnumerable<string> ExpandTitleVariants(string? title)

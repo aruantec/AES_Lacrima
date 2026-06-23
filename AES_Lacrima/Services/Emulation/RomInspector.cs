@@ -348,7 +348,14 @@ namespace AES_Lacrima.Services.Emulation
                     out var temp,
                     out var displayPath))
             {
-                return new RomInfo { FilePath = archivePath, Format = RomFormat.Unknown };
+                return new RomInfo
+                {
+                    FilePath = archivePath,
+                    Format = RomFormat.Unknown,
+                    ArchiveMd5 = archiveHashes.Md5,
+                    ArchiveSha1 = archiveHashes.Sha1,
+                    ArchiveCrc32 = archiveHashes.Crc32
+                };
             }
 
             try

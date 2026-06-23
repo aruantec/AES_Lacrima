@@ -68,16 +68,24 @@ internal static class EmulationOnlineCoverResolver
         }
 
         var titleCandidates = BuildTitleCandidates(item, romInfo, hasheousMatch?.Name);
-        var libRetroBytes = await LibRetroThumbnailCoverService
+        var libRetroResult = await LibRetroThumbnailCoverService
             .TryDownloadCoverAsync(albumName ?? item.Album, hasheousMatch?.PlatformName, titleCandidates, cancellationToken)
             .ConfigureAwait(false);
-        if (libRetroBytes != null)
+        if (libRetroResult != null)
         {
+            var resolvedTitle = hasheousMatch?.Name;
+            if (string.IsNullOrWhiteSpace(resolvedTitle) &&
+                !string.IsNullOrWhiteSpace(libRetroResult.MatchedTitle) &&
+                ShouldApplyResolvedTitle(item, libRetroResult.MatchedTitle))
+            {
+                resolvedTitle = libRetroResult.MatchedTitle;
+            }
+
             return new EmulationOnlineCoverResult
             {
-                Bytes = libRetroBytes,
+                Bytes = libRetroResult.Bytes,
                 Source = "LibRetro",
-                ResolvedTitle = hasheousMatch?.Name
+                ResolvedTitle = resolvedTitle
             };
         }
 

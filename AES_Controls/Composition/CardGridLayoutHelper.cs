@@ -152,6 +152,51 @@ internal static class CardGridLayoutHelper
         return true;
     }
 
+    public static IEnumerable<int> EnumerateVisibleIndices(
+        double scrollY,
+        float viewportHeight,
+        int itemCount,
+        float viewportWidth,
+        float cardScale,
+        float cardSpacing,
+        float topPadding,
+        bool horizontalScrollEnabled = false,
+        int rowBuffer = 2)
+    {
+        if (itemCount <= 0)
+            yield break;
+
+        if (horizontalScrollEnabled)
+        {
+            foreach (int index in CardGridHorizontalLayout.EnumerateVisibleIndices(
+                         scrollY,
+                         viewportWidth,
+                         viewportHeight,
+                         itemCount,
+                         cardScale,
+                         cardSpacing,
+                         topPadding,
+                         columnBuffer: rowBuffer))
+            {
+                yield return index;
+            }
+
+            yield break;
+        }
+
+        var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
+        int columns = Math.Max(1, metrics.Columns);
+        int firstRow = Math.Max(0, (int)Math.Floor((scrollY - metrics.PaddingTop) / (metrics.CardHeight + metrics.Spacing)) - rowBuffer);
+        int lastRow = Math.Min(
+            metrics.RowCount - 1,
+            (int)Math.Ceiling((scrollY + viewportHeight) / (metrics.CardHeight + metrics.Spacing)) + rowBuffer);
+
+        int start = firstRow * columns;
+        int end = Math.Min(itemCount - 1, (lastRow + 1) * columns - 1);
+        for (int index = start; index <= end; index++)
+            yield return index;
+    }
+
     public static (int StartIndex, int EndIndex) GetVisibleIndexRange(
         double scrollY,
         float viewportHeight,
@@ -189,6 +234,43 @@ internal static class CardGridLayoutHelper
         int start = firstRow * columns;
         int end = Math.Min(itemCount - 1, (lastRow + 1) * columns - 1);
         return (start, end);
+    }
+
+    public static int EstimateViewportCenterIndex(
+        double scrollY,
+        float viewportHeight,
+        int itemCount,
+        float viewportWidth,
+        float cardScale,
+        float cardSpacing,
+        float topPadding,
+        bool horizontalScrollEnabled = false)
+    {
+        if (itemCount <= 0)
+            return 0;
+
+        if (horizontalScrollEnabled)
+        {
+            return CardGridHorizontalLayout.EstimateViewportCenterIndex(
+                scrollY,
+                viewportWidth,
+                viewportHeight,
+                itemCount,
+                cardScale,
+                cardSpacing,
+                topPadding);
+        }
+
+        var metrics = Compute(viewportWidth, viewportHeight, itemCount, cardScale, cardSpacing, topPadding);
+        if (metrics.RowCount <= 0 || metrics.Columns <= 0)
+            return 0;
+
+        float rowHeight = metrics.CardHeight + metrics.Spacing;
+        float centerY = (float)scrollY + viewportHeight * 0.5f;
+        int centerRow = (int)MathF.Round((centerY - metrics.PaddingTop) / Math.Max(1f, rowHeight));
+        centerRow = Math.Clamp(centerRow, 0, Math.Max(0, metrics.RowCount - 1));
+        int centerCol = Math.Clamp(metrics.Columns / 2, 0, Math.Max(0, metrics.Columns - 1));
+        return Math.Clamp(centerRow * metrics.Columns + centerCol, 0, itemCount - 1);
     }
 
     public static double ScrollOffsetForIndex(int index, float viewportWidth, float viewportHeight, int itemCount, float cardScale, float cardSpacing, float topPadding)

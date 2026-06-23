@@ -49,11 +49,13 @@ public sealed class EmulationOnlineCoverResolverTests
     {
         var urls = LibRetroThumbnailCoverService
             .BuildCoverUrls("Nintendo - Super Nintendo Entertainment System", ["Super Mario World"])
-            .Take(4)
+            .Take(9)
             .ToList();
 
-        Assert.Contains(urls, url => url.Contains("Super%20Mario%20World%20(USA).png", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("Super%20Mario%20World.webp", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("Super%20Mario%20World.jpg", StringComparison.Ordinal));
         Assert.Contains(urls, url => url.Contains("Super%20Mario%20World.png", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("Super%20Mario%20World%20(USA).webp", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -61,11 +63,24 @@ public sealed class EmulationOnlineCoverResolverTests
     {
         var urls = LibRetroThumbnailCoverService
             .BuildCoverUrls("Nintendo - Game Boy Advance", ["Pokemon Emerald (USA, Europe)"])
-            .Take(4)
+            .Take(6)
             .ToList();
 
-        Assert.Contains(urls, url => url.Contains("Pokemon%20Emerald%20(USA%2C%20Europe).png", StringComparison.Ordinal));
-        Assert.Contains(urls, url => url.Contains("Pokemon%20Emerald.png", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("Pokemon%20Emerald%20(USA%2C%20Europe).webp", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("Pokemon%20Emerald.webp", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void LibRetroThumbnailCoverService_PrefersSmallerFormatsFirst()
+    {
+        var urls = LibRetroThumbnailCoverService
+            .BuildCoverUrls("Nintendo - Nintendo Entertainment System", ["Castlevania"])
+            .Take(3)
+            .ToList();
+
+        Assert.EndsWith(".webp", urls[0], StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(".jpg", urls[1], StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(".png", urls[2], StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

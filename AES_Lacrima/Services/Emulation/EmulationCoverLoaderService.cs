@@ -140,7 +140,7 @@ public sealed partial class EmulationCoverLoaderService : ViewModelBase
         }
 
         if (!request.AllowOnlineLookup)
-            return false;
+            return await TryApplyMetadataEmbeddedCoverAsync(item, romPath, cancellationToken).ConfigureAwait(false);
 
         if (metadataService == null)
             return false;
@@ -155,8 +155,40 @@ public sealed partial class EmulationCoverLoaderService : ViewModelBase
 
     private static bool IsCoverAppliedToItem(MediaItem item) =>
         item.CoverFound &&
-        item.CoverBitmap != null &&
-        !string.IsNullOrWhiteSpace(item.LocalCoverPath);
+        item.CoverBitmap != null;
+
+    private static async Task<bool> TryApplyMetadataEmbeddedCoverAsync(
+        MediaItem item,
+        string romPath,
+        CancellationToken cancellationToken)
+    {
+        var metaPath = EmulationCoverCacheHelper.GetMetadataCachePath(romPath);
+        if (string.IsNullOrWhiteSpace(metaPath) || !File.Exists(metaPath))
+            return false;
+
+        byte[]? bytes;
+        try
+        {
+            var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(metaPath), cancellationToken)
+                .ConfigureAwait(false);
+            if (metadata == null)
+                return false;
+
+            bytes = BinaryMetadataHelper.ReadMetadataImages(metadata)
+                .FirstOrDefault(entry => entry.Kind == TagImageKind.Cover && entry.Data is { Length: > 0 })
+                .Data;
+        }
+        catch (Exception ex)
+        {
+            SLog.Debug($"Failed to read metadata cover for '{item.FileName}'.", ex);
+            return false;
+        }
+
+        if (bytes is not { Length: > 0 })
+            return false;
+
+        return await ApplyLocalCoverToItemAsync(item, bytes, metaPath, cancellationToken).ConfigureAwait(false);
+    }
 
     internal static Task<bool> ApplyLocalCoverToItemAsync(MediaItem item, CancellationToken cancellationToken = default)
     {

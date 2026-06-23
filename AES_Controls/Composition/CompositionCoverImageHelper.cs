@@ -62,7 +62,12 @@ internal static class CompositionCoverImageHelper
             return false;
 
         var sidecar = CompositionMetadataCoverHelper.GetCoverCachePath(mediaItem.FileName);
-        return !string.IsNullOrWhiteSpace(sidecar) && File.Exists(sidecar);
+        if (!string.IsNullOrWhiteSpace(sidecar) && File.Exists(sidecar))
+            return true;
+
+        var metaPath = CompositionMetadataCoverHelper.GetMetadataCachePath(mediaItem.FileName);
+        return !string.IsNullOrWhiteSpace(metaPath) &&
+               CompositionMetadataCoverHelper.MetadataCacheHasCoverImage(metaPath);
     }
 
     public static bool ShouldPreferFileOverBitmap(

@@ -181,7 +181,7 @@ internal static class CardGridHorizontalLayout
         return new Rect(x, y, metrics.CardWidth, metrics.CardHeight);
     }
 
-    public static (int StartIndex, int EndIndex) GetVisibleIndexRange(
+    public static IEnumerable<int> EnumerateVisibleIndices(
         double scrollX,
         float viewportWidth,
         float viewportHeight,
@@ -192,17 +192,82 @@ internal static class CardGridHorizontalLayout
         int columnBuffer = 2)
     {
         if (itemCount <= 0)
-            return (0, -1);
+            yield break;
 
         var metrics = ComputeMetrics(itemCount, viewportWidth, viewportHeight, cardScale, cardSpacing, topPadding);
+        if (metrics.Rows <= 0 || metrics.Columns <= 0)
+            yield break;
+
         int firstCol = Math.Max(0, (int)Math.Floor((scrollX - metrics.PaddingLeft) / metrics.ColumnPitch) - columnBuffer);
         int lastCol = Math.Min(
             metrics.Columns - 1,
             (int)Math.Ceiling((scrollX + viewportWidth - metrics.PaddingLeft) / metrics.ColumnPitch) + columnBuffer);
 
-        int start = firstCol;
-        int end = Math.Min(itemCount - 1, (metrics.Rows - 1) * metrics.Columns + lastCol);
-        return (start, end);
+        for (int row = 0; row < metrics.Rows; row++)
+        {
+            for (int col = firstCol; col <= lastCol; col++)
+            {
+                int index = row * metrics.Columns + col;
+                if (index >= itemCount)
+                    yield break;
+
+                yield return index;
+            }
+        }
+    }
+
+    public static (int StartIndex, int EndIndex) GetVisibleIndexRange(
+        double scrollX,
+        float viewportWidth,
+        float viewportHeight,
+        int itemCount,
+        float cardScale,
+        float cardSpacing,
+        float topPadding,
+        int columnBuffer = 2)
+    {
+        int start = int.MaxValue;
+        int end = int.MinValue;
+        foreach (int index in EnumerateVisibleIndices(
+                     scrollX,
+                     viewportWidth,
+                     viewportHeight,
+                     itemCount,
+                     cardScale,
+                     cardSpacing,
+                     topPadding,
+                     columnBuffer))
+        {
+            if (index < start)
+                start = index;
+            if (index > end)
+                end = index;
+        }
+
+        return start <= end ? (start, end) : (0, -1);
+    }
+
+    public static int EstimateViewportCenterIndex(
+        double scrollX,
+        float viewportWidth,
+        float viewportHeight,
+        int itemCount,
+        float cardScale,
+        float cardSpacing,
+        float topPadding)
+    {
+        if (itemCount <= 0)
+            return 0;
+
+        var metrics = ComputeMetrics(itemCount, viewportWidth, viewportHeight, cardScale, cardSpacing, topPadding);
+        if (metrics.Rows <= 0 || metrics.Columns <= 0)
+            return 0;
+
+        float centerX = (float)scrollX + viewportWidth * 0.5f;
+        int col = (int)MathF.Round((centerX - metrics.PaddingLeft) / Math.Max(1f, metrics.ColumnPitch));
+        col = Math.Clamp(col, 0, Math.Max(0, metrics.Columns - 1));
+        int row = Math.Clamp(metrics.Rows / 2, 0, Math.Max(0, metrics.Rows - 1));
+        return Math.Clamp(row * metrics.Columns + col, 0, itemCount - 1);
     }
 
     public static double ScrollOffsetToRevealIndex(

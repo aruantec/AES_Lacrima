@@ -288,7 +288,7 @@ namespace AES_Lacrima.Services
                 if (string.Equals(definition.Key, "FBN", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(definition.Key, "ARCADE", StringComparison.OrdinalIgnoreCase))
                 {
-                    return "cps";
+                    return "MAME";
                 }
 
                 return definition.DisplayName;

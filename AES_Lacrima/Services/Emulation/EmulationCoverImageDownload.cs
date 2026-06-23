@@ -11,8 +11,10 @@ namespace AES_Lacrima.Services.Emulation;
 internal static class EmulationCoverImageDownload
 {
     private const int MaxDownloadBytes = 2_500_000;
+    private const int MinCoverBytes = 4 * 1024;
     private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(12) };
     private const string UserAgent = "Mozilla/5.0 (compatible; AES_Lacrima/1.0; +https://github.com/AES-Team/AES_Lacrima)";
+    private const string ImageAcceptHeader = "image/webp,image/jpeg,image/jpg,image/png,image/*;q=0.8";
 
     public static async Task<byte[]?> TryDownloadValidatedCoverAsync(string url, CancellationToken cancellationToken)
     {
@@ -26,7 +28,7 @@ internal static class EmulationCoverImageDownload
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
-            request.Headers.TryAddWithoutValidation("Accept", "image/*,*/*;q=0.8");
+            request.Headers.TryAddWithoutValidation("Accept", ImageAcceptHeader);
 
             using var response = await HttpClient
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -67,7 +69,7 @@ internal static class EmulationCoverImageDownload
 
     public static bool IsValidCoverImage(byte[] bytes)
     {
-        if (bytes.Length < 8 * 1024)
+        if (bytes.Length < MinCoverBytes)
             return false;
 
         try

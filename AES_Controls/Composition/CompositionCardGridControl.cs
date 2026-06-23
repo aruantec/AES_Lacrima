@@ -40,20 +40,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return;
 
         _coverLoadingActive = active;
-        if (!active)
-        {
+        if (active)
+            ResumeCoverLoading();
+        else
             SuspendCoverLoading();
-            return;
-        }
-
-        if (_itemsSnapshot.Length == 0)
-        {
-            if (_subscribedItemsSource != null || ItemsSource != null)
-                UpdateItems();
-            return;
-        }
-
-        EnsureItemSubscriptions(_subscribedItemsSource ?? ItemsSource, _itemsSnapshot);
     }
 
     private bool _coverLoadingActive = false;
@@ -93,12 +83,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private const int PlaceholderScanLimit = 48;
     private const int IdleVisibleLoadBuffer = 6;
     private const int RetainBuffer = 22;
-    private const int ViewportLoadBatchSize = 8;
+    private const int ViewportLoadBatchSize = 5;
     private const int ViewportLoadBatchSizeFastScroll = 3;
-    private const int VisibleLoadBatchSize = 4;
-    private const int IdleVisibleLoadBatchSize = 10;
-    private const int ViewportLoadFrameMs = 8;
-    private const int ViewportLoadFrameMsFastScroll = 12;
+    private const int VisibleLoadBatchSize = 12;
+    private const int IdleVisibleLoadBatchSize = 24;
+    private const int ViewportLoadFrameMs = 14;
+    private const int ViewportLoadFrameMsFastScroll = 18;
     private const int ScrollSettleMs = 24;
     private const double FastScrollVelocityThreshold = 220.0;
     private const double FastWheelScrollVelocityThreshold = 100.0;
@@ -141,9 +131,14 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private CompositionSharedCoverCache SharedCoverCache => _parentSharedCoverCache ?? _fallbackSharedCoverCache;
     private CompositionSharedCoverCache CardDisplayCache => _parentCardDisplayCache ?? _fallbackCardDisplayCache;
     private object?[] _itemsSnapshot = Array.Empty<object?>();
+    private int LayoutItemCount => Math.Max(_itemsSnapshot.Length, _images.Count);
+    private string _resolvedBitmapProperty = nameof(MediaItem.CoverBitmap);
+    private string _resolvedFileProperty = nameof(MediaItem.LocalCoverPath);
+    private string _resolvedTitleProperty = nameof(MediaItem.Title);
     private readonly string _diskCachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"ImageCache_{CachedCardImageSize}");
     private volatile bool _isDiskCachePathReady;
     private int _maxImageCacheEntries = 160;
+    private const int MaxDisplayCacheEntries = 384;
     private int _lastVirtualizationIndex = -1;
     private double _lastVirtualizationScrollY = double.NaN;
     private bool _pendingVisibleLoad;
@@ -154,6 +149,9 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private DispatcherTimer? _scrollSettleTimer;
     private DispatcherTimer? _idleCacheTrimTimer;
     private int _viewportLoadGeneration;
+    private int _viewportEmptyLoadRetries;
+    private int _shellUpdateGeneration;
+    private int _completedShellUpdateGeneration;
     private readonly Dictionary<int, PendingAssign> _deferredAssigns = new();
 
     private readonly record struct PendingAssign(object Item, SKImage Source, SKImage Display, object? SourceKey, object? DisplayCacheKey);
@@ -168,10 +166,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private readonly Dictionary<int, int> _coverLoadRetryCounts = new();
     private readonly HashSet<int> _deferredCoverLoadIndices = new();
     private readonly object _deferredCoverLoadLock = new();
+    private readonly object _displayBakeSync = new();
+    private readonly Dictionary<object, Task<SKImage>> _displayBakeTasks = new();
     private CancellationTokenSource? _prefetchCts;
     private bool _viewportMotionTracked;
     private bool _fastScrollTracked;
     private bool _viewportLoadChainActive;
+    private bool _pendingViewportLoadAfterLayout;
     private Bitmap? _sectionPlaceholderBitmap;
     private DispatcherTimer? _uiSyncTimer;
     private DispatcherTimer? _wheelScrollSettleTimer;
@@ -461,6 +462,20 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         if (_pendingVisibleLoad && Bounds.Width > 0 && Bounds.Height > 0)
             ScheduleInitialImageLoad();
+
+        if (_pendingViewportLoadAfterLayout && Bounds.Width > 0 && Bounds.Height > 0)
+            TryStartDeferredViewportLoad();
+    }
+
+    private void TryStartDeferredViewportLoad()
+    {
+        if (!_coverLoadingActive || _itemsSnapshot.Length == 0 || Bounds.Height <= 0)
+            return;
+
+        _pendingViewportLoadAfterLayout = false;
+        PresentItemsShell(_itemsSnapshot.Length, clearSlotImages: false);
+        BeginViewportLoadChain(restart: true);
+        SyncCoverLoadingIndicators();
     }
 
     public void RefreshExclusionRenderSize()
@@ -471,7 +486,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     internal void RefreshMissingCoverSlots(bool forceFullRescan = false)
     {
-        if (!_coverLoadingActive)
+        if (!_coverLoadingActive || _itemsSnapshot.Length == 0)
             return;
 
         if (forceFullRescan)
@@ -479,41 +494,89 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             _initialImageLoadScheduled = false;
             _pendingVisibleLoad = true;
             _lastVirtualizationIndex = -1;
+
+            foreach (int i in EnumerateViewportVisibleIndices(rowBuffer: 4))
+            {
+                if (i < 0 || i >= _itemsSnapshot.Length || _itemsSnapshot[i] is not { } item)
+                    continue;
+
+                if (i < _images.Count)
+                    _images[i] = null;
+
+                ReleaseItemImage(item);
+            }
         }
 
-        if (_itemsSnapshot.Length == 0)
-            return;
-
-        if (forceFullRescan)
-            RehydrateCoverSlots(forceAll: true);
-        else
-            RehydrateCoverSlots(forceAll: false);
-
-        SyncVisualImageSlots();
-
-        if (!IsVisible)
-            return;
-
-        ScheduleMissingCoverLoads();
+        BeginViewportLoadChain(restart: true);
+        SyncCoverLoadingIndicators();
     }
 
-    private void ScheduleMissingCoverLoads()
+    private bool HasVisibleEmptyCoverSlots()
     {
-        if (!HasMissingCoverSlots())
+        if (_itemsSnapshot.Length == 0)
+            return false;
+
+        foreach (int i in EnumerateViewportVisibleIndices(rowBuffer: 2))
         {
-            _pendingVisibleLoad = false;
-            ClearLoadingForDisplayedCovers();
-            return;
+            if (i < 0 || i >= _itemsSnapshot.Length || _itemsSnapshot[i] == null)
+                continue;
+
+            if (i >= _images.Count || _images[i] == null || IsPlaceholderImage(_images[i]))
+                return true;
         }
 
-        ScheduleInitialImageLoad();
+        int fallback = Math.Min(_itemsSnapshot.Length, FallbackInitialVisibleSlots);
+        for (int i = 0; i < fallback; i++)
+        {
+            if (_itemsSnapshot[i] == null)
+                continue;
+
+            if (i >= _images.Count || _images[i] == null || IsPlaceholderImage(_images[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void ScheduleViewportLoadRetry(int coverLoadGeneration, int delayMs = 350)
+    {
+        const int maxRetries = 16;
+        if (_viewportEmptyLoadRetries >= maxRetries)
+            return;
+
+        _viewportEmptyLoadRetries++;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(delayMs).ConfigureAwait(false);
+            PostToUi(() =>
+            {
+                if (!_coverLoadingActive || coverLoadGeneration != _coverLoadGeneration || ShouldBlockCoverWork())
+                    return;
+
+                if (!HasVisibleEmptyCoverSlots())
+                    return;
+
+                BeginViewportLoadChain(restart: true);
+                SyncCoverLoadingIndicators();
+            }, DispatcherPriority.Background);
+        });
     }
 
     private bool HasMissingCoverSlots()
     {
-        for (int i = 0; i < _itemsSnapshot.Length; i++)
+        if (_itemsSnapshot.Length == 0)
+            return false;
+
+        foreach (int i in EnumerateViewportVisibleIndices(rowBuffer: 4))
         {
-            if (i >= _images.Count || _images[i] == null || IsPlaceholderImage(_images[i]))
+            if (SlotNeedsCoverLoad(i))
+                return true;
+        }
+
+        int fallback = Math.Min(_itemsSnapshot.Length, FallbackInitialVisibleSlots);
+        for (int i = 0; i < fallback; i++)
+        {
+            if (SlotNeedsCoverLoad(i))
                 return true;
         }
 
@@ -529,7 +592,19 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
     }
 
-    internal bool SyncItemsSourceLightweight(IEnumerable? source, bool forceCompleteSync = false)
+    internal void SyncItemsSourceMetadataOnly(IEnumerable? source)
+    {
+        if (source == null)
+        {
+            ClearResources();
+            return;
+        }
+
+        var items = CaptureItemsSnapshot(source);
+        UpdateItemsSnapshot(items);
+    }
+
+    internal bool SyncItemsSourceLightweight(IEnumerable? source)
     {
         int sourceCount = GetSourceCount(source);
         bool sourceChanged = !ReferenceEquals(_subscribedItemsSource, source);
@@ -555,25 +630,51 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return true;
         }
 
-        var items = CaptureItemsSnapshot(source);
-        UpdateItemsSnapshot(items);
-        EnsureImageSlotCount(items.Length);
-        PresentItemsShell(items.Length);
-
         if (sourceChanged)
         {
-            ResetScrollToStart();
-            SnapToSelectedIndex();
+            _shellUpdateGeneration++;
+            BeginItemsUpdateReset();
+            _images.Clear();
+            _visual?.SendHandlerMessage(new CardGridImageRevealHoldMessage(true));
         }
+
+        int previousCount = _itemsSnapshot.Length;
+        var items = CaptureItemsSnapshot(source);
+        bool countChanged = items.Length != previousCount;
+        UpdateItemsSnapshot(items);
+
+        if (_coverLoadingActive)
+            EnsureItemSubscriptions(source, items);
 
         if (!_coverLoadingActive)
             return true;
 
-        int generation = _coverLoadGeneration;
-        if (items.Length <= FastItemsPathThreshold || forceCompleteSync)
-            CompleteItemsUpdate(items, generation, scheduleLoads: false);
+        if (sourceChanged)
+        {
+            PresentItemsShell(items.Length, clearSlotImages: true);
+            ResetScrollToStart();
+            SnapToSelectedIndex();
+            _completedShellUpdateGeneration = _shellUpdateGeneration;
+            DetachAllItemImageCaches();
+            _visual?.SendHandlerMessage(new CardGridRequestFlushDisposalsMessage());
+        }
+        else if (countChanged)
+        {
+            _shellUpdateGeneration++;
+            BeginItemsUpdateReset();
+            PresentItemsShell(items.Length, clearSlotImages: false);
+            _completedShellUpdateGeneration = _shellUpdateGeneration;
+        }
         else
-            Dispatcher.UIThread.Post(() => CompleteItemsUpdate(items, generation, scheduleLoads: false), DispatcherPriority.Background);
+        {
+            PresentItemsShell(items.Length, clearSlotImages: false);
+        }
+
+        int generation = _coverLoadGeneration;
+        int shellGeneration = _shellUpdateGeneration;
+        Dispatcher.UIThread.Post(
+            () => CompleteItemsUpdate(items, generation, shellGeneration, scheduleLoads: true),
+            DispatcherPriority.Background);
 
         return true;
     }
@@ -607,24 +708,16 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (!_coverLoadingActive)
             return;
 
-        UpdateItems();
+        SyncItemsSourceLightweight(_subscribedItemsSource ?? ItemsSource);
     }
 
     internal void ResumeCoverLoading()
     {
-        if (!_coverLoadingActive)
+        if (!_coverLoadingActive || _itemsSnapshot.Length == 0)
             return;
-
-        if (_itemsSnapshot.Length == 0)
-        {
-            if (_subscribedItemsSource != null || ItemsSource != null)
-                UpdateItems();
-            return;
-        }
 
         EnsureItemSubscriptions(_subscribedItemsSource ?? ItemsSource, _itemsSnapshot);
-        SyncVisualImageSlots();
-        RefreshMissingCoverSlots(forceFullRescan: false);
+        BeginViewportLoadChain(restart: true);
         SyncCoverLoadingIndicators();
     }
 
@@ -723,7 +816,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             if (SharedCoverCache.TryAcquire(sourceKey, out var shared))
                 adopted = shared;
             else
-                adopted = SharedCoverCache.Register(sourceKey, image);
+                adopted = RegisterSharedImage(sourceKey, image);
         }
 
         AssignItemImage(item, index, adopted, sourceKey);
@@ -746,13 +839,19 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     internal void SetImageRevealHold(bool hold) =>
         _visual?.SendHandlerMessage(new CardGridImageRevealHoldMessage(hold));
 
+    internal void RequestCoverDisplayRefresh(bool forceFullRescan = false)
+    {
+        if (!_coverLoadingActive || _itemsSnapshot.Length == 0)
+            return;
+
+        RefreshMissingCoverSlots(forceFullRescan);
+    }
+
     internal void HydrateCoverImagesFrom(CompositionCarouselControl? source)
     {
         ImportCoverImagesFrom(source, replacePlaceholderDisplay: true);
-        RehydrateCoverSlots(forceAll: false, replacePlaceholderDisplays: true);
-        SyncVisualImageSlots();
+        BeginViewportLoadChain(restart: true);
         SyncCoverLoadingIndicators();
-        ScheduleMissingCoverLoads();
     }
 
     internal void SnapToSelectedIndex()
@@ -799,6 +898,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         _visual = compositor.CreateCustomVisual(new CompositionCardGridVisualHandler());
         ElementComposition.SetElementChildVisual(this, _visual);
+        UpdateResolvedCoverPropertyNames();
         _visual.SendHandlerMessage(new CardGridAttachSyncMessage(_animationSync));
         SendLayoutMessages();
         UpdateCompositionVisualSize(Bounds.Size);
@@ -811,7 +911,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         _visual.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(PauseLoadingSpinnerAnimation));
         _visual.SendHandlerMessage(new CardGridContentLoadingMessage(IsContentLoading));
         if (_subscribedItemsSource != null || ItemsSource != null)
-            UpdateItems();
+            SyncItemsSourceLightweight(_subscribedItemsSource ?? ItemsSource);
 
         _uiSyncTimer?.Start();
     }
@@ -843,6 +943,9 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         if (_pendingVisibleLoad && e.NewSize.Width > 0 && e.NewSize.Height > 0)
             ScheduleInitialImageLoad();
+
+        if (_pendingViewportLoadAfterLayout && e.NewSize.Width > 0 && e.NewSize.Height > 0)
+            TryStartDeferredViewportLoad();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -875,6 +978,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             _visual?.SendHandlerMessage(new CardGridSnapScrollMessage(0));
             EnsureIndexVisible((int)Math.Round(SelectedIndex), animate: false);
             UpdateSelectedItemBounds();
+            if (_coverLoadingActive && _itemsSnapshot.Length > 0)
+            {
+                PresentItemsShell(_itemsSnapshot.Length, clearSlotImages: false);
+                BeginViewportLoadChain(restart: true);
+                SyncCoverLoadingIndicators();
+            }
         }
         else if (change.Property == ImageCacheSizeProperty)
             _maxImageCacheEntries = Math.Max(1, change.GetNewValue<int>());
@@ -894,7 +1003,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                  change.Property == ImageBitmapPropertyProperty ||
                  change.Property == TitlePropertyProperty)
         {
-            UpdateItems();
+            UpdateResolvedCoverPropertyNames();
+            SyncItemsSourceLightweight(_subscribedItemsSource ?? ItemsSource);
         }
         else if (change.Property == IsVisibleProperty)
         {
@@ -1224,13 +1334,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         _userInteractionUnlock = false;
         _coverLoadSuspended = false;
+        CompositionViewportState.SetVisibleIndices(EnumerateViewportVisibleIndices().ToArray());
+        _visual?.SendHandlerMessage(new CardGridExtendWaveRevealMessage(_itemsSnapshot.Length, HorizontalScrollEnabled));
         FlushDeferredAssigns();
-        SeedCachedVisibleDisplaySlots(ImageBitmapProperty, ImageFileNameProperty);
-        PushSeededImagesToVisual();
-        SyncVisibleLoadingIndicators();
         FlushDeferredCoverLoads();
         ProcessPendingCoverImageReloads();
         BeginViewportLoadChain(restart: true);
+        SyncVisibleLoadingIndicators();
         ScheduleIdleCacheTrim();
     }
 
@@ -2064,31 +2174,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         _visual.SendHandlerMessage(logicalSize);
     }
 
-    private void UpdateItems()
-    {
-        BeginItemsUpdateReset();
-
-        var source = _subscribedItemsSource ?? ItemsSource;
-        if (source == null)
-        {
-            ClearResources();
-            return;
-        }
-
-        var items = CaptureItemsSnapshot(source);
-        UpdateItemsSnapshot(items);
-        EnsureImageSlotCount(items.Length);
-        PresentItemsShell(items.Length);
-
-        int generation = _coverLoadGeneration;
-        if (items.Length <= FastItemsPathThreshold)
-        {
-            CompleteItemsUpdate(items, generation, scheduleLoads: true);
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() => CompleteItemsUpdate(items, generation, scheduleLoads: true), DispatcherPriority.Background);
-    }
+    private void UpdateItems() =>
+        SyncItemsSourceLightweight(_subscribedItemsSource ?? ItemsSource);
 
     private void BeginItemsUpdateReset()
     {
@@ -2107,8 +2194,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         _lastVirtualizationIndex = -1;
         _lastVirtualizationScrollY = double.NaN;
+        _viewportLoadGeneration++;
+        _viewportLoadChainActive = false;
+        _viewportEmptyLoadRetries = 0;
+        _scrollSettleTimer?.Stop();
         try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load during items update", ex); }
-        _loadCts = new CancellationTokenSource();
+        _loadCts = null;
         try { _prefetchCts?.Cancel(); _prefetchCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling prefetch during items update", ex); }
         _prefetchCts = null;
         _coverLoadGeneration++;
@@ -2128,57 +2219,151 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         _deferredAssigns.Clear();
         _fastScrollTracked = false;
         _viewportMotionTracked = false;
-        CancelViewportLoadChain();
+        _pendingViewportLoadAfterLayout = false;
+        lock (_displayBakeSync)
+            _displayBakeTasks.Clear();
     }
 
-    private void PresentItemsShell(int count)
+    private void TrimIdleImageCaches()
+    {
+        SharedCoverCache.TrimUnreferenced(_maxImageCacheEntries, QueueNativeImageDisposal);
+        CardDisplayCache.TrimUnreferenced(MaxDisplayCacheEntries, QueueNativeImageDisposal);
+    }
+
+    private void DetachAllItemImageCaches()
+    {
+        foreach (var key in _imageCache.Keys.ToList())
+            DetachItemImageCache(key);
+
+        _imageCache.Clear();
+        _imageCacheNodes.Clear();
+        _imageCacheLru.Clear();
+        _itemImageSourceKeys.Clear();
+        _itemDisplayCacheKeys.Clear();
+        TrimIdleImageCaches();
+    }
+
+    private void ClearCardDisplayCache(bool deferDispose = true)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            PostToUi(() => ClearCardDisplayCache(deferDispose), DispatcherPriority.Render);
+            return;
+        }
+
+        if (!deferDispose)
+        {
+            CardDisplayCache.Clear(QueueNativeImageDisposal);
+            _itemDisplayCacheKeys.Clear();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            CardDisplayCache.Clear(QueueNativeImageDisposal);
+            _itemDisplayCacheKeys.Clear();
+        }, DispatcherPriority.Render);
+    }
+
+    private void ReleaseItemImageForPurge(object key) => DetachItemImageCache(key);
+
+    private void RetainDisplayImage(object? displayCacheKey)
+    {
+        if (displayCacheKey != null)
+            CardDisplayCache.Acquire(displayCacheKey);
+    }
+
+    private void DetachItemImageCache(object key)
+    {
+        _imageCache.Remove(key);
+        RemoveCacheNode(key);
+
+        if (_itemDisplayCacheKeys.Remove(key, out var displayKey))
+            CardDisplayCache.Release(displayKey, QueueNativeImageDisposal);
+
+        if (_itemImageSourceKeys.Remove(key, out var sourceKey) && sourceKey != null)
+            SharedCoverCache.Release(sourceKey, QueueNativeImageDisposal);
+    }
+
+    private void PresentItemsShell(int count, bool clearSlotImages = true)
     {
         if (_visual == null || !_coverLoadingActive)
             return;
 
+        SendLayoutMessages();
+        _visual.SendHandlerMessage(new CardGridSlotCountMessage(count, clearSlotImages));
         _visual.SendHandlerMessage(new CardGridResetScrollbarMessage());
         _visual.SendHandlerMessage(new CardGridSelectedIndexMessage((int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, count - 1))));
+        _visual.SendHandlerMessage(new CardGridBeginWaveRevealMessage(count, HorizontalScrollEnabled));
     }
 
-    private void CompleteItemsUpdate(object?[] items, int generation, bool scheduleLoads)
+    private void CompleteItemsUpdate(object?[] items, int generation, int shellGeneration, bool scheduleLoads)
     {
-        if (generation != _coverLoadGeneration || !_coverLoadingActive)
+        if (shellGeneration != _shellUpdateGeneration)
             return;
 
-        string? bitmapProp = ImageBitmapProperty;
-        string? fileProp = ImageFileNameProperty;
-        SetSectionPlaceholderBitmap(CompositionCoverImageHelper.DetectSectionPlaceholder(
-            items, bitmapProp, GetBitmapValue, PlaceholderScanLimit));
-
-        var activeItems = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        foreach (var item in items)
+        if (generation != _coverLoadGeneration || !_coverLoadingActive)
         {
-            if (item != null)
-                activeItems.Add(item);
+            _completedShellUpdateGeneration = shellGeneration;
+            _visual?.SendHandlerMessage(new CardGridImageRevealHoldMessage(false));
+            return;
         }
 
-        var staleCacheKeys = _imageCache.Keys
-            .Where(key => key != null && !activeItems.Contains(key))
-            .ToList();
-
-        SeedCachedVisibleDisplaySlots(bitmapProp, fileProp);
-        SyncVisualImageSlots();
         EnsureItemSubscriptions(ItemsSource, items);
 
-        foreach (var key in staleCacheKeys)
-            ReleaseItemImage(key);
-
-        PurgePlaceholderSharedImages();
-
-        if (scheduleLoads && items.Length > 0)
+        Dispatcher.UIThread.Post(() =>
         {
-            RestoreScrollPosition(_knownScrollY);
-            _lastVirtualizationIndex = -1;
-            _lastVirtualizationScrollY = double.NaN;
-            ScheduleMissingCoverLoads();
-        }
+            if (shellGeneration != _shellUpdateGeneration)
+                return;
 
-        UpdateSelectedItemBounds();
+            if (generation != _coverLoadGeneration || !_coverLoadingActive)
+            {
+                _completedShellUpdateGeneration = shellGeneration;
+                _visual?.SendHandlerMessage(new CardGridImageRevealHoldMessage(false));
+                return;
+            }
+
+            string? bitmapProp = ImageBitmapProperty;
+            SetSectionPlaceholderBitmap(CompositionCoverImageHelper.DetectSectionPlaceholder(
+                items, bitmapProp, GetBitmapValue, PlaceholderScanLimit));
+
+            var activeItems = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            foreach (var item in items)
+            {
+                if (item != null)
+                    activeItems.Add(item);
+            }
+
+            var staleCacheKeys = _imageCache.Keys
+                .Where(key => key != null && !activeItems.Contains(key))
+                .ToList();
+
+            foreach (var key in staleCacheKeys)
+                DetachItemImageCache(key);
+
+            PurgePlaceholderSharedImages();
+
+            if (scheduleLoads && items.Length > 0)
+            {
+                RestoreScrollPosition(_knownScrollY);
+                _lastVirtualizationIndex = -1;
+                _lastVirtualizationScrollY = double.NaN;
+
+                FlushDeferredAssigns();
+                FlushDeferredCoverLoads();
+                BeginViewportLoadChain(restart: true);
+                SyncCoverLoadingIndicators();
+            }
+            else
+            {
+                FlushDeferredAssigns();
+                FlushDeferredCoverLoads();
+            }
+
+            _visual?.SendHandlerMessage(new CardGridImageRevealHoldMessage(false));
+            _completedShellUpdateGeneration = shellGeneration;
+            UpdateSelectedItemBounds();
+        }, DispatcherPriority.Background);
     }
 
     private void PushSeededImagesToVisual()
@@ -2199,14 +2384,30 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         object? SourceKey,
         string? FileName,
         Bitmap? BitmapValue,
-        Bitmap? SectionPlaceholder);
+        Bitmap? SectionPlaceholder,
+        string? Title,
+        int CoverLoadGeneration,
+        int ViewportLoadGeneration);
 
-    private string ResolvedBitmapProperty => ImageBitmapProperty ?? nameof(MediaItem.CoverBitmap);
+    private string ResolvedBitmapProperty => _resolvedBitmapProperty;
 
-    private string ResolvedFileProperty => ImageFileNameProperty ?? nameof(MediaItem.LocalCoverPath);
+    private string ResolvedFileProperty => _resolvedFileProperty;
 
-    private CoverImageLoadContext CaptureCoverImageLoadContext() =>
-        new(ResolvedBitmapProperty, ResolvedFileProperty, _sectionPlaceholderBitmap);
+    private void UpdateResolvedCoverPropertyNames()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+            return;
+
+        _resolvedBitmapProperty = ImageBitmapProperty ?? nameof(MediaItem.CoverBitmap);
+        _resolvedFileProperty = ImageFileNameProperty ?? nameof(MediaItem.LocalCoverPath);
+        _resolvedTitleProperty = TitleProperty ?? nameof(MediaItem.Title);
+    }
+
+    private CoverImageLoadContext CaptureCoverImageLoadContext()
+    {
+        UpdateResolvedCoverPropertyNames();
+        return new(ResolvedBitmapProperty, ResolvedFileProperty, _sectionPlaceholderBitmap);
+    }
 
     private void ScheduleVisibleCoverImages()
     {
@@ -2239,7 +2440,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return;
         }
 
-        for (int i = visibleStart; i <= visibleEnd; i++)
+        foreach (int i in EnumerateViewportVisibleIndices())
             ScheduleCoverImageAtIndex(i);
     }
 
@@ -2253,12 +2454,6 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (item == null)
             return false;
 
-        if (item is MediaItem mediaItem && mediaItem.IsLoadingCover && !mediaItem.CoverFound)
-        {
-            if (!CompositionCoverImageHelper.HasResolvableLocalCoverFile(mediaItem))
-                return false;
-        }
-
         CompositionCoverImageHelper.ReadCoverSources(
             item,
             ResolvedBitmapProperty,
@@ -2271,6 +2466,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         var sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
             item as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
+
+        if (item is MediaItem mediaItem && mediaItem.IsLoadingCover && !mediaItem.CoverFound)
+        {
+            if (!CompositionCoverImageHelper.HasResolvableLocalCoverFile(mediaItem))
+                return false;
+        }
 
         if (sourceKey != null &&
             sourceKey is Bitmap sourceBitmap &&
@@ -2298,7 +2499,16 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return false;
         }
 
-        request = new CoverDecodeRequest(index, item, sourceKey, fileName, bitmapValue, _sectionPlaceholderBitmap);
+        request = new CoverDecodeRequest(
+            index,
+            item,
+            sourceKey,
+            fileName,
+            bitmapValue,
+            _sectionPlaceholderBitmap,
+            GetTitleValue(item, _resolvedTitleProperty),
+            _coverLoadGeneration,
+            _viewportLoadGeneration);
         return true;
     }
 
@@ -2314,7 +2524,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
 
         if (!TryCreateCoverDecodeRequest(index, out _))
+        {
+            if (_itemsSnapshot[index] is MediaItem { IsLoadingCover: true } && !HasDisplayedCover(index))
+                SetLoading(index, true);
+            else if (!HasDisplayedCover(index))
+                ScheduleCoverImageRetry(index, _coverLoadGeneration, delayMs: 400);
             return;
+        }
 
         BeginViewportLoadChain();
     }
@@ -2433,11 +2649,44 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
     }
 
-    private bool HasDisplayedCover(int index) =>
-        index >= 0 &&
-        index < _images.Count &&
-        _images[index] != null &&
-        !IsPlaceholderImage(_images[index]);
+    private bool HasDisplayedCover(int index)
+    {
+        if (index < 0 || index >= _images.Count || index >= _itemsSnapshot.Length)
+            return false;
+
+        if (_images[index] == null || IsPlaceholderImage(_images[index]))
+            return false;
+
+        var item = _itemsSnapshot[index];
+        if (item == null)
+            return false;
+
+        CompositionCoverImageHelper.ReadCoverSources(
+            item,
+            ResolvedBitmapProperty,
+            ResolvedFileProperty,
+            GetBitmapValue,
+            ResolveCoverImagePath,
+            _sectionPlaceholderBitmap,
+            out var bitmapValue,
+            out var fileName);
+
+        var sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
+            item as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
+
+        return IsDisplayedCoverCurrent(item, index, sourceKey);
+    }
+
+    private bool SlotNeedsCoverLoad(int index)
+    {
+        if (index < 0 || index >= _itemsSnapshot.Length)
+            return false;
+
+        if (HasDisplayedCover(index))
+            return false;
+
+        return _itemsSnapshot[index] != null && TryCreateCoverDecodeRequest(index, out _);
+    }
 
     private bool ShouldShowLoadingSpinner(int index)
     {
@@ -2447,11 +2696,34 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (index < _images.Count && _images[index] != null && !IsPlaceholderImage(_images[index]))
             return false;
 
-        if (_itemsSnapshot[index] is MediaItem { IsLoadingCover: true })
-            return true;
-
         if (IsCoverLoadInFlight(index))
             return true;
+
+        var item = _itemsSnapshot[index];
+        if (item is MediaItem { IsLoadingCover: true } mediaItem)
+        {
+            CompositionCoverImageHelper.ReadCoverSources(
+                item,
+                ResolvedBitmapProperty,
+                ResolvedFileProperty,
+                GetBitmapValue,
+                ResolveCoverImagePath,
+                _sectionPlaceholderBitmap,
+                out var bitmapValue,
+                out var fileName);
+
+            if (CompositionCoverImageHelper.HasResolvableLocalCoverFile(mediaItem))
+                return true;
+
+            if (bitmapValue != null &&
+                !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(bitmapValue, _sectionPlaceholderBitmap))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(fileName) && File.Exists(fileName))
+                return true;
+
+            return false;
+        }
 
         return TryCreateCoverDecodeRequest(index, out _);
     }
@@ -2567,7 +2839,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private void ExecuteInitialImageLoad()
     {
         _initialImageLoadScheduled = false;
-        if (!_coverLoadingActive || _images.Count == 0)
+        if (!_coverLoadingActive || _itemsSnapshot.Length == 0)
         {
             _pendingVisibleLoad = false;
             return;
@@ -2647,13 +2919,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     private int GetVisibleVirtualizationCenterIndex()
     {
-        if (Bounds.Height <= 0 || _images.Count == 0)
-            return (int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _images.Count - 1));
+        if (Bounds.Height <= 0 || LayoutItemCount == 0)
+            return (int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, LayoutItemCount - 1));
 
         var (visibleStart, visibleEnd) = CardGridLayoutHelper.GetVisibleIndexRange(
             _knownScrollY,
             (float)Bounds.Height,
-            _images.Count,
+            LayoutItemCount,
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
@@ -2661,9 +2933,9 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             HorizontalScrollEnabled);
 
         if (visibleStart >= 0 && visibleEnd >= visibleStart)
-            return (visibleStart + visibleEnd) / 2;
+            return GetViewportCenterIndex();
 
-        return (int)Math.Clamp(Math.Round(SelectedIndex), 0, _images.Count - 1);
+        return (int)Math.Clamp(Math.Round(SelectedIndex), 0, LayoutItemCount - 1);
     }
 
     private void ItemsSource_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -2724,7 +2996,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private void OnUpdateItemsDebounceTick(object? sender, EventArgs e)
     {
         _updateItemsDebounceTimer?.Stop();
-        UpdateItems();
+        SyncItemsSourceLightweight(_subscribedItemsSource ?? ItemsSource);
     }
 
     private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -2734,9 +3006,9 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             if (!_coverLoadingActive)
                 return;
 
-            string? bitmapProp = ImageBitmapProperty;
-            string? fileProp = ImageFileNameProperty;
-            string? titleProp = TitleProperty;
+            string? bitmapProp = _resolvedBitmapProperty;
+            string? fileProp = _resolvedFileProperty;
+            string? titleProp = _resolvedTitleProperty;
             if (sender == null)
                 return;
 
@@ -2751,9 +3023,6 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 if (!_itemIndices.TryGetValue(sender, out var loadingIdx) || !IsCurrentSnapshotItem(sender, loadingIdx))
                     return;
 
-                if (!IsIndexNearVisibleRange(loadingIdx))
-                    return;
-
                 HandleLoadingCoverStateChanged(sender, loadingIdx);
                 return;
             }
@@ -2762,9 +3031,6 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 return;
 
             if (!_itemIndices.TryGetValue(sender, out var idx) || !IsCurrentSnapshotItem(sender, idx))
-                return;
-
-            if (!IsIndexNearVisibleRange(idx))
                 return;
 
             if (e.PropertyName == "CoverFound")
@@ -2783,6 +3049,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
             _pendingCoverImageReloads[sender] = idx;
             ProcessPendingCoverImageReloads();
+            if (!HasDisplayedCover(idx))
+                ScheduleCoverImageAtIndex(idx);
+            else if (SlotNeedsCoverLoad(idx))
+                ScheduleCoverImageAtIndex(idx);
         }, DispatcherPriority.Background);
     }
 
@@ -2820,16 +3090,14 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         var (visibleStart, visibleEnd) = CardGridLayoutHelper.GetVisibleIndexRange(
             _knownScrollY,
             (float)Bounds.Height,
-            _images.Count,
+            LayoutItemCount,
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
             (float)TopPadding,
             HorizontalScrollEnabled);
 
-        int center = visibleStart >= 0 && visibleEnd >= visibleStart
-            ? (visibleStart + visibleEnd) / 2
-            : (int)Math.Round(SelectedIndex);
+        int center = GetViewportCenterIndex();
 
         return pending
             .OrderBy(pair => Math.Abs(pair.Value - center))
@@ -2840,7 +3108,25 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     {
         try
         {
-            await ReloadCoverImagesBatchAsyncCore(pending).ConfigureAwait(false);
+            var requests = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                UpdateResolvedCoverPropertyNames();
+                var batch = new List<CoverDecodeRequest>(pending.Length);
+                foreach (var (sender, idx) in pending)
+                {
+                    if (idx < 0 || idx >= _itemsSnapshot.Length || !ReferenceEquals(_itemsSnapshot[idx], sender))
+                        continue;
+
+                    if (!TryCreateCoverDecodeRequest(idx, out var request))
+                        continue;
+
+                    batch.Add(request);
+                }
+
+                return batch.ToArray();
+            }, DispatcherPriority.Background);
+
+            await ReloadCoverImagesBatchAsyncCore(requests).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -2848,41 +3134,37 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
     }
 
-    private async Task ReloadCoverImagesBatchAsyncCore(KeyValuePair<object, int>[] pending)
+    private async Task ReloadCoverImagesBatchAsyncCore(CoverDecodeRequest[] pending)
     {
-        string? bitmapProp = ImageBitmapProperty;
-        string? fileProp = ImageFileNameProperty;
-
-        foreach (var (sender, idx) in pending)
+        foreach (var request in pending)
         {
-            if (idx < 0 || idx >= _itemsSnapshot.Length || !ReferenceEquals(_itemsSnapshot[idx], sender))
+            if (!IsCoverDecodeRequestCurrent(request))
                 continue;
 
-            CompositionCoverImageHelper.ReadCoverSources(
-                sender,
-                bitmapProp,
-                fileProp,
-                GetBitmapValue,
-                ResolveCoverImagePath,
-                _sectionPlaceholderBitmap,
-                out var bitmapValue,
-                out var fileName);
+            var sender = request.Item;
+            var idx = request.Index;
+            var bitmapValue = request.BitmapValue;
+            var fileName = request.FileName;
+            var sourceKey = request.SourceKey;
+            var sectionPlaceholder = request.SectionPlaceholder;
 
-            object? sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
-                sender as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap);
             bool forceReload = false;
             if (_itemImageSourceKeys.TryGetValue(sender, out var existingSourceKey) && Equals(existingSourceKey, sourceKey))
             {
                 var skipReload = await Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    if (!IsCoverDecodeRequestCurrent(request))
+                        return true;
+
                     if (CompositionCoverImageHelper.ShouldReloadCachedCover(
-                            sender as MediaItem, bitmapValue, fileName, _sectionPlaceholderBitmap))
+                            sender as MediaItem, bitmapValue, fileName, sectionPlaceholder))
                     {
                         ReleaseItemImage(sender);
                         return false;
                     }
 
-                    if (idx < _images.Count && _images[idx] == null && _imageCache.TryGetValue(sender, out var cachedImage))
+                    if (!IsDisplayedCoverCurrent(sender, idx, sourceKey) &&
+                        _imageCache.TryGetValue(sender, out var cachedImage))
                     {
                         AssignItemImage(sender, idx, cachedImage, sourceKey);
                         return true;
@@ -2908,7 +3190,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    AssignItemImage(sender, idx, sharedImage!, sourceKey);
+                    if (IsCoverDecodeRequestCurrent(request))
+                        AssignItemImage(sender, idx, sharedImage!, sourceKey);
                 });
                 continue;
             }
@@ -2916,7 +3199,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             SKImage? realImage = null;
             try
             {
-                realImage = await LoadImageAsync(bitmapValue, fileName, sender as MediaItem, CancellationToken.None);
+                realImage = await LoadImageAsync(bitmapValue, fileName, sender as MediaItem, CancellationToken.None, sectionPlaceholder);
             }
             catch (Exception ex)
             {
@@ -2930,23 +3213,32 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                     : RegisterSharedImage(sourceKey, realImage);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    AssignItemImage(sender, idx, imageToUse, sourceKey);
+                    if (IsCoverDecodeRequestCurrent(request))
+                        AssignItemImage(sender, idx, imageToUse, sourceKey);
                 });
             }
-            else if (idx >= 0 && idx < _images.Count)
+            else
             {
-                PostToUi(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (!IsCurrentSnapshotItem(sender, idx))
+                    if (!IsCoverDecodeRequestCurrent(request))
                         return;
 
                     ReleaseItemImage(sender);
-                    _images[idx] = null;
+                    if (idx < _images.Count)
+                        _images[idx] = null;
                     _visual?.SendHandlerMessage(new UpdateImageMessage(idx, null, ClearImage: true));
-                }, DispatcherPriority.Render);
+                    SetLoading(idx, ShouldShowLoadingSpinner(idx));
+                });
             }
         }
     }
+
+    private bool IsCoverDecodeRequestCurrent(CoverDecodeRequest request) =>
+        _coverLoadingActive &&
+        request.CoverLoadGeneration == _coverLoadGeneration &&
+        request.ViewportLoadGeneration == _viewportLoadGeneration &&
+        IsCurrentSnapshotItem(request.Item, request.Index);
 
     private void HandleLoadingCoverStateChanged(object sender, int index)
     {
@@ -2957,7 +3249,11 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (isLoading)
         {
             if (!HasDisplayedCover(index))
+            {
                 SetLoading(index, true);
+                ScheduleCoverImageAtIndex(index);
+            }
+
             return;
         }
 
@@ -3001,27 +3297,24 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     }
 
     private bool ShouldBlockCoverWork() =>
-        _coverLoadSuspended || IsFastScrollInMotion();
+        _coverLoadSuspended ||
+        IsFastScrollInMotion() ||
+        _shellUpdateGeneration != _completedShellUpdateGeneration;
 
     private bool IsIndexNearVisibleRange(int index)
     {
         if (index < 0 || _images.Count == 0 || Bounds.Height <= 0)
             return true;
 
-        var (visibleStart, visibleEnd) = CardGridLayoutHelper.GetVisibleIndexRange(
-            _knownScrollY,
-            (float)Bounds.Height,
-            _images.Count,
-            (float)Bounds.Width,
-            (float)CardScale,
-            (float)CardSpacing,
-            (float)TopPadding,
-            HorizontalScrollEnabled);
+        const int buffer = 8;
+        var visibleIndices = EnumerateViewportVisibleIndices(rowBuffer: buffer).ToArray();
+        if (visibleIndices.Length > 0)
+            return visibleIndices.Contains(index);
 
+        var (visibleStart, visibleEnd) = GetViewportIndexRange();
         if (visibleStart < 0 || visibleEnd < visibleStart)
             return true;
 
-        const int buffer = 8;
         return index >= visibleStart - buffer && index <= visibleEnd + buffer;
     }
 
@@ -3035,7 +3328,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     private void QueueVirtualization()
     {
-        if (_images.Count == 0 || Bounds.Height <= 0)
+        if (_itemsSnapshot.Length == 0 || Bounds.Height <= 0)
             return;
 
         var metrics = GetLayoutMetrics();
@@ -3043,7 +3336,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         var (visibleStart, visibleEnd) = CardGridLayoutHelper.GetVisibleIndexRange(
             scrollY,
             (float)Bounds.Height,
-            _images.Count,
+            LayoutItemCount,
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
@@ -3051,7 +3344,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             HorizontalScrollEnabled);
 
         int centerIdx = visibleStart >= 0 && visibleEnd >= visibleStart
-            ? (visibleStart + visibleEnd) / 2
+            ? GetViewportCenterIndex()
             : (int)Math.Round(SelectedIndex);
 
         bool scrollMoved = double.IsNaN(_lastVirtualizationScrollY) ||
@@ -3064,6 +3357,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         _lastVirtualizationIndex = centerIdx;
         _lastVirtualizationScrollY = scrollY;
         CompositionViewportState.VisibleCenterIndex = centerIdx;
+        CompositionViewportState.SetVisibleIndices(EnumerateViewportVisibleIndices().ToArray());
         if (IsFastScrollInMotion())
             ScheduleScrollSettleFill();
         else
@@ -3081,8 +3375,25 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     private void BeginViewportLoadChain(bool restart = false)
     {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            PostToUi(() => BeginViewportLoadChain(restart), DispatcherPriority.Background);
+            return;
+        }
+
         if (ShouldBlockCoverWork())
             return;
+
+        if (_itemsSnapshot.Length == 0)
+            return;
+
+        if (Bounds.Height <= 0)
+        {
+            _pendingViewportLoadAfterLayout = true;
+            return;
+        }
+
+        _pendingViewportLoadAfterLayout = false;
 
         if (!restart && _viewportLoadChainActive && _loadCts is { IsCancellationRequested: false })
             return;
@@ -3095,17 +3406,6 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         int generation = _viewportLoadGeneration;
         var token = _loadCts.Token;
         _ = RunViewportLoadBatchAsync(generation, token);
-    }
-
-    private bool SlotNeedsCoverLoad(int index)
-    {
-        if (index < 0 || index >= _images.Count || index >= _itemsSnapshot.Length)
-            return false;
-
-        if (_images[index] != null && !IsPlaceholderImage(_images[index]))
-            return false;
-
-        return _itemsSnapshot[index] != null && TryCreateCoverDecodeRequest(index, out _);
     }
 
     private (int Start, int End, int VisibleStart, int VisibleEnd) GetLoadIndexRange()
@@ -3143,6 +3443,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     private async Task RunViewportLoadBatchAsync(int generation, CancellationToken ct)
     {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            PostToUi(() => _ = RunViewportLoadBatchAsync(generation, ct), DispatcherPriority.Background);
+            return;
+        }
+
         try
         {
             if (generation != _viewportLoadGeneration || ct.IsCancellationRequested || ShouldBlockCoverWork())
@@ -3151,6 +3457,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 return;
             }
 
+            UpdateResolvedCoverPropertyNames();
             var (loadStart, loadEnd, visibleStart, visibleEnd) = GetLoadIndexRange();
             if (loadStart < 0 || loadEnd < loadStart)
             {
@@ -3159,16 +3466,17 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             }
 
             int center = visibleStart >= 0 && visibleEnd >= visibleStart
-                ? (visibleStart + visibleEnd) / 2
+                ? GetViewportCenterIndex()
                 : (loadStart + loadEnd) / 2;
             int batchLimit = IsFastScrollInMotion() ? ViewportLoadBatchSizeFastScroll : ViewportLoadBatchSize;
-            var batch = new List<int>(batchLimit);
-            foreach (int index in BuildPrioritizedLoadOrder(loadStart, loadEnd, visibleStart, visibleEnd, center))
+            var visibleIndices = EnumerateViewportVisibleIndices().ToArray();
+            var batch = new List<CoverDecodeRequest>(batchLimit);
+            foreach (int index in BuildPrioritizedLoadOrder(loadStart, loadEnd, visibleIndices, center))
             {
-                if (!SlotNeedsCoverLoad(index))
+                if (!TryCreateCoverDecodeRequest(index, out var request))
                     continue;
 
-                batch.Add(index);
+                batch.Add(request);
                 if (batch.Count >= batchLimit)
                     break;
             }
@@ -3176,12 +3484,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             if (batch.Count == 0)
             {
                 _viewportLoadChainActive = false;
+                if (HasVisibleEmptyCoverSlots())
+                    ScheduleViewportLoadRetry(_coverLoadGeneration);
                 return;
             }
 
-            var context = CaptureCoverImageLoadContext();
             var loadTasks = new List<Task>(batch.Count);
-            foreach (int index in batch)
+            foreach (var request in batch)
             {
                 if (generation != _viewportLoadGeneration || ct.IsCancellationRequested || ShouldBlockCoverWork())
                 {
@@ -3189,31 +3498,80 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                     return;
                 }
 
-                loadTasks.Add(TryLoadItemAsync(
-                    index,
-                    _itemsSnapshot,
-                    context.BitmapProperty,
-                    context.FileProperty,
-                    context.SectionPlaceholder,
-                    ct));
+                loadTasks.Add(TryLoadDecodeRequestAsync(request, ct));
             }
 
             await Task.WhenAll(loadTasks).ConfigureAwait(false);
 
-            if (generation != _viewportLoadGeneration || ct.IsCancellationRequested || ShouldBlockCoverWork())
+            var capturedVisibleIndices = visibleIndices;
+            PostToUi(
+                () => _ = ContinueViewportLoadBatchAsync(generation, ct, capturedVisibleIndices, loadStart, loadEnd),
+                DispatcherPriority.Background);
+        }
+        catch (OperationCanceledException)
+        {
+            _viewportLoadChainActive = false;
+        }
+        catch (Exception ex)
+        {
+            _viewportLoadChainActive = false;
+            Log.Warn("Viewport cover fill batch failed", ex);
+        }
+    }
+
+    private async Task ContinueViewportLoadBatchAsync(
+        int generation,
+        CancellationToken ct,
+        int[] visibleIndices,
+        int loadStart,
+        int loadEnd)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            PostToUi(
+                () => _ = ContinueViewportLoadBatchAsync(generation, ct, visibleIndices, loadStart, loadEnd),
+                DispatcherPriority.Background);
+            return;
+        }
+
+        try
+        {
+            if (generation != _viewportLoadGeneration || ct.IsCancellationRequested)
             {
                 _viewportLoadChainActive = false;
                 return;
             }
 
-            bool moreWork = false;
-            for (int i = loadStart; i <= loadEnd; i++)
+            if (ShouldBlockCoverWork())
             {
-                if (!SlotNeedsCoverLoad(i))
-                    continue;
+                PostToUi(
+                    () => _ = ContinueViewportLoadBatchAsync(generation, ct, visibleIndices, loadStart, loadEnd),
+                    DispatcherPriority.Background);
+                return;
+            }
 
-                moreWork = true;
-                break;
+            bool moreWork = false;
+            if (visibleIndices.Length > 0)
+            {
+                foreach (int i in visibleIndices)
+                {
+                    if (!SlotNeedsCoverLoad(i))
+                        continue;
+
+                    moreWork = true;
+                    break;
+                }
+            }
+            else
+            {
+                for (int i = loadStart; i <= loadEnd; i++)
+                {
+                    if (!SlotNeedsCoverLoad(i))
+                        continue;
+
+                    moreWork = true;
+                    break;
+                }
             }
 
             if (!moreWork)
@@ -3239,32 +3597,65 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         catch (Exception ex)
         {
             _viewportLoadChainActive = false;
-            Log.Warn("Viewport cover fill batch failed", ex);
+            Log.Warn("Viewport cover fill continuation failed", ex);
         }
     }
 
     private static IEnumerable<int> BuildPrioritizedLoadOrder(
         int loadStart,
         int loadEnd,
-        int visibleStart,
-        int visibleEnd,
+        IReadOnlyList<int> visibleIndices,
         int centerIdx)
     {
-        if (visibleStart < 0 || visibleEnd < visibleStart)
+        if (visibleIndices.Count > 0)
         {
-            foreach (int index in BuildCenterOutLoadOrder(loadStart, loadEnd, centerIdx))
+            var visibleSet = new HashSet<int>(visibleIndices);
+            foreach (int index in BuildCenterOutLoadOrderFromList(visibleIndices, centerIdx))
                 yield return index;
+
+            for (int index = loadStart; index <= loadEnd; index++)
+            {
+                if (!visibleSet.Contains(index))
+                    yield return index;
+            }
+
             yield break;
         }
 
-        foreach (int index in BuildCenterOutLoadOrder(visibleStart, visibleEnd, centerIdx))
+        foreach (int index in BuildCenterOutLoadOrder(loadStart, loadEnd, centerIdx))
             yield return index;
+    }
 
-        for (int index = visibleStart - 1; index >= loadStart; index--)
-            yield return index;
+    private static List<int> BuildCenterOutLoadOrderFromList(IReadOnlyList<int> indices, int centerIdx)
+    {
+        var order = new List<int>(indices.Count);
+        if (indices.Count == 0)
+            return order;
 
-        for (int index = visibleEnd + 1; index <= loadEnd; index++)
-            yield return index;
+        int centerPos = 0;
+        int minDistance = int.MaxValue;
+        for (int i = 0; i < indices.Count; i++)
+        {
+            int distance = Math.Abs(indices[i] - centerIdx);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                centerPos = i;
+            }
+        }
+
+        order.Add(indices[centerPos]);
+        for (int offset = 1; order.Count < indices.Count; offset++)
+        {
+            int before = centerPos - offset;
+            int after = centerPos + offset;
+            if (before >= 0)
+                order.Add(indices[before]);
+            if (after < indices.Count)
+                order.Add(indices[after]);
+        }
+
+        return order;
     }
 
     private void ScheduleIdleCacheTrim()
@@ -3329,7 +3720,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         RemoveCacheNode(key);
         if (_itemImageSourceKeys.Remove(key, out var sourceKey) && sourceKey != null)
-            SharedCoverCache.Release(sourceKey, img => DisposeImage(img));
+            SharedCoverCache.Release(sourceKey, QueueNativeImageDisposal);
         _itemDisplayCacheKeys.Remove(key);
     }
 
@@ -3347,13 +3738,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     private void QueueDeferredAssign(int index, object item, SKImage sourceImage, SKImage displayImage, object? sourceKey)
     {
         if (_deferredAssigns.TryGetValue(index, out var previous) &&
-            !ReferenceEquals(previous.Display, displayImage) &&
-            !IsImageUsedByDisplay(previous.Display))
+            !ReferenceEquals(previous.Display, displayImage))
         {
             if (previous.DisplayCacheKey != null)
                 ReleaseDisplayImage(previous.DisplayCacheKey, previous.Display);
-            else
-                DisposeImage(previous.Display);
         }
 
         object? displayCacheKey = sourceKey != null && !IsPlaceholderSourceKey(sourceKey)
@@ -3396,6 +3784,17 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             layout.TopPadding,
             layout.HorizontalScrollEnabled);
 
+        var visibleIndices = CardGridLayoutHelper.EnumerateVisibleIndices(
+            layout.ScrollY,
+            layout.Height,
+            totalCount,
+            layout.Width,
+            layout.CardScale,
+            layout.CardSpacing,
+            layout.TopPadding,
+            layout.HorizontalScrollEnabled).ToArray();
+        var visibleSet = visibleIndices.Length > 0 ? new HashSet<int>(visibleIndices) : null;
+
         int loadBuffer = layout.ScrollInMotion ? 0 : IdleVisibleLoadBuffer;
         int loadStart = Math.Max(0, visibleStart - loadBuffer);
         int loadEnd = visibleStart >= 0 && visibleEnd >= visibleStart
@@ -3426,10 +3825,22 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
         EnsureDiskCacheDirectory();
 
-        int center = visibleStart >= 0 && visibleEnd >= visibleStart
-            ? Math.Clamp(centerIdx, visibleStart, visibleEnd)
-            : Math.Clamp(centerIdx, 0, totalCount - 1);
-        var loadOrder = BuildCenterOutLoadOrder(loadStart, loadEnd, center);
+        int center = visibleIndices.Length > 0
+            ? CardGridLayoutHelper.EstimateViewportCenterIndex(
+                layout.ScrollY,
+                layout.Height,
+                totalCount,
+                layout.Width,
+                layout.CardScale,
+                layout.CardSpacing,
+                layout.TopPadding,
+                layout.HorizontalScrollEnabled)
+            : visibleStart >= 0 && visibleEnd >= visibleStart
+                ? Math.Clamp(centerIdx, visibleStart, visibleEnd)
+                : Math.Clamp(centerIdx, 0, totalCount - 1);
+        IEnumerable<int> loadOrder = visibleIndices.Length > 0
+            ? BuildPrioritizedLoadOrder(loadStart, loadEnd, visibleIndices, center)
+            : BuildCenterOutLoadOrder(loadStart, loadEnd, center);
         int loadedThisPass = 0;
         bool hasMoreVisibleWork = false;
 
@@ -3438,12 +3849,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             if (ct.IsCancellationRequested)
                 return;
 
-            if (layout.ScrollInMotion && visibleStart >= 0 && (index < visibleStart || index > visibleEnd))
+            bool isVisible = visibleSet == null || visibleSet.Contains(index);
+            if (layout.ScrollInMotion && visibleSet != null && !isVisible)
                 continue;
 
             if (loadedThisPass >= maxLoadsThisPass)
             {
-                if (visibleStart >= 0 && index >= visibleStart && index <= visibleEnd)
+                if (isVisible)
                     hasMoreVisibleWork = true;
                 continue;
             }
@@ -3451,16 +3863,14 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             bool started = await TryLoadItemAsync(index, items, bitmapProp, fileProp, sectionPlaceholder, ct).ConfigureAwait(false);
             if (started)
                 loadedThisPass++;
-            else if (visibleStart >= 0 &&
-                     index >= visibleStart &&
-                     index <= visibleEnd &&
+            else if (isVisible &&
                      index < _images.Count &&
                      (_images[index] == null || IsPlaceholderImage(_images[index])))
             {
                 hasMoreVisibleWork = true;
             }
 
-            if (!layout.ScrollInMotion && (index < visibleStart || index > visibleEnd))
+            if (!layout.ScrollInMotion && visibleSet != null && !isVisible)
                 await Task.Yield();
         }
 
@@ -3478,40 +3888,42 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         PostToUi(() => TrimImageCache(itemToIndex), DispatcherPriority.SystemIdle);
     }
 
-    private async Task<bool> TryLoadItemAsync(
-        int index,
-        object?[] items,
-        string bitmapProp,
-        string fileProp,
-        Bitmap? sectionPlaceholder,
-        CancellationToken ct)
+    private async Task<bool> TryLoadDecodeRequestAsync(CoverDecodeRequest request, CancellationToken ct)
     {
-        if (ct.IsCancellationRequested || index < 0 || index >= items.Length)
+        if (ct.IsCancellationRequested || !IsCoverDecodeRequestCurrent(request))
             return false;
 
-        var item = items[index];
-        if (item == null)
+        if (!TryMarkCoverLoadInFlight(request.Index))
             return false;
 
-        CompositionCoverImageHelper.ReadCoverSources(
-            item,
-            bitmapProp,
-            fileProp,
-            GetBitmapValue,
-            ResolveCoverImagePath,
-            sectionPlaceholder,
-            out var bitmapValue,
-            out var fileName);
+        try
+        {
+            return await TryLoadDecodeRequestCoreAsync(request, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            ClearCoverLoadInFlight(request.Index);
+            PostToUi(() => RefreshLoadingSpinnerAt(request.Index), DispatcherPriority.Background);
+        }
+    }
 
-        object? sourceKey = CompositionCoverImageHelper.ResolveImageSourceKey(
-            item as MediaItem, bitmapValue, fileName, sectionPlaceholder);
-
-        if (IsDisplayedCoverCurrent(item, index, sourceKey))
+    private async Task<bool> TryLoadDecodeRequestCoreAsync(CoverDecodeRequest request, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested || !IsCoverDecodeRequestCurrent(request))
             return false;
+
+        int index = request.Index;
+        object item = request.Item;
+        object? sourceKey = request.SourceKey;
+        var bitmapValue = request.BitmapValue;
+        var fileName = request.FileName;
+        var sectionPlaceholder = request.SectionPlaceholder;
+        string? title = request.Title;
 
         if (_imageCache.TryGetValue(item, out var cachedImage))
         {
-            bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var existingSourceKey) && Equals(existingSourceKey, sourceKey);
+            bool hasMatchingSource = _itemImageSourceKeys.TryGetValue(item, out var existingSourceKey) &&
+                                     Equals(existingSourceKey, sourceKey);
             if (hasMatchingSource)
             {
                 if (CompositionCoverImageHelper.ShouldReloadCachedCover(
@@ -3522,16 +3934,15 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 else
                 {
                     TouchCacheItem(item);
-                    if (index < _images.Count && _images[index] == null)
+                    if (!ct.IsCancellationRequested && IsCoverDecodeRequestCurrent(request))
                     {
-                        var title = GetItemTitle(item);
-                        var displayImage = await ResolveDisplayImageAsync(cachedImage, sourceKey, title, ct).ConfigureAwait(false);
-                        if (!ct.IsCancellationRequested)
+                        var displayImage = await ResolveDisplayImageAsync(
+                            cachedImage, sourceKey, title, ct, request.CoverLoadGeneration).ConfigureAwait(false);
+                        if (!ct.IsCancellationRequested && IsCoverDecodeRequestCurrent(request))
                             AssignItemImage(item, index, cachedImage, displayImage, sourceKey);
-                        return !ct.IsCancellationRequested && !IsDisplayedCoverCurrent(item, index, sourceKey);
                     }
 
-                    return false;
+                    return !ct.IsCancellationRequested && IsCoverDecodeRequestCurrent(request);
                 }
             }
             else
@@ -3540,47 +3951,87 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             }
         }
 
-        if (IsDisplayedCoverCurrent(item, index, sourceKey))
+        if (!IsCoverDecodeRequestCurrent(request))
             return false;
 
-        SetLoading(index, true);
+        PostToUi(() => SetLoading(index, true));
+
         if (!IsPlaceholderSourceKey(sourceKey) && TryAcquireSharedImage(sourceKey, out var sharedImage))
         {
-            if (!ct.IsCancellationRequested)
+            if (!ct.IsCancellationRequested && IsCoverDecodeRequestCurrent(request))
             {
-                var title = GetItemTitle(item);
-                var displayImage = await ResolveDisplayImageAsync(sharedImage!, sourceKey, title, ct).ConfigureAwait(false);
-                if (!ct.IsCancellationRequested)
+                var displayImage = await ResolveDisplayImageAsync(
+                    sharedImage!, sourceKey, title, ct, request.CoverLoadGeneration).ConfigureAwait(false);
+                if (!ct.IsCancellationRequested && IsCoverDecodeRequestCurrent(request))
                     AssignItemImage(item, index, sharedImage!, displayImage, sourceKey);
             }
+
             return true;
         }
 
         SKImage? realImage = null;
         try
         {
-            realImage = await LoadImageAsync(bitmapValue, fileName, item as MediaItem, ct, sectionPlaceholder);
+            realImage = await LoadImageAsync(bitmapValue, fileName, item as MediaItem, ct, sectionPlaceholder)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Log.Warn($"Failed to load image for item at index {index}", ex);
         }
 
+        if (!IsCoverDecodeRequestCurrent(request) || ct.IsCancellationRequested)
+            return false;
+
         if (realImage != null && !IsPlaceholderImage(realImage))
         {
             var sourceImage = RegisterSharedImage(sourceKey, realImage);
-            var bakeTitle = GetItemTitle(item);
-            var displayImage = await ResolveDisplayImageAsync(sourceImage, sourceKey, bakeTitle, ct).ConfigureAwait(false);
-            if (!ct.IsCancellationRequested)
+            var displayImage = await ResolveDisplayImageAsync(
+                sourceImage, sourceKey, title, ct, request.CoverLoadGeneration).ConfigureAwait(false);
+            if (!ct.IsCancellationRequested && IsCoverDecodeRequestCurrent(request))
                 AssignItemImage(item, index, sourceImage, displayImage, sourceKey);
         }
         else
         {
-            SetLoading(index, ShouldShowLoadingSpinner(index));
-            ScheduleCoverImageRetry(index, _coverLoadGeneration);
+            PostToUi(() =>
+            {
+                if (!IsCoverDecodeRequestCurrent(request))
+                    return;
+
+                SetLoading(index, ShouldShowLoadingSpinner(index));
+                ScheduleCoverImageRetry(index, _coverLoadGeneration);
+            });
         }
 
         return true;
+    }
+
+    private async Task<bool> TryLoadItemAsync(
+        int index,
+        object?[] items,
+        string bitmapProp,
+        string fileProp,
+        Bitmap? sectionPlaceholder,
+        CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested || index < 0 || index >= items.Length || items[index] == null)
+            return false;
+
+        CoverDecodeRequest? request = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!IsCurrentSnapshotItem(items[index]!, index))
+                return (CoverDecodeRequest?)null;
+
+            if (HasDisplayedCover(index))
+                return null;
+
+            return TryCreateCoverDecodeRequest(index, out var req) ? req : null;
+        }, DispatcherPriority.Background);
+
+        if (request == null)
+            return false;
+
+        return await TryLoadDecodeRequestAsync(request.Value, ct).ConfigureAwait(false);
     }
 
     private void PostToUi(Action action) => PostToUi(action, DispatcherPriority.Normal);
@@ -3605,17 +4056,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
                 if (isLoading)
                 {
-                    var loadingImage = ResolveLoadingPlaceholderImage(index);
-                    if (loadingImage != null && index < _images.Count)
-                    {
-                        _images[index] = loadingImage;
-                        _visual?.SendHandlerMessage(new UpdateImageMessage(index, loadingImage, IsLoading: true));
-                    }
-                    else
-                    {
-                        _visual?.SendHandlerMessage(new UpdateImageMessage(index, null, ClearImage: true, IsLoading: true));
-                    }
-
+                    _visual?.SendHandlerMessage(new UpdateImageMessage(index, null, ClearImage: true, IsLoading: true));
                     return;
                 }
 
@@ -3628,7 +4069,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 PostToUi(Apply, DispatcherPriority.Background);
         }
 
-    private async Task<SKImage> ResolveDisplayImageAsync(SKImage sourceImage, object? sourceKey, string? title, CancellationToken ct)
+    private async Task<SKImage> ResolveDisplayImageAsync(
+        SKImage sourceImage,
+        object? sourceKey,
+        string? title,
+        CancellationToken ct,
+        int coverLoadGeneration = -1)
     {
         if (!_coverLoadingActive)
             return sourceImage;
@@ -3636,18 +4082,114 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (sourceKey == null || IsPlaceholderSourceKey(sourceKey))
             return sourceImage;
 
+        if (coverLoadGeneration < 0)
+            coverLoadGeneration = _coverLoadGeneration;
+
         var displayKey = CreateDisplayCacheKey(sourceKey, title);
-        if (CardDisplayCache.TryAcquire(displayKey, out var cached))
+        if (CardDisplayCache.TryPeek(displayKey, out var cached))
             return cached;
 
-        var baked = await Task.Run(() => CompositionCardDisplayBaker.Bake(sourceImage, title), ct).ConfigureAwait(false);
-        if (ct.IsCancellationRequested)
+        SKImage bakeSourceCopy;
+        try
         {
-            baked.Dispose();
-            throw new OperationCanceledException(ct);
+            bakeSourceCopy = Dispatcher.UIThread.CheckAccess()
+                ? CloneImageForBake(sourceImage)
+                : await Dispatcher.UIThread.InvokeAsync(() => CloneImageForBake(sourceImage), DispatcherPriority.Normal);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Failed to clone cover image for display bake", ex);
+            if (CardDisplayCache.TryPeek(displayKey, out var fallback))
+                return fallback;
+            return sourceImage;
         }
 
-        return CardDisplayCache.Register(displayKey, baked);
+        return await ResolveDisplayImageFromCloneAsync(bakeSourceCopy, displayKey, title, ct, coverLoadGeneration).ConfigureAwait(false);
+    }
+
+    private async Task<SKImage> ResolveDisplayImageFromCloneAsync(
+        SKImage bakeSourceCopy,
+        object displayKey,
+        string? title,
+        CancellationToken ct,
+        int coverLoadGeneration)
+    {
+        if (CardDisplayCache.TryPeek(displayKey, out var cached))
+        {
+            QueueNativeImageDisposal(bakeSourceCopy);
+            return cached;
+        }
+
+        Task<SKImage> bakeTask;
+        int bakeGeneration = _coverLoadGeneration;
+        lock (_displayBakeSync)
+        {
+            if (_displayBakeTasks.TryGetValue(displayKey, out bakeTask!))
+            {
+                QueueNativeImageDisposal(bakeSourceCopy);
+            }
+            else
+            {
+                var copy = bakeSourceCopy;
+                bakeTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        return CompositionCardDisplayBaker.Bake(copy, title);
+                    }
+                    finally
+                    {
+                        QueueNativeImageDisposal(copy);
+                    }
+                }, ct);
+                _displayBakeTasks[displayKey] = bakeTask;
+            }
+        }
+
+        try
+        {
+            var baked = await bakeTask.ConfigureAwait(false);
+            if (ct.IsCancellationRequested || coverLoadGeneration != _coverLoadGeneration || bakeGeneration != _coverLoadGeneration)
+            {
+                QueueNativeImageDisposal(baked);
+                throw new OperationCanceledException(ct);
+            }
+
+            if (CardDisplayCache.TryPeek(displayKey, out var alreadyRegistered))
+            {
+                if (!ReferenceEquals(alreadyRegistered, baked))
+                    QueueNativeImageDisposal(baked);
+                return alreadyRegistered;
+            }
+
+            var registered = CardDisplayCache.RegisterUnretained(displayKey, baked);
+            if (!ReferenceEquals(registered, baked))
+                QueueNativeImageDisposal(baked);
+            return registered;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            if (CardDisplayCache.TryPeek(displayKey, out var fallback))
+                return fallback;
+            throw;
+        }
+        finally
+        {
+            lock (_displayBakeSync)
+                _displayBakeTasks.Remove(displayKey);
+            TrimIdleImageCaches();
+        }
+    }
+
+    private static SKImage CloneImageForBake(SKImage source)
+    {
+        using var bitmap = SKBitmap.FromImage(source);
+        return SKImage.FromBitmap(bitmap);
     }
 
     private bool TryAcquireCachedDisplayImage(SKImage sourceImage, object? sourceKey, string? title, out SKImage displayImage)
@@ -3659,7 +4201,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
 
         var displayKey = CreateDisplayCacheKey(sourceKey, title);
-        if (CardDisplayCache.TryAcquire(displayKey, out displayImage))
+        if (CardDisplayCache.TryPeek(displayKey, out displayImage))
             return true;
 
         displayImage = null!;
@@ -3677,17 +4219,45 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return;
         }
 
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            PostToUi(() => ScheduleDisplayImageBake(item, index, sourceImage, sourceKey, title), GetCoverAssignPriority());
+            return;
+        }
+
+        SKImage? bakeSourceCopy;
+        try
+        {
+            bakeSourceCopy = CloneImageForBake(sourceImage);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to clone cover for display bake at index {index}", ex);
+            SetLoading(index, true);
+            return;
+        }
+
         int generation = _coverLoadGeneration;
+        int viewportGeneration = _viewportLoadGeneration;
+        var displayKey = CreateDisplayCacheKey(sourceKey, title);
+        SetLoading(index, true);
         _ = Task.Run(async () =>
         {
             try
             {
-                if (!_coverLoadingActive || generation != _coverLoadGeneration)
+                if (!_coverLoadingActive || generation != _coverLoadGeneration || viewportGeneration != _viewportLoadGeneration)
                     return;
 
                 var ct = _loadCts?.Token ?? CancellationToken.None;
-                var displayImage = await ResolveDisplayImageAsync(sourceImage, sourceKey, title, ct).ConfigureAwait(false);
-                if (!_coverLoadingActive || generation != _coverLoadGeneration || ct.IsCancellationRequested)
+                if (!IsCurrentSnapshotItem(item, index))
+                    return;
+
+                var displayImage = await ResolveDisplayImageFromCloneAsync(
+                    bakeSourceCopy, displayKey, title, ct, generation).ConfigureAwait(false);
+                if (!_coverLoadingActive || generation != _coverLoadGeneration || viewportGeneration != _viewportLoadGeneration || ct.IsCancellationRequested)
+                    return;
+
+                if (!IsCurrentSnapshotItem(item, index))
                     return;
 
                 AssignItemImage(item, index, sourceImage, displayImage, sourceKey);
@@ -3750,42 +4320,33 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
 
         if (index >= _images.Count)
-            return;
+            EnsureImageSlotCount(index + 1);
 
-        SKImage? previousDisplay = _images[index];
         object? previousDisplayKey = _itemDisplayCacheKeys.TryGetValue(item, out var existingDisplayKey)
             ? existingDisplayKey
+            : null;
+
+        object? displayCacheKey = sourceKey != null && !IsPlaceholderSourceKey(sourceKey)
+            ? CreateDisplayCacheKey(sourceKey, GetItemTitle(item))
             : null;
 
         _imageCache[item] = sourceImage;
         _itemImageSourceKeys[item] = sourceKey!;
         StoreDisplayCacheKey(item, sourceKey, GetItemTitle(item));
+        if (previousDisplayKey != null && !Equals(previousDisplayKey, displayCacheKey))
+            CardDisplayCache.Release(previousDisplayKey, QueueNativeImageDisposal);
+        RetainDisplayImage(displayCacheKey);
         TouchCacheItem(item);
         _images[index] = displayImage;
         _visual?.SendHandlerMessage(new UpdateImageMessage(index, displayImage));
+        SetLoading(index, false);
         UpdateSelectedItemBounds();
-
-        if (previousDisplay != null &&
-            !ReferenceEquals(previousDisplay, displayImage) &&
-            !IsImageUsedByDisplay(previousDisplay))
-        {
-            if (previousDisplayKey != null)
-                ReleaseDisplayImage(previousDisplayKey, previousDisplay);
-            else
-                DisposeImage(previousDisplay);
-        }
     }
 
     private void ReleaseDisplayImage(object? displayCacheKey, SKImage displayImage)
     {
         if (displayCacheKey != null)
-            CardDisplayCache.Release(displayCacheKey, img =>
-            {
-                if (!IsImageUsedByDisplay(img))
-                    DisposeImage(img);
-            });
-        else if (!IsImageUsedByDisplay(displayImage))
-            DisposeImage(displayImage);
+            CardDisplayCache.Release(displayCacheKey, QueueNativeImageDisposal);
     }
 
     private void FlushDisplayImageCaches()
@@ -3802,11 +4363,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         CardDisplayCache.Clear(img =>
         {
             if (!IsImageUsedByDisplay(img))
-                DisposeImage(img, disposedImages);
+                QueueNativeImageDisposal(img);
         });
-
-        foreach (var img in disposedImages)
-            DisposeImage(img);
     }
 
     private void ClearResources()
@@ -3826,7 +4384,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         _imageCacheLru.Clear();
         _itemImageSourceKeys.Clear();
         _itemDisplayCacheKeys.Clear();
-        CardDisplayCache.Clear(img => DisposeImage(img, disposedImages));
+        ClearCardDisplayCache(deferDispose: false);
+        _visual?.SendHandlerMessage(new CardGridRequestFlushDisposalsMessage());
         _sharedPlaceholder = null;
         SetSectionPlaceholderBitmap(null);
         _images.Clear();
@@ -3865,7 +4424,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             _ => null
         };
 
-    private string? GetItemTitle(object? item) => GetTitleValue(item, TitleProperty);
+    private string? GetItemTitle(object? item) => GetTitleValue(item, _resolvedTitleProperty);
 
     private static object CreateDisplayCacheKey(object sourceKey, string? title) =>
         (sourceKey, title ?? string.Empty);
@@ -3934,7 +4493,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (CompositionCoverImageHelper.IsLikelyImageFile(mediaItem.FileName) && File.Exists(mediaItem.FileName))
             return mediaItem.FileName;
 
-        return CompositionMetadataCoverHelper.GetMetadataCachePath(mediaItem.FileName);
+        return CompositionMetadataCoverHelper.GetCoverCachePath(mediaItem.FileName)
+            ?? CompositionMetadataCoverHelper.GetMetadataCachePath(mediaItem.FileName);
     }
 
     private static object? GetImageSourceKey(Bitmap? bitmap, string? fileName)
@@ -3950,6 +4510,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     private SKImage ResolveLoadingPlaceholderImage(int index)
     {
+        SKImage? sourceImage = null;
         if (index >= 0 && index < _itemsSnapshot.Length &&
             _itemsSnapshot[index] is MediaItem { IsLoadingCover: true, CoverFound: false, CoverBitmap: { } coverBitmap })
         {
@@ -3957,20 +4518,30 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 ReferenceEquals(coverBitmap, _sectionPlaceholderBitmap) ||
                 CompositionCoverImageHelper.IsSectionPlaceholderBitmap(coverBitmap, _sectionPlaceholderBitmap))
             {
-                var sectionImage = GetOrCreateSectionPlaceholderSkImage(coverBitmap);
-                if (sectionImage != null)
-                    return sectionImage;
+                sourceImage = GetOrCreateSectionPlaceholderSkImage(coverBitmap);
             }
         }
 
-        if (_sectionPlaceholderBitmap != null)
-        {
-            var sectionImage = GetOrCreateSectionPlaceholderSkImage(_sectionPlaceholderBitmap);
-            if (sectionImage != null)
-                return sectionImage;
-        }
+        sourceImage ??= _sectionPlaceholderBitmap != null
+            ? GetOrCreateSectionPlaceholderSkImage(_sectionPlaceholderBitmap)
+            : null;
+        sourceImage ??= GetPlaceholder();
 
-        return GetPlaceholder();
+        var title = index >= 0 && index < _itemsSnapshot.Length
+            ? GetItemTitle(_itemsSnapshot[index])
+            : null;
+        if (string.IsNullOrWhiteSpace(title))
+            return sourceImage;
+
+        var displayKey = CreateDisplayCacheKey(sourceImage, title);
+        if (CardDisplayCache.TryPeek(displayKey, out var cachedDisplay))
+            return cachedDisplay;
+
+        var baked = CompositionCardDisplayBaker.Bake(sourceImage, title);
+        var registered = CardDisplayCache.RegisterUnretained(displayKey, baked);
+        if (!ReferenceEquals(registered, baked))
+            QueueNativeImageDisposal(baked);
+        return registered;
     }
 
     private void SetSectionPlaceholderBitmap(Bitmap? bitmap)
@@ -4061,56 +4632,87 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         string? bitmapProp = ImageBitmapProperty;
         string? fileProp = ImageFileNameProperty;
 
-        for (int i = 0; i < _itemsSnapshot.Length; i++)
+        IEnumerable<int> indices = forceAll
+            ? Enumerable.Range(0, _itemsSnapshot.Length)
+            : EnumerateViewportVisibleIndices(rowBuffer: 4);
+
+        if (!forceAll)
         {
+            var visible = indices.ToArray();
+            if (visible.Length == 0)
+            {
+                int fallbackEnd = Math.Min(_itemsSnapshot.Length - 1, 17);
+                if (fallbackEnd >= 0)
+                    visible = Enumerable.Range(0, fallbackEnd + 1).ToArray();
+            }
+
+            indices = visible;
+        }
+
+        foreach (int i in indices)
+        {
+            if (i < 0 || i >= _itemsSnapshot.Length)
+                continue;
+
             var item = _itemsSnapshot[i];
             if (item == null)
                 continue;
 
-            if (!forceAll && i < _images.Count && _images[i] != null && !IsPlaceholderImage(_images[i]))
-            {
-                _itemImageSourceKeys.TryGetValue(item, out var existingKey);
-                var existingIsPlaceholder = IsPlaceholderSourceKey(existingKey);
-
-                if (!replacePlaceholderDisplays || !existingIsPlaceholder)
-                {
-                    bool hasRawSource = _imageCache.TryGetValue(item, out var cachedSource) &&
-                                        ReferenceEquals(_images[i], cachedSource);
-                    if (!hasRawSource &&
-                        existingKey != null &&
-                        IsDisplayedCoverCurrent(item, i, existingKey))
-                    {
-                        continue;
-                    }
-
-                    if (hasRawSource)
-                        continue;
-                }
-            }
-
-            if (forceAll && i < _images.Count && _images[i] != null && !IsPlaceholderImage(_images[i]))
-            {
-                _images[i] = null;
-                ReleaseItemImage(item);
-            }
-
-            if (!TryRestoreDisplayImage(item, bitmapProp, fileProp, out var restored) || restored == null)
-            {
-                if (forceAll)
-                {
-                    while (_images.Count <= i)
-                        _images.Add(null);
-                    _images[i] = null;
-                }
-
-                continue;
-            }
-
-            while (_images.Count <= i)
-                _images.Add(null);
-
-            _images[i] = restored;
+            RehydrateCoverSlotAt(i, item, bitmapProp, fileProp, forceAll, replacePlaceholderDisplays);
         }
+    }
+
+    private void RehydrateCoverSlotAt(
+        int i,
+        object item,
+        string? bitmapProp,
+        string? fileProp,
+        bool forceAll,
+        bool replacePlaceholderDisplays)
+    {
+        if (!forceAll && i < _images.Count && _images[i] != null && !IsPlaceholderImage(_images[i]))
+        {
+            _itemImageSourceKeys.TryGetValue(item, out var existingKey);
+            var existingIsPlaceholder = IsPlaceholderSourceKey(existingKey);
+
+            if (!replacePlaceholderDisplays || !existingIsPlaceholder)
+            {
+                bool hasRawSource = _imageCache.TryGetValue(item, out var cachedSource) &&
+                                    ReferenceEquals(_images[i], cachedSource);
+                if (!hasRawSource &&
+                    existingKey != null &&
+                    IsDisplayedCoverCurrent(item, i, existingKey))
+                {
+                    return;
+                }
+
+                if (hasRawSource)
+                    return;
+            }
+        }
+
+        if (forceAll && i < _images.Count && _images[i] != null && !IsPlaceholderImage(_images[i]))
+        {
+            _images[i] = null;
+            ReleaseItemImage(item);
+        }
+
+        if (!TryRestoreDisplayImage(item, bitmapProp, fileProp, out var restored) || restored == null)
+        {
+            if (forceAll)
+            {
+                while (_images.Count <= i)
+                    _images.Add(null);
+                _images[i] = null;
+            }
+
+            return;
+        }
+
+        while (_images.Count <= i)
+            _images.Add(null);
+
+        _images[i] = restored;
     }
 
     private void ResetScrollToStart()
@@ -4262,7 +4864,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             if (!IsPlaceholderSourceKey(key))
                 continue;
 
-            SharedCoverCache.Release(key, img => DisposeImage(img));
+            SharedCoverCache.Release(key, QueueNativeImageDisposal);
         }
     }
 
@@ -4271,35 +4873,65 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (_visual == null || !_coverLoadingActive)
             return;
 
-        int count = _images.Count;
+        int count = _itemsSnapshot.Length;
         if (count == 0)
         {
             _visual.SendHandlerMessage(new CardGridSlotCountMessage(0));
             return;
         }
 
-        var snapshot = new SKImage?[count];
-        for (int i = 0; i < count; i++)
-            snapshot[i] = _images[i];
-        _visual.SendHandlerMessage(new CardGridSyncSlotsMessage(snapshot));
+        if (count <= FastItemsPathThreshold)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (i >= _images.Count || _images[i] == null || IsPlaceholderImage(_images[i]))
+                    continue;
+
+                _visual.SendHandlerMessage(new UpdateImageMessage(i, _images[i]));
+            }
+        }
+        else
+        {
+            var pushed = new HashSet<int>();
+            foreach (int i in EnumerateViewportVisibleIndices(rowBuffer: 4))
+            {
+                if (i < 0 || i >= count || i >= _images.Count || _images[i] == null || IsPlaceholderImage(_images[i]) || !pushed.Add(i))
+                    continue;
+
+                _visual.SendHandlerMessage(new UpdateImageMessage(i, _images[i]));
+            }
+
+            if (pushed.Count == 0)
+            {
+                int fallback = Math.Min(count, FallbackInitialVisibleSlots);
+                for (int i = 0; i < fallback; i++)
+                {
+                    if (i >= _images.Count || _images[i] == null || IsPlaceholderImage(_images[i]))
+                        continue;
+
+                    _visual.SendHandlerMessage(new UpdateImageMessage(i, _images[i]));
+                }
+            }
+        }
+
         SyncVisibleLoadingIndicators();
     }
 
     private void SyncVisibleLoadingIndicators()
     {
-        if (_visual == null || _images.Count == 0)
+        if (_visual == null || _itemsSnapshot.Length == 0)
             return;
 
         var (visibleStart, visibleEnd) = GetViewportIndexRange();
         if (visibleStart < 0 || visibleEnd < visibleStart)
         {
-            int fallbackCount = Math.Min(_images.Count, FallbackInitialVisibleSlots);
+            int fallbackCount = Math.Min(_itemsSnapshot.Length, FallbackInitialVisibleSlots);
             for (int i = 0; i < fallbackCount; i++)
                 SetLoading(i, ShouldShowLoadingSpinner(i));
             return;
         }
 
-        for (int i = visibleStart; i <= visibleEnd; i++)
+        foreach (int i in EnumerateViewportVisibleIndices())
             SetLoading(i, ShouldShowLoadingSpinner(i));
     }
 
@@ -4311,13 +4943,13 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
 
     private (int Start, int End) GetViewportIndexRange()
     {
-        if (_images.Count == 0 || Bounds.Height <= 0 || Bounds.Width <= 0)
+        if (LayoutItemCount == 0 || Bounds.Height <= 0 || Bounds.Width <= 0)
             return (-1, -1);
 
         var (visibleStart, visibleEnd) = CardGridLayoutHelper.GetVisibleIndexRange(
             _knownScrollY,
             (float)Bounds.Height,
-            _images.Count,
+            LayoutItemCount,
             (float)Bounds.Width,
             (float)CardScale,
             (float)CardSpacing,
@@ -4325,6 +4957,42 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             HorizontalScrollEnabled);
 
         return (visibleStart, visibleEnd);
+    }
+
+    private IEnumerable<int> EnumerateViewportVisibleIndices(int rowBuffer = 2)
+    {
+        if (LayoutItemCount == 0 || Bounds.Height <= 0 || Bounds.Width <= 0)
+            yield break;
+
+        foreach (int index in CardGridLayoutHelper.EnumerateVisibleIndices(
+                     _knownScrollY,
+                     (float)Bounds.Height,
+                     LayoutItemCount,
+                     (float)Bounds.Width,
+                     (float)CardScale,
+                     (float)CardSpacing,
+                     (float)TopPadding,
+                     HorizontalScrollEnabled,
+                     rowBuffer))
+        {
+            yield return index;
+        }
+    }
+
+    private int GetViewportCenterIndex()
+    {
+        if (LayoutItemCount == 0 || Bounds.Height <= 0 || Bounds.Width <= 0)
+            return (int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, LayoutItemCount - 1));
+
+        return CardGridLayoutHelper.EstimateViewportCenterIndex(
+            _knownScrollY,
+            (float)Bounds.Height,
+            LayoutItemCount,
+            (float)Bounds.Width,
+            (float)CardScale,
+            (float)CardSpacing,
+            (float)TopPadding,
+            HorizontalScrollEnabled);
     }
 
     private void EnsureImageSlotCount(int count)
@@ -4339,34 +5007,6 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             int add = count - _images.Count;
             for (int i = 0; i < add; i++)
                 _images.Add(null);
-        }
-    }
-
-    private void SeedCachedVisibleDisplaySlots(string? bitmapProp, string? fileProp)
-    {
-        var (visibleStart, visibleEnd) = GetViewportIndexRange();
-        if (visibleStart < 0 || visibleEnd < visibleStart)
-        {
-            visibleStart = 0;
-            visibleEnd = Math.Min(_itemsSnapshot.Length - 1, FallbackInitialVisibleSlots - 1);
-        }
-
-        for (int i = visibleStart; i <= visibleEnd && i < _itemsSnapshot.Length; i++)
-        {
-            var item = _itemsSnapshot[i];
-            if (item == null || (i < _images.Count && _images[i] != null && !IsPlaceholderImage(_images[i])))
-                continue;
-
-            if (!TryRestoreDisplayImage(item, bitmapProp, fileProp, out var display) || display == null)
-                continue;
-
-            if (i >= _images.Count)
-                EnsureImageSlotCount(i + 1);
-
-            if (_itemImageSourceKeys.TryGetValue(item, out var sourceKey))
-                StoreDisplayCacheKey(item, sourceKey, GetItemTitle(item));
-            TouchCacheItem(item);
-            _images[i] = display;
         }
     }
 
@@ -4449,7 +5089,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
                 return fromFile;
         }
 
-        return GetPlaceholder();
+        return null;
     }
 
     private SKImage? CreateCardImage(SKBitmap source)
@@ -4544,7 +5184,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (SharedCoverCache.TryGetEntry(sourceKey, out var existing, out _))
         {
             SharedCoverCache.TryAcquire(sourceKey, out _);
-            DisposeImage(image);
+            QueueNativeImageDisposal(image);
             return existing;
         }
 
@@ -4559,7 +5199,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (SharedCoverCache.TryGetEntry(sourceKey, out _, out var refCount) && refCount > 1)
             return image;
 
-        SharedCoverCache.Release(sourceKey, img => DisposeImage(img));
+        SharedCoverCache.Release(sourceKey, QueueNativeImageDisposal);
         return SharedCoverCache.Register(sourceKey, image);
     }
 
@@ -4584,27 +5224,34 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return;
         }
 
+        if (_itemDisplayCacheKeys.Remove(key, out var displayKey))
+            CardDisplayCache.Release(displayKey, QueueNativeImageDisposal);
+
         if (_itemIndices.TryGetValue(key, out var idx) &&
             idx >= 0 &&
             idx < _images.Count &&
             IsCurrentSnapshotItem(key, idx))
         {
-            var display = _images[idx];
             _images[idx] = null;
             _visual?.SendHandlerMessage(new UpdateImageMessage(idx, null, ClearImage: true));
-            if (display != null)
-            {
-                if (_itemDisplayCacheKeys.TryGetValue(key, out var displayKey))
-                    ReleaseDisplayImage(displayKey, display);
-                else
-                    DisposeImage(display);
-            }
         }
 
         _itemDisplayCacheKeys.Remove(key);
 
         if (sourceKey != null)
-            SharedCoverCache.Release(sourceKey, img => DisposeImage(img, disposedImages));
+            SharedCoverCache.Release(sourceKey, QueueNativeImageDisposal);
+    }
+
+    internal void QueueNativeImageDisposal(SKImage image)
+    {
+        if (ReferenceEquals(image, _sharedPlaceholder) ||
+            ReferenceEquals(image, _sectionPlaceholderSkImage))
+            return;
+
+        if (Dispatcher.UIThread.CheckAccess())
+            _visual?.SendHandlerMessage(new CardGridQueueImageDisposalMessage(image));
+        else
+            PostToUi(() => _visual?.SendHandlerMessage(new CardGridQueueImageDisposalMessage(image)), DispatcherPriority.Render);
     }
 
     private void DisposeImage(SKImage? image, HashSet<SKImage>? disposedImages = null)
@@ -4619,8 +5266,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             return;
         }
 
-        SendVisualMessage(new DisposeImageMessage(image));
+        QueueNativeImageDisposal(image);
     }
+
+    private void DisposeImageOnUiThread(SKImage image) => QueueNativeImageDisposal(image);
 
     private void TouchCacheItem(object key)
     {

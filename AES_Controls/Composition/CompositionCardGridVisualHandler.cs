@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
+using AES_Core.Logging;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Rendering.Composition;
 using Avalonia.Skia;
+using log4net;
 using SkiaSharp;
 
 namespace AES_Controls.Composition;
@@ -16,7 +18,7 @@ internal record CardGridScrollVelocityMessage(double VelocityY);
 internal record CardGridDirectScrollFollowMessage(bool Enabled);
 internal record CardGridSnapScrollMessage(double ScrollY);
 internal record CardGridLayoutMessage(float CardScale, float CardSpacing, float TopPadding);
-internal record CardGridSlotCountMessage(int Count);
+internal record CardGridSlotCountMessage(int Count, bool ClearImages = false);
 internal record CardGridSelectedIndexMessage(int Index);
 internal record CardGridHoveredIndexMessage(int Index);
 internal record CardGridInteractionSuspendedMessage(bool Suspended);
@@ -36,9 +38,15 @@ internal record CardGridMoveImageMessage(int FromIndex, int ToIndex);
 internal record CardGridContentLoadingMessage(bool IsLoading);
 internal record CardGridSyncSlotsMessage(SKImage?[] Images);
 internal record CardGridImageRevealHoldMessage(bool Hold);
+internal record CardGridBeginWaveRevealMessage(int ItemCount, bool HorizontalScroll);
+internal record CardGridExtendWaveRevealMessage(int ItemCount, bool HorizontalScroll);
+internal record CardGridRequestFlushDisposalsMessage();
+internal record CardGridQueueImageDisposalMessage(SKImage Image);
 
 public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 {
+    private static readonly ILog Log = LogHelper.For<CompositionCardGridVisualHandler>();
+
     public const float BaseCardWidth = 200f;
     public const float BaseCardHeight = 272f;
     private const float GridPaddingX = 28f;
@@ -77,6 +85,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private const float SelectionFadeOutRate = 22f;
     private const float ImageRevealStaggerSeconds = 0.008f;
     private const float ImageRevealMaxStaggerSeconds = 0.08f;
+    private const float WaveRevealRowStaggerSeconds = 0.014f;
+    private const float WaveRevealColStaggerSeconds = 0.006f;
+    private const float WaveRevealMaxDelaySeconds = 0.22f;
     private float _currentGlobalOpacity = 1f;
     private bool _pauseLoadingSpinnerAnimation;
     private bool _horizontalScrollEnabled;
@@ -97,6 +108,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private readonly Dictionary<int, ImageRevealState> _imageReveal = new();
     private bool _imageRevealHold;
     private readonly HashSet<int> _pendingImageReveals = new();
+    private readonly HashSet<SKImage> _pendingDisposal = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<SKImage, int> _pendingDisposalAge = new(ReferenceEqualityComparer.Instance);
+    private const int PendingDisposalFrameDelay = 5;
 
     private readonly struct ImageRevealState(float opacity, float velocity, float delayRemaining)
     {
@@ -167,7 +181,10 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 foreach (var img in previous)
                 {
                     if (img != null && !_images.Contains(img))
+                    {
                         RemoveImageCaches(img);
+                        QueueNativeImageDisposal(img);
+                    }
                 }
 
                 for (int i = 0; i < _images.Count; i++)
@@ -195,8 +212,11 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                         _images[update.Index] = update.Image;
                         CacheImageDimensions(update.Image);
                         _loadingIndices.Remove(update.Index);
-                        if (isFirstShow)
+                        if (isFirstShow &&
+                            (!_imageReveal.TryGetValue(update.Index, out var reveal) || reveal.Opacity >= 0.98f))
+                        {
                             BeginImageReveal(update.Index);
+                        }
                     }
                     else if (update.IsLoading)
                     {
@@ -216,7 +236,10 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                     }
 
                     if (oldImg != null && !ReferenceEquals(oldImg, update.Image))
+                    {
                         RemoveImageCaches(oldImg);
+                        QueueNativeImageDisposal(oldImg);
+                    }
                     Invalidate();
                 }
                 break;
@@ -254,7 +277,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 break;
             case CardGridSlotCountMessage slotCount:
             {
-                ResizeImageSlots(slotCount.Count);
+                ResizeImageSlots(slotCount.Count, slotCount.ClearImages);
                 break;
             }
             case CardGridSyncSlotsMessage sync:
@@ -267,7 +290,10 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 foreach (var img in previousImages)
                 {
                     if (img != null && !_images.Contains(img))
+                    {
                         RemoveImageCaches(img);
+                        QueueNativeImageDisposal(img);
+                    }
                 }
 
                 for (int i = 0; i < _images.Count; i++)
@@ -290,6 +316,25 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 _imageRevealHold = hold.Hold;
                 if (!hold.Hold)
                     FlushPendingImageReveals();
+                break;
+            case CardGridBeginWaveRevealMessage wave:
+                BeginWaveEntryReveal(wave.ItemCount, wave.HorizontalScroll);
+                Invalidate();
+                break;
+            case CardGridExtendWaveRevealMessage extend:
+                ExtendWaveEntryReveal(extend.ItemCount, extend.HorizontalScroll);
+                Invalidate();
+                break;
+            case DisposeImageMessage dispose:
+                if (dispose.Image != null)
+                    QueueNativeImageDisposal(dispose.Image);
+                break;
+            case CardGridRequestFlushDisposalsMessage:
+                FlushPendingDisposals(force: true);
+                break;
+            case CardGridQueueImageDisposalMessage queue:
+                if (queue.Image != null)
+                    QueueNativeImageDisposal(queue.Image);
                 break;
             case CardGridSelectedIndexMessage selected:
                 _selectedIndex = selected.Index;
@@ -740,6 +785,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.Restore();
         DrawScrollbar(canvas, metrics, 1f);
         canvas.Restore();
+
+        FlushPendingDisposals(force: false);
     }
 
     private GridMetrics ComputeMetrics(int itemCount)
@@ -1096,23 +1143,42 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         bool isLoading = !_interactionSuspended && _loadingIndices.Contains(index);
         float titleH = metrics.CardHeight * TitleAreaRatio;
+        float reveal = GetImageRevealOpacity(index);
+
+        if (reveal < 0.001f)
+        {
+            canvas.Restore();
+            return;
+        }
+
+        if (reveal < 0.999f)
+            canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(reveal * 255)) });
 
         if (img != null)
         {
-            float reveal = GetImageRevealOpacity(index);
-
             _cardPaint.Style = SKPaintStyle.Fill;
             _cardPaint.Shader = null;
             _cardPaint.ImageFilter = null;
-            _cardPaint.Color = reveal < 0.999f
-                ? SKColors.White.WithAlpha((byte)(255 * reveal))
-                : SKColors.White;
+            _cardPaint.Color = SKColors.White;
             _cardPaint.IsAntialias = true;
             _cardPaint.FilterQuality = _interactionSuspended ? SKFilterQuality.Low : SKFilterQuality.Medium;
-            canvas.DrawImage(img, rect, _cardPaint);
+
+            if (IsBakedCardImage(img))
+            {
+                canvas.DrawImage(img, rect, _cardPaint);
+            }
+            else
+            {
+                var coverRect = new SKRect(rect.Left, rect.Top, rect.Right, rect.Top + (metrics.CardHeight - titleH));
+                var src = UniformToFillSrc(img.Width, img.Height, coverRect);
+                canvas.DrawImage(img, src, coverRect, _cardPaint);
+            }
         }
         else
             DrawPlaceholder(canvas, rect.Left, rect.Top, metrics.CardWidth, metrics.CardHeight);
+
+        if (reveal < 0.999f)
+            canvas.Restore();
 
         canvas.Restore();
 
@@ -1150,13 +1216,40 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
     private static float EaseOutCubic(float t) => 1f - MathF.Pow(1f - Math.Clamp(t, 0f, 1f), 3f);
 
-    private void ResizeImageSlots(int count)
+    private void ResizeImageSlots(int count, bool clearImages = false)
     {
         count = Math.Max(0, count);
+
+        if (clearImages)
+        {
+            for (int i = 0; i < _images.Count; i++)
+            {
+                var img = _images[i];
+                _images[i] = null;
+                if (img != null)
+                {
+                    RemoveImageCaches(img);
+                    QueueNativeImageDisposal(img);
+                }
+            }
+
+            _loadingIndices.Clear();
+        }
+
         while (_images.Count < count)
             _images.Add(null);
+
         while (_images.Count > count)
-            _images.RemoveAt(_images.Count - 1);
+        {
+            int last = _images.Count - 1;
+            var removed = _images[last];
+            _images.RemoveAt(last);
+            if (removed != null)
+            {
+                RemoveImageCaches(removed);
+                QueueNativeImageDisposal(removed);
+            }
+        }
 
         _loadingIndices.RemoveWhere(index => index >= count);
         PruneImageRevealStates(count);
@@ -1199,6 +1292,125 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             ImageRevealMaxStaggerSeconds,
             Math.Abs(index - center) * ImageRevealStaggerSeconds);
         _imageReveal[index] = new ImageRevealState(0f, 0f, delay);
+        if (_lastTicks == 0)
+            _lastTicks = Stopwatch.GetTimestamp();
+        RegisterForNextAnimationFrameUpdate();
+    }
+
+    private void BeginWaveEntryReveal(int itemCount, bool horizontalScroll)
+    {
+        int count = Math.Max(itemCount, _images.Count);
+        if (count <= 0)
+            return;
+
+        if (!TryGetWaveRevealViewportRange(count, horizontalScroll, out var range))
+        {
+            BootstrapWaveReveal(count, horizontalScroll, clearExisting: true);
+            return;
+        }
+
+        ApplyWaveRevealRange(count, horizontalScroll, range, clearExisting: true);
+    }
+
+    private void ExtendWaveEntryReveal(int itemCount, bool horizontalScroll)
+    {
+        int count = Math.Max(itemCount, _images.Count);
+        if (count <= 0)
+            return;
+
+        if (!TryGetWaveRevealViewportRange(count, horizontalScroll, out var range))
+            return;
+
+        ApplyWaveRevealRange(count, horizontalScroll, range, clearExisting: false);
+    }
+
+    private readonly record struct WaveRevealViewportRange(
+        int Columns,
+        int FirstRow,
+        int LastRow,
+        int FirstCol,
+        int LastCol);
+
+    private bool TryGetWaveRevealViewportRange(int count, bool horizontalScroll, out WaveRevealViewportRange range)
+    {
+        range = default;
+        if (_visualSize.X <= 0 || _visualSize.Y <= 0)
+            return false;
+
+        var metrics = ComputeMetrics(count);
+        if (metrics.Columns <= 0 || metrics.RowCount <= 0)
+            return false;
+
+        int columns = Math.Max(1, metrics.Columns);
+        int firstRow = 0;
+        int lastRow = metrics.RowCount - 1;
+        int firstCol = 0;
+        int lastCol = columns - 1;
+
+        if (horizontalScroll)
+        {
+            float pitch = Math.Max(1f, metrics.ColumnPitch);
+            firstCol = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingLeft) / pitch) - 1);
+            lastCol = Math.Min(
+                columns - 1,
+                (int)Math.Ceiling((_currentScrollY + _visualSize.X - metrics.PaddingLeft) / pitch) + 2);
+        }
+        else
+        {
+            float rowHeight = metrics.CardHeight + metrics.Spacing;
+            firstRow = Math.Max(0, (int)Math.Floor((_currentScrollY - metrics.PaddingTop) / rowHeight) - 1);
+            lastRow = Math.Min(
+                metrics.RowCount - 1,
+                (int)Math.Ceiling((_currentScrollY + _visualSize.Y) / rowHeight) + 2);
+        }
+
+        range = new WaveRevealViewportRange(columns, firstRow, lastRow, firstCol, lastCol);
+        return true;
+    }
+
+    private void BootstrapWaveReveal(int count, bool horizontalScroll, bool clearExisting)
+    {
+        var metrics = ComputeMetrics(count);
+        int columns = Math.Max(1, metrics.Columns);
+        int bootstrapRows = horizontalScroll ? Math.Max(1, metrics.RowCount) : 4;
+        int lastRow = Math.Min(metrics.RowCount - 1, bootstrapRows - 1);
+        int lastCol = horizontalScroll
+            ? Math.Min(columns - 1, 7)
+            : columns - 1;
+        var range = new WaveRevealViewportRange(columns, 0, lastRow, 0, lastCol);
+        ApplyWaveRevealRange(count, horizontalScroll, range, clearExisting);
+    }
+
+    private void ApplyWaveRevealRange(
+        int count,
+        bool horizontalScroll,
+        WaveRevealViewportRange range,
+        bool clearExisting)
+    {
+        if (clearExisting)
+            _imageReveal.Clear();
+
+        bool added = false;
+        for (int row = range.FirstRow; row <= range.LastRow; row++)
+        {
+            for (int col = range.FirstCol; col <= range.LastCol; col++)
+            {
+                int index = row * range.Columns + col;
+                if (index < 0 || index >= count || _imageReveal.ContainsKey(index))
+                    continue;
+
+                float delay = horizontalScroll
+                    ? col * WaveRevealRowStaggerSeconds + row * WaveRevealColStaggerSeconds
+                    : row * WaveRevealRowStaggerSeconds + col * WaveRevealColStaggerSeconds;
+                delay = Math.Min(WaveRevealMaxDelaySeconds, delay);
+                _imageReveal[index] = new ImageRevealState(0f, 0f, delay);
+                added = true;
+            }
+        }
+
+        if (!added)
+            return;
+
         if (_lastTicks == 0)
             _lastTicks = Stopwatch.GetTimestamp();
         RegisterForNextAnimationFrameUpdate();
@@ -1531,6 +1743,81 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private void RemoveImageCaches(SKImage img)
     {
         _dimCache.Remove(img);
+    }
+
+    private void QueueNativeImageDisposal(SKImage img)
+    {
+        if (_pendingDisposal.Add(img))
+            _pendingDisposalAge[img] = 0;
+        RegisterForNextAnimationFrameUpdate();
+    }
+
+    private void FlushPendingDisposals(bool force)
+    {
+        if (_pendingDisposal.Count == 0)
+            return;
+
+        SKImage[] candidates = [.. _pendingDisposal];
+        foreach (var img in candidates)
+        {
+            if (!force && IsImageReferencedByGrid(img))
+            {
+                _pendingDisposalAge[img] = 0;
+                continue;
+            }
+
+            if (!force)
+            {
+                _pendingDisposalAge.TryGetValue(img, out int age);
+                if (age < PendingDisposalFrameDelay)
+                {
+                    _pendingDisposalAge[img] = age + 1;
+                    continue;
+                }
+            }
+
+            if (!_pendingDisposal.Remove(img))
+                continue;
+
+            _pendingDisposalAge.Remove(img);
+            RemoveImageCaches(img);
+            DisposeNativeImage(img);
+        }
+
+        if (_pendingDisposal.Count > 0)
+            RegisterForNextAnimationFrameUpdate();
+    }
+
+    private static bool IsBakedCardImage(SKImage img)
+    {
+        if (img.Width <= 0)
+            return false;
+
+        float expected = BaseCardHeight / BaseCardWidth;
+        float actual = img.Height / (float)img.Width;
+        return Math.Abs(actual - expected) <= 0.04f;
+    }
+
+    private static void DisposeNativeImage(SKImage img)
+    {
+        try { img.Dispose(); } catch (Exception ex) { Log.Warn("Failed to dispose SKImage", ex); }
+    }
+
+    private bool IsImageReferencedByGrid(SKImage? image)
+    {
+        if (image == null)
+            return false;
+
+        if (ReferenceEquals(_draggedImage, image))
+            return true;
+
+        for (int i = 0; i < _images.Count; i++)
+        {
+            if (ReferenceEquals(_images[i], image))
+                return true;
+        }
+
+        return false;
     }
 
     private static SKRect UniformToFillSrc(float srcW, float srcH, SKRect dest)

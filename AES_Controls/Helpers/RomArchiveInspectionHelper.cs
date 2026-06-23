@@ -69,6 +69,14 @@ public static class RomArchiveInspectionHelper
                     .FirstOrDefault();
             }
 
+            if (entry == null)
+            {
+                entry = archive.Entries
+                    .Where(e => !e.IsDirectory && !string.IsNullOrWhiteSpace(e.Key))
+                    .OrderByDescending(e => e.Size)
+                    .FirstOrDefault();
+            }
+
             if (entry == null || string.IsNullOrWhiteSpace(entry.Key))
                 return false;
 
