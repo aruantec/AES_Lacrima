@@ -1760,7 +1760,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         SKImage[] candidates = [.. _pendingDisposal];
         foreach (var img in candidates)
         {
-            if (!force && IsImageReferencedByGrid(img))
+            if (IsImageReferencedByGrid(img))
             {
                 _pendingDisposalAge[img] = 0;
                 continue;

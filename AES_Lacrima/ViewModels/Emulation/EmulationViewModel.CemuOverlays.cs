@@ -37,7 +37,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml.Linq;
 using AES_Core.Logging;
 using DrawingIcon = System.Drawing.Icon;
 
@@ -555,8 +555,9 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(ShadPs4Handler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionShadPs4UpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
     }

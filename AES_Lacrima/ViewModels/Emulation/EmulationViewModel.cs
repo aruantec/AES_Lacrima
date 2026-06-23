@@ -864,7 +864,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         private string? _emulatorUpdateNoticeChanges;
 
-        private string? _sectionLatestReleaseNotes;
+        private readonly Dictionary<string, string?> _sectionLatestReleaseNotesByHandlerId =
+            new(StringComparer.OrdinalIgnoreCase);
         private string? _emulatorUpdateNoticeSuppressedAlbumTitle;
 
         public bool HasEmulatorUpdateNoticeChanges => !string.IsNullOrWhiteSpace(EmulatorUpdateNoticeChanges);
@@ -1983,6 +1984,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 }
 
                 SyncCurrentSectionEmulatorContext();
+                SyncEmulatorUpdateNoticeOverlay();
                 OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
                 OnPropertyChanged(nameof(ShowSteamLibraryRefreshMenuItem));
                 OnPropertyChanged(nameof(ShowSteamProtonVersionMenuItem));

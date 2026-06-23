@@ -127,7 +127,7 @@ internal sealed class CompositionSharedCoverCache
     /// <summary>
     /// Drops unreferenced entries when the cache grows too large.
     /// </summary>
-    public int TrimUnreferenced(int maxEntries, Action<SKImage> dispose)
+    public int TrimUnreferenced(int maxEntries, Action<SKImage> dispose, Func<object, bool>? canTrimKey = null)
     {
         lock (_sync)
         {
@@ -139,6 +139,9 @@ internal sealed class CompositionSharedCoverCache
             {
                 if (_entries.Count <= maxEntries)
                     break;
+
+                if (canTrimKey != null && !canTrimKey(key))
+                    continue;
 
                 if (!_entries.TryGetValue(key, out var entry) || entry.RefCount > 0)
                     continue;

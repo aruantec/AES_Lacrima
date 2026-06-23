@@ -451,18 +451,39 @@ namespace AES_Lacrima.ViewModels
             await OpenCurrentSectionEdenUpdates();
         }
 
+        private void SetSectionReleaseNotes(string? handlerId, string? releaseNotes)
+        {
+            if (string.IsNullOrWhiteSpace(handlerId))
+                return;
+
+            if (string.IsNullOrWhiteSpace(releaseNotes))
+                _sectionLatestReleaseNotesByHandlerId.Remove(handlerId);
+            else
+                _sectionLatestReleaseNotesByHandlerId[handlerId] = releaseNotes;
+        }
+
+        private string? GetSectionReleaseNotes(string handlerId) =>
+            _sectionLatestReleaseNotesByHandlerId.TryGetValue(handlerId, out var notes) ? notes : null;
+
         private void SyncEmulatorUpdateNoticeOverlay()
         {
             if (LoadedAlbum == null || !IsCurrentSectionHandlerUpdateAvailable)
+            {
+                IsEmulatorUpdateNoticeOverlayOpen = false;
                 return;
+            }
 
             if (string.Equals(_emulatorUpdateNoticeSuppressedAlbumTitle, LoadedAlbum.Title, StringComparison.OrdinalIgnoreCase))
+            {
+                IsEmulatorUpdateNoticeOverlayOpen = false;
                 return;
+            }
 
             var (currentVersion, latestVersion) = GetCurrentSectionUpdateVersionInfo();
-            var emulatorName = string.IsNullOrWhiteSpace(CurrentEmulatorHandler?.DisplayName)
+            var handler = CurrentSectionEmulatorHandler;
+            var emulatorName = string.IsNullOrWhiteSpace(handler?.DisplayName)
                 ? "emulator"
-                : CurrentEmulatorHandler.DisplayName;
+                : handler.DisplayName;
 
             EmulatorUpdateNoticeSummary = $"A new version of {emulatorName} is available.";
 
@@ -473,9 +494,37 @@ namespace AES_Lacrima.ViewModels
                 details.Append("Latest: ").AppendLine(latestVersion);
 
             EmulatorUpdateNoticeDetails = details.Length > 0 ? details.ToString().TrimEnd() : null;
-            EmulatorUpdateNoticeChanges = _sectionLatestReleaseNotes;
+            EmulatorUpdateNoticeChanges = GetCurrentSectionReleaseNotes();
             EmulatorUpdateNoticeFooter = "Open Settings → Handler to download and install the update.";
             IsEmulatorUpdateNoticeOverlayOpen = true;
+        }
+
+        private string? GetCurrentSectionReleaseNotes()
+        {
+            if (ShowCurrentSectionRetroArchUpdateControls && IsCurrentSectionRetroArchUpdateAvailable)
+                return GetSectionReleaseNotes(RetroArchHandler.Instance.HandlerId);
+            if (ShowCurrentSectionEdenUpdateControls && IsCurrentSectionEdenUpdateAvailable)
+                return GetSectionReleaseNotes(EdenHandler.Instance.HandlerId);
+            if (ShowCurrentSectionShadPs4UpdateControls && IsCurrentSectionShadPs4UpdateAvailable)
+                return GetSectionReleaseNotes(ShadPs4Handler.Instance.HandlerId);
+            if (ShowCurrentSectionXeniaUpdateControls && IsCurrentSectionXeniaUpdateAvailable)
+                return GetSectionReleaseNotes(XeniaHandler.Instance.HandlerId);
+            if (ShowCurrentSectionRpcs3UpdateControls && IsCurrentSectionRpcs3UpdateAvailable)
+                return GetSectionReleaseNotes(Rpcs3Handler.Instance.HandlerId);
+            if (ShowCurrentSectionPcsx2UpdateControls && IsCurrentSectionPcsx2UpdateAvailable)
+                return GetSectionReleaseNotes(Pcsx2Handler.Instance.HandlerId);
+            if (ShowCurrentSectionDolphinUpdateControls && IsCurrentSectionDolphinUpdateAvailable)
+                return GetSectionReleaseNotes(DolphinHandler.Instance.HandlerId);
+            if (ShowCurrentSectionFlycastUpdateControls && IsCurrentSectionFlycastUpdateAvailable)
+                return GetSectionReleaseNotes(FlyCastHandler.Instance.HandlerId);
+            if (ShowCurrentSectionXemuUpdateControls && IsCurrentSectionXemuUpdateAvailable)
+                return GetSectionReleaseNotes(XemuHandler.Instance.HandlerId);
+            if (ShowCurrentSectionDuckStationUpdateControls && IsCurrentSectionDuckStationUpdateAvailable)
+                return GetSectionReleaseNotes(DuckStationHandler.Instance.HandlerId);
+            if (ShowCurrentSectionCemuSection && IsCurrentSectionCemuUpdateAvailable)
+                return GetSectionReleaseNotes(CemuHandler.Instance.HandlerId);
+
+            return null;
         }
 
         private (string? CurrentVersion, string? LatestVersion) GetCurrentSectionUpdateVersionInfo()

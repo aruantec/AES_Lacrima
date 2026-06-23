@@ -231,8 +231,9 @@ namespace AES_Lacrima.ViewModels
                 IsCurrentSectionCemuDownloading = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(RetroArchHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionRetroArchUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         [RelayCommand]
@@ -1078,8 +1079,9 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(EdenHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionEdenUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyXeniaUpdateState(XeniaUpdateState state)
@@ -1112,8 +1114,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionXeniaVersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(XeniaHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionXeniaUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyXemuUpdateState(XemuUpdateState state)
@@ -1146,8 +1149,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionXemuVersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(XemuHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionXemuUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyRpcs3UpdateState(Rpcs3UpdateState state)
@@ -1180,8 +1184,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionRpcs3VersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(Rpcs3Handler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionRpcs3UpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyPcsx2UpdateState(Pcsx2UpdateState state)
@@ -1214,8 +1219,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionPcsx2VersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(Pcsx2Handler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionPcsx2UpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyDolphinUpdateState(DolphinUpdateState state)
@@ -1248,8 +1254,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionDolphinVersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(DolphinHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionDolphinUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyFlycastUpdateState(FlycastUpdateState state)
@@ -1282,8 +1289,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionFlycastVersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(FlyCastHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionFlycastUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private void ApplyDuckStationUpdateState(DuckStationUpdateState state)
@@ -1316,8 +1324,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionDuckStationVersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(DuckStationHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionDuckStationUpdateControls)
+                SyncEmulatorUpdateNoticeOverlay();
         }
     }
 }

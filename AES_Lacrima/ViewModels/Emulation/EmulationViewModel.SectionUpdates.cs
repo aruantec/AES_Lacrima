@@ -242,8 +242,9 @@ namespace AES_Lacrima.ViewModels
                 _isSyncingCurrentSectionCemuVersionSelection = false;
             }
 
-            _sectionLatestReleaseNotes = state.LatestReleaseNotes;
-            SyncEmulatorUpdateNoticeOverlay();
+            SetSectionReleaseNotes(CemuHandler.Instance.HandlerId, state.LatestReleaseNotes);
+            if (ShowCurrentSectionCemuSection)
+                SyncEmulatorUpdateNoticeOverlay();
         }
 
         private IAsyncRelayCommand? _refreshCurrentSectionCemuInfoCommand;
