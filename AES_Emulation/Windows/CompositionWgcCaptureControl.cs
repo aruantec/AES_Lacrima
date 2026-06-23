@@ -1780,6 +1780,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         if (_gl == null && grContext != null)
         {
+#if !NATIVE_AOT
             try
             {
                 var method = grContext.GetType().GetMethod("GetGlInterface");
@@ -1787,6 +1788,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                     _gl = glInterface;
             }
             catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
+#endif
         }
 
         if (_gl == null)

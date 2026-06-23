@@ -3,6 +3,7 @@ using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
+using AES_Emulation;
 using AES_Emulation.Controls;
 using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Linux;
@@ -327,6 +328,7 @@ namespace AES_Lacrima.ViewModels
                     if (_linuxCompositorPid <= 0)
                         _linuxCompositorPid = process.Id;
                     SLog.Info($"Started fresh gamescope session pid={process.Id}, compositorRoot={_linuxCompositorPid}.");
+                    EmulationProcessGuard.RegisterLinuxCompositor(_linuxCompositorPid);
                     NotifyGameplayRecordingSessionContext();
                 }
                 else
@@ -676,6 +678,10 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Debug("Failed to tear down gamescope session.", ex);
             }
+            finally
+            {
+                EmulationProcessGuard.Clear();
+            }
         }
 
         private void PrepareEmulatorShutdownCapture()
@@ -934,6 +940,7 @@ namespace AES_Lacrima.ViewModels
             _activeEmulatorProcess = process;
             _activeEmulatorRomPath = romPath;
             _activeEmulatorGameTitle = gameTitle;
+            EmulationProcessGuard.RegisterEmulator(process.Id);
 
             if (OperatingSystem.IsWindows() && process != null)
             {

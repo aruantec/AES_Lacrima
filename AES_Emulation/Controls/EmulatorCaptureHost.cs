@@ -619,8 +619,11 @@ public class EmulatorCaptureHost : ContentControl
     {
         _mouseTunnel?.Dispose();
         _mouseTunnel = null;
-        _linuxInputTunnel?.Dispose();
-        _linuxInputTunnel = null;
+        if (OperatingSystem.IsLinux())
+        {
+            _linuxInputTunnel?.Dispose();
+            _linuxInputTunnel = null;
+        }
 
         Content = null;
         _backend = CreateBackend();
@@ -637,14 +640,14 @@ public class EmulatorCaptureHost : ContentControl
 
     private void RecreateLinuxInputTunnel()
     {
-        _linuxInputTunnel?.Dispose();
-        _linuxInputTunnel = null;
-
         if (!OperatingSystem.IsLinux())
         {
             IsHitTestVisible = true;
             return;
         }
+
+        _linuxInputTunnel?.Dispose();
+        _linuxInputTunnel = null;
 
         var tunnelElement = (InputElement?)_pointerTunnelSurface ?? this;
         IsHitTestVisible = _pointerTunnelSurface == null;
@@ -661,8 +664,10 @@ public class EmulatorCaptureHost : ContentControl
 
     private void UpdateLinuxInputTunnelTarget()
     {
-        if (_linuxInputTunnel != null)
-            _linuxInputTunnel.CompositorProcessId = TargetProcessId;
+        if (!OperatingSystem.IsLinux() || _linuxInputTunnel == null)
+            return;
+
+        _linuxInputTunnel.CompositorProcessId = TargetProcessId;
     }
 
     private void RecreateMouseTunnel()

@@ -5,10 +5,10 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Core.Logging;
+using AES_Lacrima.Serialization;
 
 namespace AES_Lacrima.Services.Emulation;
 
@@ -26,11 +26,6 @@ internal static class HasheousLookupService
     private const string LookupUrl = "https://hasheous.org/api/v1/Lookup/ByHash";
     private const string UserAgent = "Mozilla/5.0 (compatible; AES_Lacrima/1.0; +https://github.com/AES-Team/AES_Lacrima)";
     private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(8) };
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     public static async Task<HasheousMatch?> TryLookupAsync(RomInfo romInfo, CancellationToken cancellationToken)
     {
@@ -55,7 +50,10 @@ internal static class HasheousLookupService
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            var document = await JsonSerializer.DeserializeAsync<HasheousLookupResponse>(stream, JsonOptions, cancellationToken)
+            var document = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    HasheousJsonContext.Default.HasheousLookupResponse,
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (document == null || string.IsNullOrWhiteSpace(document.Name))
                 return null;
@@ -108,7 +106,9 @@ internal static class HasheousLookupService
             }
         }
 
-        return entries.Count > 0 ? JsonSerializer.Serialize(entries) : null;
+        return entries.Count > 0
+            ? JsonSerializer.Serialize(entries, HasheousJsonContext.Default.ListDictionaryStringString)
+            : null;
     }
 
     private static Dictionary<string, string> CreateHashEntry(string? md5, string? sha1, string? crc32)
@@ -168,28 +168,6 @@ internal static class HasheousLookupService
 
     private static string NormalizeHash(string value)
         => new string(value.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
-
-    private sealed class HasheousLookupResponse
-    {
-        public string? Name { get; set; }
-        public HasheousPlatformResponse? Platform { get; set; }
-        public List<HasheousMetadataEntry>? Metadata { get; set; }
-    }
-
-    private sealed class HasheousPlatformResponse
-    {
-        public string? Name { get; set; }
-    }
-
-    private sealed class HasheousMetadataEntry
-    {
-        [JsonPropertyName("objectType")]
-        public string? ObjectType { get; set; }
-
-        public string? Source { get; set; }
-        public string? Status { get; set; }
-        public string? Id { get; set; }
-    }
 }
 
 internal static class TheGamesDbCoverService

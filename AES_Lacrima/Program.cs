@@ -8,12 +8,14 @@ using log4net.Layout;
 using log4net.Repository;
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
 using AES_Core.Logging;
 using AES_Lacrima.Services;
+using AES_Emulation;
 
 namespace AES_Lacrima
 {
@@ -113,6 +115,8 @@ namespace AES_Lacrima
                                 $"{AppContext.BaseDirectory}{pathSeparator}{libraryPath}");
                         }
                     }
+
+                    EmulationProcessGuard.RecoverStaleSessionFromMarker();
                 }
 
                 // Ensure libmpv and other native helpers are loaded from the per-user Tools folder
@@ -167,10 +171,25 @@ namespace AES_Lacrima
 
         private static void RegisterGlobalExceptionHandlers()
         {
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            {
+                try
+                {
+                    EmulationProcessGuard.EmergencyShutdown();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Failed to run emulation emergency shutdown during process exit.", ex);
+                }
+            };
+
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             {
                 try
                 {
+                    if (e.IsTerminating)
+                        EmulationProcessGuard.EmergencyShutdown();
+
                     var ex = e.ExceptionObject as Exception;
                     Log.Error("Unhandled exception in AppDomain", ex);
                     WriteFatalStartupLog(ex ?? new Exception("Unhandled exception occurred with non-Exception object."));
@@ -188,6 +207,32 @@ namespace AES_Lacrima
                 }
                 catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
             };
+
+            if (OperatingSystem.IsLinux())
+            {
+                try
+                {
+                    PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+                    {
+                        try
+                        {
+                            EmulationProcessGuard.EmergencyShutdown();
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("Failed to run emulation emergency shutdown on SIGTERM.", ex);
+                        }
+                        finally
+                        {
+                            context.Cancel = false;
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("Failed to register SIGTERM handler for emulation cleanup.", ex);
+                }
+            }
         }
 
         internal static void EnsureBundledResources()

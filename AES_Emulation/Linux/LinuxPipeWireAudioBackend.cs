@@ -72,7 +72,7 @@ internal static class LinuxPipeWireAudioBackend
             if (document.RootElement.ValueKind != JsonValueKind.Array)
                 return false;
 
-            var streams = new List<Dictionary<string, object?>>();
+            var streams = new List<PipeWireSinkInputEntry>();
 
             foreach (var element in document.RootElement.EnumerateArray())
             {
@@ -99,25 +99,25 @@ internal static class LinuxPipeWireAudioBackend
                 var properties = ExtractStreamProperties(propsElement);
                 TryGetStreamVolumeViaWpctl(nodeId, out var volumeNormalized, out var muted);
 
-                streams.Add(new Dictionary<string, object?>
+                streams.Add(new PipeWireSinkInputEntry
                 {
-                    ["index"] = nodeId,
-                    ["mute"] = muted,
-                    ["volume"] = new Dictionary<string, object>
+                    Index = nodeId,
+                    Mute = muted,
+                    Volume = new PipeWireSinkInputVolume
                     {
-                        ["mono"] = new Dictionary<string, object>
+                        Mono = new PipeWireMonoVolume
                         {
-                            ["value"] = Math.Clamp(
+                            Value = Math.Clamp(
                                 (int)Math.Round(volumeNormalized * PulseVolumeNominal, MidpointRounding.AwayFromZero),
                                 0,
                                 PulseVolumeNominal),
                         },
                     },
-                    ["properties"] = properties,
+                    Properties = properties,
                 });
             }
 
-            json = JsonSerializer.Serialize(streams);
+            json = JsonSerializer.Serialize(streams, PipeWireSinkInputJsonContext.Default.ListPipeWireSinkInputEntry);
             return streams.Count > 0 || json == "[]";
         }
         catch (Exception ex)

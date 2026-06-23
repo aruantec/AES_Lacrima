@@ -18,6 +18,10 @@
     <RunAnalyzers Condition="'$(OS)' != 'Windows_NT' and '$(Configuration)' == 'Debug'">false</RunAnalyzers>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <DefineConstants>$(DefineConstants);NATIVE_AOT</DefineConstants>
+  </PropertyGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Debug'">
     <ClCompile>
       <!-- Force /Zi (Program Database) instead of /ZI (Edit-and-Continue) so the compiler does not emit /EDITANDCONTINUE -->

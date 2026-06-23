@@ -92,8 +92,11 @@ public sealed class FullscreenCursorAutoHideHelper : IDisposable
 
         ShowCursorNow();
 
-        _linuxCursorSupport?.Dispose();
-        _linuxCursorSupport = null;
+        if (OperatingSystem.IsLinux())
+        {
+            _linuxCursorSupport?.Dispose();
+            _linuxCursorSupport = null;
+        }
     }
 
     public void Dispose() => Stop();

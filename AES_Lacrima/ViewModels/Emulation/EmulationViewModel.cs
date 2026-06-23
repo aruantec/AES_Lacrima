@@ -676,6 +676,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 compositorRoot = compositorPid;
 
             _linuxCompositorPid = compositorRoot;
+            EmulationProcessGuard.RegisterLinuxCompositor(compositorRoot);
 
             var seeds = BuildLinuxEmulatorAudioSeedPids(compositorPid, compositorRoot, process);
             var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);
@@ -691,6 +692,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 compositorRoot = compositorPid;
 
             _linuxCompositorPid = compositorRoot;
+            EmulationProcessGuard.RegisterLinuxCompositor(compositorRoot);
 
             var seeds = BuildLinuxEmulatorAudioSeedPids(compositorPid, compositorRoot, process);
             var audioNameHints = BuildLinuxEmulatorAudioNameHints(handler, process);

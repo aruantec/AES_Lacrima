@@ -25,6 +25,7 @@ All contexts in this folder are `internal` to `AES_Lacrima`. Other projects use 
 | `RomTitleDatabaseJsonContext` | Embedded `Database/*.json` title lists (`serial` / `title`, Xbox `titleid`) | `MetadataService`, `GenericAlbumNormalizer`, `Xbox360MetadataService` |
 | `EmulatorUpdateJsonContext` | GitHub release-list HTTP cache for updater services | `EmulatorReleaseCachePersistence` |
 | `FlycastUpdateJsonContext` | Flycast updater cache (`Payload` holds JSON or nightly XML) | `FlycastReleaseCachePersistence` |
+| `HasheousJsonContext` | Hasheous hash lookup API request/response | `HasheousLookupService` |
 
 ## Emulator update caches
 

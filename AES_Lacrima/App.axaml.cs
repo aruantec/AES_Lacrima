@@ -2,6 +2,7 @@ using AES_Controls.Helpers;
 using AES_Core.DI;
 using AES_Core.Interfaces;
 using AES_Core.Services;
+using AES_Emulation;
 using AES_Emulation.Linux;
 using AES_Lacrima.Mini.Views;
 using AES_Lacrima.Mini.ViewModels;
@@ -122,6 +123,11 @@ namespace AES_Lacrima
 
                 TryInitializeGlobalMediaKeys();
                 ConfigureDesktopMainWindow(desktop.MainWindow);
+                desktop.Exit += (_, _) =>
+                {
+                    if (!IsSwitchingMode)
+                        EmulationProcessGuard.EmergencyShutdown();
+                };
 
                 // Finish heavier startup tasks after the window is already available
                 // so release builds don't appear frozen before first render.
