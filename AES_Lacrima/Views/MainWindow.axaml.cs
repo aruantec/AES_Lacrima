@@ -1,6 +1,7 @@
 ﻿using AES_Core.DI;
 using AES_Lacrima.Services;
 using AES_Controls.Navigation;
+using AES_Controls.GL;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -160,6 +161,7 @@ namespace AES_Lacrima.Views
         private void OnLayoutUpdated(object? sender, EventArgs e)
         {
             UpdateMainBorderClip();
+            UpdateShaderDiscOccluder();
 
             if (IsCapturePresentationFullscreen)
                 return;
@@ -205,6 +207,18 @@ namespace AES_Lacrima.Views
                 RadiusY = radius
             };
         }
+
+        private void UpdateShaderDiscOccluder()
+        {
+            var shader = this.FindControl<GlShaderToyControl>("ShaderToyLayer");
+            if (shader == null)
+                return;
+
+            var player = ShaderDiscOccluderSync.FindPlayerWidget(this);
+            ShaderDiscOccluderSync.Apply(shader, player);
+        }
+
+        internal void SyncShaderDiscOccluder() => UpdateShaderDiscOccluder();
 
         private void CenterWindow(ViewModels.MainWindowViewModel vm, double? renderScaleOverride = null)
         {

@@ -41,5 +41,8 @@ public partial class MainContentView : UserControl
             _lastReconciledContainerSize = bounds.Size;
             _layoutReconciled = true;
         }
+
+        if (TopLevel.GetTopLevel(this) is MainWindow mainWindow)
+            mainWindow.SyncShaderDiscOccluder();
     }
 }

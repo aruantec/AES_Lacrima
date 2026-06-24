@@ -61,21 +61,23 @@ float eg_fbm(vec2 p) {
     return f / 0.9375;
 }
 
+vec3 coverGradientBackground(vec2 uvScreen) {
+    float blendMid = smoothstep(0.0, 0.55, uvScreen.y);
+    float blendTop = smoothstep(0.45, 1.0, uvScreen.y);
+    return mix(mix(u_primary.rgb, u_secondary.rgb, blendMid), u_tertiary.rgb, blendTop);
+}
+
+vec3 coverAccent(float normAngle, float barHeight) {
+    vec3 base = mix(u_primary.rgb, u_secondary.rgb, normAngle);
+    return mix(base, u_tertiary.rgb, barHeight * 0.40);
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 res = iResolution.xy;
     vec2 uv  = (fragCoord - 0.5 * res) / res.y;
+    vec2 uvScreen = fragCoord / res;
     float t  = iTime;
-
-    // dynamic color that cycles to a new random hue every 6 seconds
-    float period = 6.0;
-    float phase = floor(t / period);
-    float u = smoothstep(0.0, 1.0, mod(t, period) / period);
-    vec3 c1 = vec3(hash(phase + 0.1), hash(phase + 0.2), hash(phase + 0.3));
-    vec3 c2 = vec3(hash(phase + 1.1), hash(phase + 1.2), hash(phase + 1.3));
-    vec3 themeColor = mix(c1, c2, u);
-    // boost saturation/brightness for neon feel
-    themeColor = mix(vec3(0.5), themeColor, 0.5) * 1.5;
 
     // audio bands
     float bass = texture(iChannel0, vec2(0.04, 0.25)).r;
@@ -88,27 +90,29 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
     vec3 lightingCol = vec3(0.0);
     {
-        float zDepth = 1.3;            // scale factor to push effect "back"
+        float zDepth = 1.3;
         vec2 luv = uv * zDepth;
-        float a = atan(luv.y, luv.x);
-        float normAngle = (a + 3.14159) / (2.0 * 3.14159);
+        float raySpin = -t * 0.09;
+        vec2 ruv = rot2(luv, raySpin);
+        float a = atan(ruv.y, ruv.x);
+        float normAngle = (a + PI) / TAU;
         float barHeight = texture(iChannel0, vec2(normAngle, 0.5)).r;
-        float pPulse = 1.0 + (bassL * 0.3);
-        vec2 p = pPulse * cos(a + t) * vec2(cos(0.5 * t), sin(0.3 * t));
-        float d1 = length(luv - p) + 0.001;
-        float d2 = length(luv) + 0.001;
-        float logDist = log(d2) * 0.25 - 0.5 * t;
-        vec2 uv2 = 2. * cos(logDist + log(vec2(d1, d2) / (d1 + d2)));
-        float c = cos(10. * length(uv2) + 4. * t);
-        float rayPattern = abs(cos(9. * a + t) * luv.x + sin(9. * a + t) * luv.y);
-        // lower barHeight coefficient to prevent extreme brighten
-        float intensity = exp(-8.0 * (rayPattern + 0.1 * c - (barHeight * 0.4)));
-        // use theme color palette for background lighting
-        vec3 baseColor = themeColor * (1.0 + barHeight);
+        float d2 = length(ruv) + 0.001;
+
+        float pPulse = 1.0 + bassL * 0.22;
+        vec2 p = pPulse * vec2(cos(a * 1.4), sin(a * 1.4)) * 0.12;
+        float d1 = length(ruv - p) + 0.001;
+
+        float logDist = log(d2) * 0.25 - raySpin * 0.35;
+        vec2 uv2 = 2.0 * cos(logDist + log(vec2(d1, d2) / (d1 + d2)));
+        float c = cos(10.0 * length(uv2) + raySpin * 3.2);
+        float rayPattern = abs(cos(9.0 * a) * ruv.x + sin(9.0 * a) * ruv.y);
+        float intensity = exp(-8.5 * (rayPattern + 0.1 * c - barHeight * 0.42));
+
+        vec3 baseColor = coverAccent(normAngle, barHeight) * (0.82 + barHeight * 0.48 + bassL * 0.16);
         lightingCol = (0.5 + 0.5 * c) * baseColor * intensity;
-        lightingCol += (pow(bassL,0.7) * 0.08) * themeColor / d2;
-        // dim a bit to keep atom in front
-        lightingCol *= 0.5;
+        lightingCol += (pow(bassL, 0.7) * 0.05) * u_primary.rgb / d2;
+        lightingCol *= 0.36;
     }
 
     // --- Electric Galaxy background layer --------------------------
@@ -125,20 +129,20 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
         for(int i = 0; i < 3; i++) {
             float it = float(i);
-            float tt = t * (1.0 + it * 0.2);
+            float tt = t * (0.55 + it * 0.12);
             float noiseVal = eg_fbm(vec2(a * 3.0 + it, tt));
-            float radius = 0.2 + 0.3 * barHeight + 0.1 * noiseVal;
+            float radius = 0.2 + 0.28 * barHeight + 0.1 * noiseVal;
             float arcDist = abs(d - radius);
             float intensity = 0.002 / (arcDist + 0.005);
             intensity *= smoothstep(0.4, 0.0, arcDist);
             float flicker = step(0.5, eg_noise(vec2(tt * 10.0, it)));
-            galaxyCol += themeColor * intensity * (0.5 + 0.5 * flicker) * (barHeight + 0.5);
+            galaxyCol += u_primary.rgb * intensity * (0.5 + 0.5 * flicker) * (barHeight + 0.5);
         }
 
-        float spikes = eg_fbm(vec2(a * 10.0, t * 5.0));
+        float spikes = eg_fbm(vec2(a * 10.0, t * 4.0));
         float spikeIntensity = smoothstep(0.7 - barHeight * 0.3, 1.0, spikes);
-        galaxyCol += themeColor * spikeIntensity * (0.2 / (d + 0.1)) * (barHeight + 0.2);
-        galaxyCol += themeColor * (0.02 / (d + 0.01)) * (bassG + 0.2);
+        galaxyCol += u_primary.rgb * spikeIntensity * (0.2 / (d + 0.1)) * (barHeight + 0.2);
+        galaxyCol += u_primary.rgb * (0.015 / (d + 0.01)) * (bassG + 0.18);
         float sparks = hash(dot(guv, vec2(12.9898, 78.233)) + t);
         if (sparks > 0.99 && d < 0.5 * barHeight + 0.2) {
             galaxyCol += vec3(1.0) * bassG;
@@ -146,8 +150,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         galaxyCol *= 0.5; // dim
     }
 
-    vec3 colE = vec3(0.0); // start with black
-    float mainR = 0.78; // used for orb mask, matches LiveOrb
+    vec3 colE = vec3(0.0);
+    float mainR = 0.78;
 
     // ==== GLOWING ATOM =================================================
     {
@@ -158,7 +162,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         // nucleus
         float nucR   = 0.08 + atomE * 0.04;
         float nuc    = exp(-6.0 * d / nucR);
-        vec3  nucCol = vec3(0.35, 0.80, 1.2) * (1.0 + atomE * 2.0);
+        vec3  nucCol = mix(u_primary.rgb, u_secondary.rgb, 0.35) * (1.0 + atomE * 2.0);
         colE += nucCol * nuc * 0.85 * orbMask;
 
         // orbital rings + electrons
@@ -175,13 +179,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
             float ring = exp(-50.0 * eDist) * (0.50 + atomE * 1.20);
             // ring color scaled from themeColor
-            vec3 rCol = themeColor * (0.8 + atomE * 1.4);
+            vec3 rCol = mix(u_primary.rgb, u_tertiary.rgb, fo / 2.0) * (0.8 + atomE * 1.4);
 
             // electric string effect
             float ang = atan(euv.y, euv.x);
             float pulse = pow(abs(sin(ang * 60.0 + t * 12.0)), 24.0);
             float stringGlow = pulse * (0.4 + atomE * 0.8);
-            vec3  sCol = themeColor * 1.2; // brighter string variant
+            vec3  sCol = mix(u_secondary.rgb, u_primary.rgb, 0.55);
             colE += sCol * ring * stringGlow * orbMask;
 
             colE += rCol * ring * 0.80 * orbMask;
@@ -194,56 +198,71 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
             float eDot  = length(uv - ePos);
             float eSize = 0.014 + atomE * 0.008;
             float eGlow = exp(-5.0 * eDot / eSize);
-            vec3  eCol  = vec3(0.50, 0.90, 1.2) * (1.1 + atomE * 1.6);
+            vec3  eCol  = mix(u_secondary.rgb, u_primary.rgb, 0.4) * (1.1 + atomE * 1.6);
             colE += eCol * eGlow * 1.00 * orbMask;
 
         }
 
         // soft inner breath glow for atom
         float innerGlow = exp(-3.5 * d / (0.25 + atomE * 0.10));
-        colE += vec3(0.12, 0.32, 0.88) * innerGlow * (0.30 + atomE * 0.50) * orbMask;
+        colE += mix(u_primary.rgb, u_tertiary.rgb, 0.25) * innerGlow * (0.30 + atomE * 0.50) * orbMask;
     }
-    // --- electric blur-style arc strings (blue) across whole screen --------
+
+    // --- Glowing spectrum waves (parallax depth + spectrum bounce) -----------
+    vec3 waveCol = vec3(0.0);
     {
         const int numLayers = 6;
-        for(int i = 0; i < numLayers; i++) {
+        for (int i = 0; i < numLayers; i++) {
             float fI = float(i);
-            float layerTime = t - fI * 0.03;
+            float depthT = fI / 5.0;
 
-            float pX = uv.x + (fI - 3.0) * 0.03 * sin(t * 0.35);
+            // Back layers: wider X, slower scroll, softer. Front: tighter, faster, brighter.
+            float parallaxScale = mix(1.52, 1.06, depthT);
+            float layerDepth = mix(1.42, 1.0, depthT);
+            float scrollSpeed = mix(0.011, 0.048, depthT);
+            float layerTime = t * mix(0.42, 0.78, depthT) - fI * 0.035;
+
+            float pX = uv.x * parallaxScale + (fI - 2.5) * 0.042 * sin(t * 0.20 + fI * 0.62);
             float pUvScreenX = pX * (res.y / res.x) + 0.5;
 
-            float yPath = 0.1 * sin(pX * 2.0 + layerTime * 0.5) * (1.0 + bass * 1.2);
-            float jitter = (fbmLow(vec2(pX * 6.0 + layerTime * 3.0, layerTime * 2.5)) * 2.0 - 1.0) * 0.11;
-            jitter *= (0.15 + vol * 1.8);
+            float scrollX = pUvScreenX - layerTime * scrollSpeed;
+            float bin = fract(scrollX);
+            float prevBin = texture(iChannel0, vec2(fract(bin - 1.0 / 160.0), 0.5)).r;
+            float nextBin = texture(iChannel0, vec2(fract(bin + 1.0 / 160.0), 0.5)).r;
+            float binHeight = (texture(iChannel0, vec2(bin, 0.5)).r + prevBin + nextBin) / 3.0;
+            binHeight = pow(binHeight, 0.78);
 
-            float currentY = yPath + jitter;
-            float dist = abs(uv.y - currentY);
+            float waveOffset = (binHeight - 0.42) * mix(0.09, 0.15, depthT);
+            float jitter = (fbmLow(vec2(pX * mix(4.0, 7.5, depthT) + layerTime * 1.3, layerTime)) * 2.0 - 1.0);
+            jitter *= mix(0.045, 0.075, depthT) * (0.18 + vol * 0.85);
 
-            // constant theme color palette with slight variation from screen pos
-            float colorMix = smoothstep(0.1, 0.7, pUvScreenX);
-            vec3 blueBase = themeColor; // now dynamic
-            vec3 layerCol = blueBase * mix(0.8, 1.2, colorMix);
+            float layerY = uv.y / layerDepth;
+            float currentY = waveOffset + jitter / layerDepth;
+            float dist = abs(layerY - currentY);
 
-            // simple spark modulation
-            float spark = noise(vec2(pX * 15.0 + layerTime * 5.0, yPath * 5.0));
-            float sparkIntensity = 0.3 + 1.4 * spark;
+            float colorMix = smoothstep(0.05, 0.85, pUvScreenX);
+            vec3 layerCol = mix(u_primary.rgb, u_secondary.rgb, colorMix);
+            layerCol = mix(layerCol, u_tertiary.rgb, binHeight * 0.35);
 
-            float coreWidth = (0.005 + 0.004 * pow(bass,1.5));
+            float spark = noise(vec2(pX * mix(10.0, 16.0, depthT) + layerTime * 2.6, waveOffset * 4.0));
+            float sparkIntensity = mix(0.30, 0.50, depthT) + 1.05 * spark;
+
+            float coreWidth = mix(0.0055, 0.0032, depthT) + 0.003 * pow(bassL, 1.4);
             float core = smoothstep(coreWidth, 0.0, dist);
-            float innerGlow = exp(-dist * (60.0 - 15.0 * pow(bass,1.5))) * (0.5 + 0.4 * pow(bass,1.5));
-            float outerGlow = exp(-dist * 20.0) * 0.08;
-            float layerAlpha = pow(1.0 - (fI / float(numLayers)), 2.0);
+            float innerGlow = exp(-dist * mix(38.0, 58.0, depthT)) * (0.34 + 0.36 * pow(bassL, 1.2));
+            float outerGlow = exp(-dist * mix(14.0, 20.0, depthT)) * mix(0.05, 0.09, depthT);
+            float layerAlpha = mix(0.42, 0.92, depthT);
 
-            colE += layerCol * (core * 4.0 + innerGlow + outerGlow) * sparkIntensity * layerAlpha * (0.4 + vol * 1.8);
+            waveCol += layerCol * (core * mix(2.4, 3.4, depthT) + innerGlow + outerGlow)
+                * sparkIntensity * layerAlpha * (0.28 + vol * 1.15);
         }
     }
 
     colE = min(colE, vec3(1.4));
     colE = mix(colE, colE + u_primary.rgb * 0.08 * ease(bass * 0.8 + mid * 0.3), 0.20);
 
-    vec3 finalCol = lightingCol + galaxyCol + colE;
-    // overall dimming to prevent excessive brightness
-    finalCol *= 0.8;
+    vec3 finalCol = coverGradientBackground(uvScreen) * 0.32;
+    finalCol += lightingCol + galaxyCol + colE + waveCol;
+    finalCol *= 0.72;
     fragColor = vec4(finalCol * u_fade, 1.0);
 }

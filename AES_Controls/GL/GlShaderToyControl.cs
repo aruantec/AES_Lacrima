@@ -67,6 +67,11 @@ public class GlShaderToyControl : OpenGlControlBase
     private const double ColorTransitionDurationSeconds = 2.0;
     private const float ColorTargetEpsilon = 0.0035f;
 
+    private float _discCenterX;
+    private float _discCenterY;
+    private float _discRadius;
+    private bool _discOccluderActive;
+
     private static string LogPath => ApplicationPaths.LogsDirectory;
     private const int GlLinkStatus = 0x8B82;
 
@@ -162,6 +167,18 @@ public class GlShaderToyControl : OpenGlControlBase
     }
 
     #endregion
+
+    /// <summary>
+    /// Updates the player-disc occluder used by shaders that warp spectrum waves around the turntable.
+    /// Coordinates are in fragment space (pixels), matching <c>gl_FragCoord</c>.
+    /// </summary>
+    public void SetDiscOccluder(float centerX, float centerY, float radius, bool active)
+    {
+        _discCenterX = centerX;
+        _discCenterY = centerY;
+        _discRadius = Math.Max(0f, radius);
+        _discOccluderActive = active && _discRadius > 0f;
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GlShaderToyControl"/> class.
@@ -275,7 +292,7 @@ public class GlShaderToyControl : OpenGlControlBase
         // and any `main()` implementation. Keep functions like `mainImage`.
         var lines = content.Replace("\r\n", "\n").Split('\n');
         var keep = new List<string>();
-        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_tertiary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4" };
+        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_tertiary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4", "u_disc" };
 
         foreach (var raw in lines)
         {
@@ -364,6 +381,8 @@ public class GlShaderToyControl : OpenGlControlBase
             UpdateAudioTexture(gl);
             UpdateCoverTexture(gl);
             _fadeAlpha = Math.Min(1.0f, _fadeAlpha + (float)FadeSpeed);
+
+            ShaderDiscOccluderSync.ApplyFromVisualRoot(this);
 
             float scaling = (float)(TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0);
             gl.Viewport(0, 0, (int)(Bounds.Width * scaling), (int)(Bounds.Height * scaling));
@@ -543,6 +562,7 @@ public class GlShaderToyControl : OpenGlControlBase
             uniform float u_fade; uniform sampler2D iChannel0;
             uniform sampler2D iChannel1; uniform vec2 iChannel1Size;
             uniform vec3 u_primary; uniform vec3 u_secondary; uniform vec3 u_tertiary;
+            uniform vec4 u_disc;
             out vec4 outFragColor;
             {_processedShaderCode}
             void main() {{ vec4 c; mainImage(c, gl_FragCoord.xy); outFragColor = c; }}";
@@ -657,6 +677,9 @@ public class GlShaderToyControl : OpenGlControlBase
             gradientColors[3].B / 255f);
         SetUniform3F(gl, _program, "u_grad4", gradientColors[4].R / 255f, gradientColors[4].G / 255f,
             gradientColors[4].B / 255f);
+
+        float discActive = _discOccluderActive ? 1f : 0f;
+        SetUniform4F(gl, _program, "u_disc", _discCenterX, _discCenterY, _discRadius, discActive);
     }
     private void UpdateTransitionedCoverColors(
         float targetPrimaryR, float targetPrimaryG, float targetPrimaryB,
@@ -1028,6 +1051,18 @@ public class GlShaderToyControl : OpenGlControlBase
         {
             var f = (delegate* unmanaged[Stdcall]<int, float, float, void>)gl.GetProcAddress("glUniform2f");
             if (f != null) f(loc, x, y);
+        }
+    }
+
+    private unsafe void SetUniform4F(GlInterface gl, int prg, string name, float x, float y, float z, float w)
+    {
+        nint ptr = Marshal.StringToHGlobalAnsi(name);
+        int loc = gl.GetUniformLocation(prg, ptr);
+        Marshal.FreeHGlobal(ptr);
+        if (loc != -1)
+        {
+            var f = (delegate* unmanaged[Stdcall]<int, float, float, float, float, void>)gl.GetProcAddress("glUniform4f");
+            if (f != null) f(loc, x, y, z, w);
         }
     }
 
