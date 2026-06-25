@@ -3341,6 +3341,51 @@ static void ReleaseHeldExportFrameLocked(LinuxCapture* cap)
     cap->export_held = 0;
 }
 
+static void GetHeadlessExportCropInsets(const LinuxCapture* cap, int* left, int* top, int* right, int* bottom)
+{
+    *left = std::max(0, cap->crop[0]);
+    *top = std::max(0, cap->crop[1]);
+    *right = std::max(0, cap->crop[2]);
+    *bottom = std::max(0, cap->crop[3]);
+}
+
+static void ApplyHeadlessExportCrop(LinuxCapture* cap, AesLinuxExportFrame* out)
+{
+    if (!cap || !out || !cap->headless)
+        return;
+
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+    GetHeadlessExportCropInsets(cap, &left, &top, &right, &bottom);
+    if (left == 0 && top == 0 && right == 0 && bottom == 0)
+        return;
+
+    const int srcW = out->width;
+    const int srcH = out->height;
+    const int croppedW = srcW - left - right;
+    const int croppedH = srcH - top - bottom;
+    if (croppedW <= 0 || croppedH <= 0)
+        return;
+
+    constexpr int kBytesPerPixel = 4;
+
+    if (out->cpu_pixels)
+    {
+        out->cpu_pixels += static_cast<size_t>(top) * static_cast<size_t>(out->stride)
+                         + static_cast<size_t>(left) * kBytesPerPixel;
+        out->cpu_size = static_cast<size_t>(out->stride) * static_cast<size_t>(croppedH);
+    }
+    else if (out->is_dmabuf)
+    {
+        out->stride = croppedW * kBytesPerPixel;
+    }
+
+    out->width = croppedW;
+    out->height = croppedH;
+}
+
 static bool ParseExportFrame(LinuxCapture* cap, struct pw_buffer* pwbuf, AesLinuxExportFrame* out)
 {
     if (!cap || !pwbuf || !out)
@@ -3373,6 +3418,7 @@ static bool ParseExportFrame(LinuxCapture* cap, struct pw_buffer* pwbuf, AesLinu
         out->is_dmabuf = 1;
         out->dmabuf_fd = dupFd;
         cap->export_acquired_fd = dupFd;
+        ApplyHeadlessExportCrop(cap, out);
         return true;
     }
 
@@ -3387,6 +3433,7 @@ static bool ParseExportFrame(LinuxCapture* cap, struct pw_buffer* pwbuf, AesLinu
 
         out->cpu_pixels = pixels + out->offset;
         out->cpu_size = static_cast<size_t>(out->stride) * static_cast<size_t>(cap->pw_height);
+        ApplyHeadlessExportCrop(cap, out);
         return true;
     }
 
@@ -5132,11 +5179,40 @@ int aes_linux_capture_copy_held_frame(LinuxCapture* cap, uint64_t frame_id, void
         return 0;
 
     struct spa_data* d = &spa_buf->datas[0];
-    const int stride = d->chunk ? static_cast<int>(d->chunk->stride) : cap->pw_width * 4;
+    const int srcStride = d->chunk ? static_cast<int>(d->chunk->stride) : cap->pw_width * 4;
     const int offset = d->chunk ? static_cast<int>(d->chunk->offset) : 0;
-    const size_t required = static_cast<size_t>(stride) * static_cast<size_t>(cap->pw_height);
+
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+    GetHeadlessExportCropInsets(cap, &left, &top, &right, &bottom);
+
+    const int srcW = cap->pw_width;
+    const int srcH = cap->pw_height;
+    const int croppedW = srcW - left - right;
+    const int croppedH = srcH - top - bottom;
+    if (croppedW <= 0 || croppedH <= 0)
+        return 0;
+
+    constexpr int kBytesPerPixel = 4;
+    const int dstStride = croppedW * kBytesPerPixel;
+    const size_t required = static_cast<size_t>(dstStride) * static_cast<size_t>(croppedH);
     if (required == 0 || required > dst_size)
         return 0;
+
+    const auto copyCropped = [&](const uint8_t* srcPixels) -> int {
+        if (!srcPixels)
+            return 0;
+
+        const uint8_t* srcBase = srcPixels + offset + top * srcStride + left * kBytesPerPixel;
+        auto* dstBytes = static_cast<uint8_t*>(dst);
+        for (int y = 0; y < croppedH; ++y)
+            memcpy(dstBytes + static_cast<size_t>(y) * static_cast<size_t>(dstStride),
+                   srcBase + static_cast<size_t>(y) * static_cast<size_t>(srcStride),
+                   static_cast<size_t>(dstStride));
+        return static_cast<int>(required);
+    };
 
     if (d->type == SPA_DATA_MemPtr || d->type == SPA_DATA_MemFd)
     {
@@ -5144,11 +5220,7 @@ int aes_linux_capture_copy_held_frame(LinuxCapture* cap, uint64_t frame_id, void
             ? static_cast<const uint8_t*>(d->data)
             : static_cast<const uint8_t*>(
                   reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(d->data)));
-        if (!pixels)
-            return 0;
-
-        memcpy(dst, pixels + offset, required);
-        return static_cast<int>(required);
+        return copyCropped(pixels);
     }
 
     if (d->type == SPA_DATA_DmaBuf)
@@ -5157,19 +5229,20 @@ int aes_linux_capture_copy_held_frame(LinuxCapture* cap, uint64_t frame_id, void
         if (fd < 0)
             return 0;
 
+        const size_t fullRequired = static_cast<size_t>(srcStride) * static_cast<size_t>(srcH);
         const size_t mapSize = d->maxsize > 0
             ? static_cast<size_t>(d->maxsize)
-            : required + static_cast<size_t>(offset);
-        if (mapSize < required + static_cast<size_t>(offset))
+            : fullRequired + static_cast<size_t>(offset);
+        if (mapSize < fullRequired + static_cast<size_t>(offset))
             return 0;
 
         void* mapped = mmap(nullptr, mapSize, PROT_READ, MAP_SHARED, fd, 0);
         if (mapped == MAP_FAILED)
             return 0;
 
-        memcpy(dst, static_cast<const uint8_t*>(mapped) + offset, required);
+        const int copied = copyCropped(static_cast<const uint8_t*>(mapped));
         munmap(mapped, mapSize);
-        return static_cast<int>(required);
+        return copied;
     }
 
     return 0;

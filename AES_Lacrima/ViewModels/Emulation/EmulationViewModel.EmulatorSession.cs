@@ -311,7 +311,13 @@ namespace AES_Lacrima.ViewModels
                 Process? process;
                 if (OperatingSystem.IsLinux())
                 {
-                    var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
+                    var aspect = handler.CaptureWindowAspectRatio;
+                    var baseHeight = aspect is > 0 and < 1.6 ? 1080 : 720;
+                    var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize(baseHeight, aspect);
+                    _linuxCompositorOutputWidth = width;
+                    _linuxCompositorOutputHeight = height;
+                    OnPropertyChanged(nameof(ClientAreaCropTopInset));
+                    OnPropertyChanged(nameof(ClientAreaCropBottomInset));
                     TeardownLinuxGamescopeSession();
                     LinuxCompositorKillHelper.KillOrphanedGamescopeSessions();
                     await Task.Delay(350, CancellationToken.None).ConfigureAwait(false);
@@ -320,6 +326,7 @@ namespace AES_Lacrima.ViewModels
                         startInfo,
                         width,
                         height,
+                        handler.LinuxGamescopeScalingMode,
                         CancellationToken.None).ConfigureAwait(false);
                     process = _linuxCompositorSession.CompositorProcess;
                     _linuxCompositorPid = await LinuxCompositorLaunchHelper.ResolveCompositorRootPidAsync(
@@ -660,6 +667,10 @@ namespace AES_Lacrima.ViewModels
             var compositorPid = _linuxCompositorPid;
             _linuxCompositorSession = null;
             _linuxCompositorPid = 0;
+            _linuxCompositorOutputWidth = 0;
+            _linuxCompositorOutputHeight = 0;
+            OnPropertyChanged(nameof(ClientAreaCropTopInset));
+            OnPropertyChanged(nameof(ClientAreaCropBottomInset));
             SettingsViewModel?.SetGameplayRecordingSessionContext(0, 0);
 
             try

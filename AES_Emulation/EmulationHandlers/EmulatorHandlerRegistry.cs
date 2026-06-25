@@ -19,6 +19,7 @@ public static class EmulatorHandlerRegistry
             DolphinHandler.Instance,
             FlyCastHandler.Instance,
             RedreamHandler.Instance,
+            YmirHandler.Instance,
             FbNeoHandler.Instance,
             RetroArchHandler.Instance,
             RetroArchGbaHandler.Instance,

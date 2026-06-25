@@ -33,10 +33,12 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
     private float _brightness = 1.0f;
     private float _saturation = 1.0f;
     private Color _tint = Colors.White;
+    private double _contentAspectRatio;
     private SKRect _destRect;
     private bool _rectDirty = true;
     private int _lastFrameWidth = -1;
     private int _lastFrameHeight = -1;
+    private double _lastContentAspectRatio = -1;
     private readonly SKPaint _paint = new() { FilterQuality = SKFilterQuality.Medium, IsAntialias = true };
     private readonly object _renderLock = new();
     private IntPtr _cpuCopyBuffer = IntPtr.Zero;
@@ -141,6 +143,7 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
                 _brightness = settings.Brightness;
                 _saturation = settings.Saturation;
                 _tint = settings.Tint;
+                _contentAspectRatio = settings.ContentAspectRatio;
                 if (!string.Equals(_shaderPath, settings.ShaderPath, StringComparison.OrdinalIgnoreCase))
                 {
                     _shaderPath = settings.ShaderPath;
@@ -385,18 +388,23 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
             var updated = false;
             try
             {
-                EnsureDestRect(frame.Width, frame.Height);
                 updated = TryCopyFrameToCache(in frame);
-                if (updated)
+                if (updated && _presentedFrame != null)
                 {
-                    RecordPresentMetrics();
-                    PublishUiStats();
-                    TryPublishRecordingFrame(frame.Width, frame.Height, frame.Stride, frame.DrmFourcc);
+                    _rectDirty = true;
+                    EnsureDestRect(_presentedFrame.Width, _presentedFrame.Height);
+                    TryPublishRecordingFrame(_presentedFrame.Width, _presentedFrame.Height, frame.Stride, frame.DrmFourcc);
                 }
             }
             finally
             {
                 LinuxCaptureBridge.aes_linux_capture_release_frame(_capture, frame.FrameId);
+            }
+
+            if (updated)
+            {
+                RecordPresentMetrics();
+                PublishUiStats();
             }
 
             return updated;
@@ -435,25 +443,33 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
 
     private bool TryCopyFrameToCache(in LinuxExportFrame frame)
     {
-        var byteCount = (nuint)(frame.Stride * frame.Height);
-        if (byteCount == 0)
+        if (frame.Width <= 0 || frame.Height <= 0)
             return false;
 
         if (frame.CpuPixels != IntPtr.Zero)
         {
+            var cpuByteCount = (nuint)(frame.Stride * frame.Height);
+            if (cpuByteCount == 0)
+                return false;
+
             return UpdatePresentedFrame(frame.CpuPixels, frame.Width, frame.Height, frame.Stride, frame.DrmFourcc);
         }
 
-        EnsureCpuCopyBuffer(byteCount);
+        var dmabufByteCount = (nuint)(frame.Stride * frame.Height);
+        if (dmabufByteCount == 0)
+            return false;
+
+        EnsureCpuCopyBuffer(dmabufByteCount);
         var copied = LinuxCaptureBridge.aes_linux_capture_copy_held_frame(
             _capture,
             frame.FrameId,
             _cpuCopyBuffer,
-            byteCount);
+            dmabufByteCount);
         if (copied <= 0)
             return false;
 
-        return UpdatePresentedFrame(_cpuCopyBuffer, frame.Width, frame.Height, frame.Stride, frame.DrmFourcc);
+        var presentStride = frame.Stride > 0 ? frame.Stride : frame.Width * 4;
+        return UpdatePresentedFrame(_cpuCopyBuffer, frame.Width, frame.Height, presentStride, frame.DrmFourcc);
     }
 
     private bool UpdatePresentedFrame(IntPtr pixels, int width, int height, int stride, uint drmFourcc)
@@ -540,23 +556,56 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
         var scaleX = (float)(canvasSize.Width / _visualSize.X);
         var scaleY = (float)(canvasSize.Height / _visualSize.Y);
         if (Math.Abs(scaleX - 1f) < 0.001f && Math.Abs(scaleY - 1f) < 0.001f)
-            return destRect;
+            return SnapDestRectToCanvas(destRect, canvasSize);
 
-        return new SKRect(
+        return SnapDestRectToCanvas(new SKRect(
             destRect.Left * scaleX,
             destRect.Top * scaleY,
             destRect.Right * scaleX,
-            destRect.Bottom * scaleY);
+            destRect.Bottom * scaleY), canvasSize);
+    }
+
+    private static SKRect SnapDestRectToCanvas(SKRect destRect, Size canvasSize)
+    {
+        const float epsilon = 1.5f;
+        var canvasW = (float)canvasSize.Width;
+        var canvasH = (float)canvasSize.Height;
+
+        if (Math.Abs(destRect.Top) < epsilon)
+            destRect.Top = 0;
+
+        if (Math.Abs(destRect.Left) < epsilon)
+            destRect.Left = 0;
+
+        if (Math.Abs(canvasW - destRect.Right) < epsilon)
+            destRect.Right = canvasW;
+
+        if (Math.Abs(canvasH - destRect.Bottom) < epsilon)
+            destRect.Bottom = canvasH;
+
+        return destRect;
     }
 
     private void EnsureDestRect(int frameWidth, int frameHeight)
     {
-        if (!_rectDirty && _lastFrameWidth == frameWidth && _lastFrameHeight == frameHeight)
+        if (!_rectDirty &&
+            _lastFrameWidth == frameWidth &&
+            _lastFrameHeight == frameHeight &&
+            Math.Abs(_lastContentAspectRatio - _contentAspectRatio) < 0.0001)
+        {
             return;
+        }
 
         _lastFrameWidth = frameWidth;
         _lastFrameHeight = frameHeight;
-        _destRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, frameWidth, frameHeight);
+        _lastContentAspectRatio = _contentAspectRatio;
+
+        var layoutWidth = (float)frameWidth;
+        var layoutHeight = (float)frameHeight;
+        if (_contentAspectRatio > 0 && layoutWidth > 0)
+            layoutHeight = layoutWidth / (float)_contentAspectRatio;
+
+        _destRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, layoutWidth, layoutHeight);
         _rectDirty = false;
     }
 
@@ -669,7 +718,8 @@ internal readonly record struct PipeWireSettingsMessage(
     float Brightness,
     float Saturation,
     Color Tint,
-    string? ShaderPath);
+    string? ShaderPath,
+    double ContentAspectRatio);
 
 [SupportedOSPlatform("linux")]
 internal sealed class PipeWireCompositionDrawOperation(Rect bounds, PipeWireCompositionVisualHandler handler) : ICustomDrawOperation

@@ -66,6 +66,9 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
     public static readonly StyledProperty<int> ClientAreaCropBottomInsetProperty =
         AvaloniaProperty.Register<LinuxCompositionCaptureControl, int>(nameof(ClientAreaCropBottomInset), 0);
 
+    public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
+        AvaloniaProperty.Register<LinuxCompositionCaptureControl, double>(nameof(CaptureWindowAspectRatio), 0);
+
     public static readonly DirectProperty<LinuxCompositionCaptureControl, string> StatusTextProperty =
         AvaloniaProperty.RegisterDirect<LinuxCompositionCaptureControl, string>(
             nameof(StatusText),
@@ -246,6 +249,12 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         set => SetValue(ClientAreaCropBottomInsetProperty, value);
     }
 
+    public double CaptureWindowAspectRatio
+    {
+        get => GetValue(CaptureWindowAspectRatioProperty);
+        set => SetValue(CaptureWindowAspectRatioProperty, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -423,7 +432,11 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         else if (change.Property == StretchProperty ||
                  change.Property == BrightnessProperty ||
                  change.Property == SaturationProperty ||
-                 change.Property == ColorTintProperty)
+                 change.Property == ColorTintProperty ||
+                 change.Property == DisableVSyncProperty ||
+                 change.Property == ShaderPathProperty ||
+                 change.Property == ClearShaderWhenPathEmptyProperty ||
+                 change.Property == CaptureWindowAspectRatioProperty)
             UpdateHandlerSettings();
     }
 
@@ -672,7 +685,8 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             (float)Brightness,
             (float)Saturation,
             ColorTint,
-            shaderPath));
+            shaderPath,
+            CaptureWindowAspectRatio));
     }
 
     private void SendHandlerMessage(object? message)

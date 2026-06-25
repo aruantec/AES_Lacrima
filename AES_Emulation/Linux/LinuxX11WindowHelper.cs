@@ -24,9 +24,6 @@ internal static class LinuxX11WindowHelper
         out uint nChildrenReturn);
 
     [DllImport(libX11)]
-    private static extern int XFetchName(IntPtr display, IntPtr window, out IntPtr windowNameReturn);
-
-    [DllImport(libX11)]
     private static extern int XGetWindowAttributes(IntPtr display, IntPtr window, out X11Interop.XWindowAttributes attributes);
 
     [DllImport(libX11)]

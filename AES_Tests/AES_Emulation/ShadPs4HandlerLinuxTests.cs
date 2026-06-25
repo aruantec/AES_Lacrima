@@ -31,7 +31,7 @@ public sealed class ShadPs4HandlerLinuxTests
             Assert.Contains("false", startInfo.ArgumentList);
             Assert.True(startInfo.Environment.TryGetValue("SHADPS4_USER_DIR", out var userDir));
             Assert.Equal(ShadPs4UserDirectoryHelper.ResolveUserDirectory(tempRoot), userDir);
-            Assert.Equal("pipewire", startInfo.Environment["SDL_AUDIODRIVER"]);
+            Assert.Equal("pulse", startInfo.Environment["SDL_AUDIODRIVER"]);
         }
         finally
         {

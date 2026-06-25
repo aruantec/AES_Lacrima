@@ -1238,10 +1238,10 @@ namespace AES_Lacrima.ViewModels
                     continue;
 
                 var files = Directory
-                    .EnumerateFiles(directory)
+                    .EnumerateFiles(directory, "*.*", SearchOption.AllDirectories)
                     .Where(path => IsSupportedConsoleImage(path) &&
                                    EmulationConsoleCatalog.IsConsoleAssetAvailableOnCurrentPlatform(path))
-                    .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(path => Path.GetRelativePath(directory, path), StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
                 if (files.Count > 0)

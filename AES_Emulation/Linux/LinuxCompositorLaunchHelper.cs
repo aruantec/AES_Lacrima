@@ -26,6 +26,7 @@ public static class LinuxCompositorLaunchHelper
         ProcessStartInfo emulatorStartInfo,
         int width,
         int height,
+        string scalingMode = "fit",
         CancellationToken cancellationToken = default)
     {
         if (!OperatingSystem.IsLinux())
@@ -68,7 +69,7 @@ public static class LinuxCompositorLaunchHelper
         compositorStartInfo.ArgumentList.Add("-h");
         compositorStartInfo.ArgumentList.Add(height.ToString());
         compositorStartInfo.ArgumentList.Add("-S");
-        compositorStartInfo.ArgumentList.Add("fit");
+        compositorStartInfo.ArgumentList.Add(NormalizeGamescopeScalingMode(scalingMode));
         compositorStartInfo.ArgumentList.Add("--xwayland-count");
         compositorStartInfo.ArgumentList.Add("1");
         compositorStartInfo.ArgumentList.Add("--expose-wayland");
@@ -123,7 +124,7 @@ public static class LinuxCompositorLaunchHelper
                     : $"gamescope did not become ready in time.{Environment.NewLine}{details}");
         }
 
-        SLog.Info($"gamescope headless compositor ready at {width}x{height} (16:9, pid={process.Id}).");
+        SLog.Info($"gamescope headless compositor ready at {width}x{height} (pid={process.Id}).");
         return (process, outputPump);
     }
 
@@ -216,14 +217,31 @@ public static class LinuxCompositorLaunchHelper
     }
 
     public static (int Width, int Height) ResolveOutputSize(int baseHeight = 720)
+        => ResolveOutputSize(baseHeight, contentAspectRatio: null);
+
+    public static (int Width, int Height) ResolveOutputSize(int baseHeight, double? contentAspectRatio)
     {
+        var height = Math.Clamp(baseHeight, 480, 2160);
+
+        if (contentAspectRatio is > 0)
+        {
+            var width = (int)Math.Round(height * contentAspectRatio.Value);
+            width = Math.Clamp(width, 640, 3840);
+            if (width % 2 != 0)
+                width++;
+
+            if (height % 2 != 0)
+                height++;
+
+            return (width, height);
+        }
+
         const double aspectRatio = 16.0 / 9.0;
 
-        var height = Math.Clamp(baseHeight, 480, 2160);
-        var width = (int)Math.Round(height * aspectRatio);
-        width = Math.Clamp(width, 640, 3840);
-        height = (int)Math.Round(width / aspectRatio);
-        return (width, height);
+        var width16x9 = (int)Math.Round(height * aspectRatio);
+        width16x9 = Math.Clamp(width16x9, 640, 3840);
+        height = (int)Math.Round(width16x9 / aspectRatio);
+        return (width16x9, height);
     }
 
     /// <summary>
@@ -470,5 +488,15 @@ public static class LinuxCompositorLaunchHelper
             SLog.Debug("Failed to read gamescope diagnostics.", ex);
             return null;
         }
+    }
+
+    internal static string NormalizeGamescopeScalingMode(string? scalingMode)
+    {
+        var normalized = (scalingMode ?? "fit").Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "fit" or "stretch" or "fill" => normalized,
+            _ => "fit",
+        };
     }
 }

@@ -652,7 +652,9 @@ public class EmulatorCaptureHost : ContentControl
         var tunnelElement = (InputElement?)_pointerTunnelSurface ?? this;
         IsHitTestVisible = _pointerTunnelSurface == null;
 
-        var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize();
+        var aspect = CaptureWindowAspectRatio > 0 ? CaptureWindowAspectRatio : (double?)null;
+        var baseHeight = aspect is > 0 and < 1.6 ? 1080 : 720;
+        var (width, height) = LinuxCompositorLaunchHelper.ResolveOutputSize(baseHeight, aspect);
         _linuxInputTunnel = new LinuxGamescopeInputTunnel(tunnelElement)
         {
             CompositorProcessId = TargetProcessId,
@@ -1011,6 +1013,7 @@ public class EmulatorCaptureHost : ContentControl
                 linuxCompositionBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                 linuxCompositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 linuxCompositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
+                linuxCompositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
                 break;
         }
     }

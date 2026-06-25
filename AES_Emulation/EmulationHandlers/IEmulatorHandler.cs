@@ -89,6 +89,11 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     EmulatorCaptureMode PreferredCaptureMode { get; }
 
+    /// <summary>
+    /// gamescope <c>-S</c> scaling mode for Linux compositor launches (e.g. fit, fill).
+    /// </summary>
+    string LinuxGamescopeScalingMode { get; }
+
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);
 
     ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null);

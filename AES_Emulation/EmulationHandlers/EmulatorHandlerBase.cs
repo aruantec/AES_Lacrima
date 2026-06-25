@@ -173,6 +173,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
 
     public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
 
+    public virtual string LinuxGamescopeScalingMode => "fit";
+
     public virtual bool UsesRetroArchCores => false;
 
     public virtual void Prepare() => IsPrepared = true;

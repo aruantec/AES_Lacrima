@@ -49,6 +49,7 @@ public sealed class LinuxCompositorSession : IDisposable
         ProcessStartInfo emulatorStartInfo,
         int width,
         int height,
+        string scalingMode = "fit",
         CancellationToken cancellationToken = default)
     {
         if (!OperatingSystem.IsLinux())
@@ -58,6 +59,7 @@ public sealed class LinuxCompositorSession : IDisposable
             emulatorStartInfo,
             width,
             height,
+            scalingMode,
             cancellationToken).ConfigureAwait(false);
 
         return new LinuxCompositorSession

@@ -28,6 +28,7 @@ public static class EmulatorFlatpakCatalog
         ["snes9x"] = new(["com.snes9x.Snes9x"], ["snes9x"]),
         ["steam"] = new(["com.valvesoftware.Steam"], ["steam", "valve"]),
         ["redream"] = new([], ["redream"]),
+        ["ymir"] = new([], ["ymir", "ymir-sdl3"]),
         ["fbneo"] = new([], ["fbneo", "fightcade", "finalburn"]),
         ["default"] = new([], []),
     };

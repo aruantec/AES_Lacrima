@@ -254,6 +254,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         private Process? _activeEmulatorProcess;
         private AES_Emulation.Linux.LinuxCompositorSession? _linuxCompositorSession;
         private int _linuxCompositorPid;
+        private int _linuxCompositorOutputWidth;
+        private int _linuxCompositorOutputHeight;
         private string? _activeEmulatorRomPath;
         private string? _activeEmulatorGameTitle;
         private ShadPs4IpcSession? _shadPs4IpcSession;
@@ -1176,9 +1178,35 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool HideTargetWindowAfterCaptureStarts =>
             OperatingSystem.IsLinux() ? false : CurrentEmulatorHandler?.HideUntilCaptured != false;
         public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
-        public int ClientAreaCropTopInset => CurrentEmulatorHandler?.ClientAreaCropTopInset ?? 0;
+        public int ClientAreaCropTopInset
+        {
+            get
+            {
+                var handler = CurrentEmulatorHandler;
+                if (handler is YmirHandler)
+                {
+                    var height = _linuxCompositorOutputHeight > 0 ? _linuxCompositorOutputHeight : 1080;
+                    return (int)Math.Round(height * YmirHandler.LinuxGamescopeMenuCropHeightFraction);
+                }
+
+                return handler?.ClientAreaCropTopInset ?? 0;
+            }
+        }
         public int ClientAreaCropRightInset => CurrentEmulatorHandler?.ClientAreaCropRightInset ?? 0;
-        public int ClientAreaCropBottomInset => CurrentEmulatorHandler?.ClientAreaCropBottomInset ?? 0;
+        public int ClientAreaCropBottomInset
+        {
+            get
+            {
+                var handler = CurrentEmulatorHandler;
+                if (handler is YmirHandler)
+                {
+                    var height = _linuxCompositorOutputHeight > 0 ? _linuxCompositorOutputHeight : 1080;
+                    return YmirHandler.ComputeLinuxGamescopeBottomCrop(height, ClientAreaCropTopInset);
+                }
+
+                return handler?.ClientAreaCropBottomInset ?? 0;
+            }
+        }
         public Stretch CurrentCaptureStretch => SelectedStretch;
         public string? CurrentEmulatorWindowTitleHint
         {

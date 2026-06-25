@@ -206,6 +206,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
                    string.Equals(id, "rpcs3", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "pcsx2", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "duckstation", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "ymir", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "cemu", StringComparison.OrdinalIgnoreCase);
         }
     }
@@ -2796,8 +2797,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             if (string.Equals(sectionKey, "GBA", StringComparison.OrdinalIgnoreCase))
                 handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
 
-            if (string.Equals(sectionKey, "GENESIS", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(sectionKey, "SATURN", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(sectionKey, "GENESIS", StringComparison.OrdinalIgnoreCase))
                 handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
 
             foreach (var handler in handlers)
@@ -2943,6 +2943,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             else if (string.Equals(handlerId, "duckstation", StringComparison.OrdinalIgnoreCase))
             {
                 await DownloadOrUpdateDuckStationHandlerAsync(handlerItem, section, handler);
+            }
+            else if (string.Equals(handlerId, "ymir", StringComparison.OrdinalIgnoreCase))
+            {
+                await DownloadOrUpdateYmirHandlerAsync(handlerItem, section, handler);
             }
             else if (string.Equals(handlerId, "cemu", StringComparison.OrdinalIgnoreCase))
             {
@@ -3314,6 +3318,38 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         }
     }
 
+    private async Task DownloadOrUpdateYmirHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
+    {
+        var updater = DiLocator.ResolveViewModel<YmirEmulatorUpdateService>();
+        if (updater == null) { handlerItem.DownloadStatusMessage = "Update service not available."; return; }
+
+        handlerItem.DownloadStatusMessage = "Checking for updates...";
+        var info = await updater.GetUpdateInfoAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath, forceRefresh: true).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = info.StatusMessage);
+
+        if (info.IsUpdateAvailable || !handler.HasLauncherPath)
+        {
+            handlerItem.DownloadStatusMessage = "Downloading...";
+            var state = await updater.DownloadOrUpdateAsync(section.SectionKey, section.SectionTitle, handler.LauncherPath).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                handlerItem.DownloadProgress = 100;
+                handlerItem.DownloadStatusMessage = state.StatusMessage;
+                if (!string.IsNullOrWhiteSpace(state.ResolvedLauncherPath) &&
+                    !string.Equals(handler.LauncherPath, state.ResolvedLauncherPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    handler.LauncherPath = state.ResolvedLauncherPath;
+                    SaveSettings();
+                }
+            });
+        }
+        else
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => handlerItem.DownloadStatusMessage = "Already up to date.");
+        }
+    }
+
     private async Task DownloadOrUpdateCemuHandlerAsync(EmulationHandlerAppItem handlerItem, EmulationSectionItem section, IEmulatorHandler handler)
     {
         var updater = DiLocator.ResolveViewModel<CemuEmulatorUpdateService>();
@@ -3625,10 +3661,10 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 continue;
 
             var files = Directory
-                .EnumerateFiles(directory)
+                .EnumerateFiles(directory, "*.*", SearchOption.AllDirectories)
                 .Where(path => IsSupportedConsoleImage(path) &&
                                EmulationConsoleCatalog.IsConsoleAssetAvailableOnCurrentPlatform(path))
-                .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => Path.GetRelativePath(directory, path), StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             if (files.Count == 0)
@@ -3638,11 +3674,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 .Select(path =>
                 {
                     var title = GetConsoleTitle(path);
-                    var fileName = Path.GetFileName(path)?.Trim();
-                    var key = !string.IsNullOrWhiteSpace(fileName)
-                        ? fileName
-                        : title;
-                    return (SectionKey: key, SectionTitle: title, AlbumImagePath: path);
+                    var relativeKey = Path.ChangeExtension(Path.GetRelativePath(directory, path), null)
+                        .Replace('\\', '/');
+                    return (SectionKey: relativeKey, SectionTitle: title, AlbumImagePath: path);
                 })
                 .ToList();
         }
@@ -3716,12 +3750,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private static string GetEmulationSectionOrderKey(EmulationSectionItem item)
     {
-        var imageFileName = Path.GetFileName(item.AlbumImagePath)?.Trim();
-        if (!string.IsNullOrWhiteSpace(imageFileName))
-            return imageFileName;
+        if (!string.IsNullOrWhiteSpace(item.AlbumImagePath))
+        {
+            foreach (var root in EnumerateConsoleAssetDirectories())
+            {
+                if (!item.AlbumImagePath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                return Path.ChangeExtension(Path.GetRelativePath(root, item.AlbumImagePath), null)
+                    .Replace('\\', '/');
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(item.SectionKey))
-            return item.SectionKey.Trim();
+            return EmulatorSectionDirectoryHelper.GetCanonicalSectionKey(item.SectionKey, item.SectionTitle);
 
         return item.SectionTitle.Trim();
     }
@@ -3825,7 +3867,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             return null;
 
         var byKey = EmulationSections.FirstOrDefault(item =>
-            string.Equals(item.SectionKey, sectionKeyOrTitle, StringComparison.OrdinalIgnoreCase));
+            string.Equals(item.SectionKey, sectionKeyOrTitle, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(
+                EmulatorSectionDirectoryHelper.GetCanonicalSectionKey(item.SectionKey, item.SectionTitle),
+                EmulatorSectionDirectoryHelper.GetCanonicalSectionKey(sectionKeyOrTitle, null),
+                StringComparison.OrdinalIgnoreCase));
         if (byKey != null)
             return byKey;
 
@@ -4208,7 +4254,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         foreach (var item in EmulationSections)
         {
             var defaultLaunchSettings = CreateDefaultEmulationSectionLaunchSettings(item.SectionKey, item.SectionTitle);
-            if (emulationSectionConfigurations.TryGetValue(item.SectionKey, out var configuration))
+            if (EmulatorSectionDirectoryHelper.TryGetSectionConfiguration(
+                    emulationSectionConfigurations,
+                    item.SectionKey,
+                    item.SectionTitle,
+                    out var configuration))
             {
                 item.LaunchSettings = MergeLaunchSettings(defaultLaunchSettings, configuration.LaunchSettings);
                 item.SelectedHandlerId = configuration.DefaultHandlerId;
@@ -4224,7 +4274,11 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             if (item.Handlers.Count == 1 && string.IsNullOrWhiteSpace(item.SelectedHandlerId))
                 item.SelectedHandlerId = item.Handlers[0].HandlerId;
 
-            if (emulationSectionLauncherPaths.TryGetValue(item.SectionKey, out var legacyLauncherPath))
+            if (EmulatorSectionDirectoryHelper.TryGetSectionConfiguration(
+                    emulationSectionLauncherPaths,
+                    item.SectionKey,
+                    item.SectionTitle,
+                    out var legacyLauncherPath))
                 MigrateLegacySectionLauncherPath(item.SectionTitle, legacyLauncherPath);
         }
 
@@ -4336,7 +4390,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             EmulationSections
                 .Where(HasPersistedEmulationSectionConfiguration)
                 .ToDictionary(
-                    item => item.SectionKey,
+                    item => EmulatorSectionDirectoryHelper.GetCanonicalSectionKey(item.SectionKey, item.SectionTitle),
                     item => new EmulationSectionConfiguration
                     {
                         DefaultHandlerId = item.SelectedHandlerId,

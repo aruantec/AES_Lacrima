@@ -64,7 +64,32 @@ public static class LinuxAudioEnvironmentHelper
         }
 
         if (includeSdlDriver && !startInfo.Environment.ContainsKey("SDL_AUDIODRIVER"))
-            startInfo.Environment["SDL_AUDIODRIVER"] = "pipewire";
+        {
+            var driver = ResolvePreferredSdlAudioDriver();
+            if (!string.IsNullOrWhiteSpace(driver))
+                startInfo.Environment["SDL_AUDIODRIVER"] = driver;
+        }
+    }
+
+    internal static string? ResolvePreferredSdlAudioDriver()
+    {
+        // Pulse works on both PulseAudio and PipeWire (via pipewire-pulse). Many emulator
+        // builds ship SDL without a native pipewire backend, which triggers:
+        // "Audio target 'pipewire' not available".
+        if (IsPulseAudioAvailable())
+            return "pulse";
+
+        return "alsa";
+    }
+
+    private static bool IsPulseAudioAvailable()
+    {
+        if (!string.IsNullOrWhiteSpace(Resolve("PULSE_SERVER")))
+            return true;
+
+        var runtimeDir = ResolveRuntimeDir();
+        return !string.IsNullOrWhiteSpace(runtimeDir) &&
+               File.Exists(Path.Combine(runtimeDir, "pulse", "native"));
     }
 
     /// <summary>
