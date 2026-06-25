@@ -196,7 +196,8 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(CanLaunchCurrentSectionHandlerSetup));
             LaunchCurrentSectionHandlerSetupCommand.NotifyCanExecuteChanged();
 
-            var sectionCore = CurrentEmulationSectionItem?.SelectedRetroArchCore;
+            var sectionCore = CurrentEmulationSectionItem?.GetSelectedRetroArchCoreForHandler(
+                CurrentSectionEmulatorHandler?.HandlerId);
             if (!string.Equals(SelectedCurrentSectionRetroArchCore, sectionCore, StringComparison.OrdinalIgnoreCase))
             {
                 try
@@ -312,11 +313,9 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
-            SyncCurrentSectionRetroArchCoreSelection();
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
-            OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
-            OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
+            RefreshCurrentSectionRetroArchCoreBindings();
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionShadPs4UpdateControls));

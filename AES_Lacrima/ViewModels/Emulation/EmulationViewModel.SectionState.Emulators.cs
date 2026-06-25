@@ -1438,29 +1438,50 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var section = CurrentEmulationSectionItem;
-            if (section == null || string.Equals(section.SelectedRetroArchCore, value, StringComparison.OrdinalIgnoreCase))
+            var handlerId = CurrentSectionEmulatorHandler?.HandlerId;
+            if (section == null || string.IsNullOrWhiteSpace(handlerId))
                 return;
 
-            section.SelectedRetroArchCore = value;
+            if (string.Equals(section.GetSelectedRetroArchCoreForHandler(handlerId), value, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            section.SetSelectedRetroArchCoreForHandler(handlerId, value);
             SettingsViewModel?.SaveSettings();
+        }
+
+        private void RefreshCurrentSectionRetroArchCoreBindings()
+        {
+            OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
+            OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
+            SyncCurrentSectionRetroArchCoreSelection();
         }
 
         private void SyncCurrentSectionRetroArchCoreSelection()
         {
             var section = CurrentEmulationSectionItem;
-            var coreName = section?.LaunchSettings?.SelectedRetroArchCore;
+            var handlerId = CurrentSectionEmulatorHandler?.HandlerId;
+            var coreName = section?.GetSelectedRetroArchCoreForHandler(handlerId);
 
             RetroArchCoreItem? match = null;
             if (!string.IsNullOrWhiteSpace(coreName))
             {
                 match = CurrentSectionRetroArchCores
-                    .FirstOrDefault(c => string.Equals(c.FileName, coreName, StringComparison.OrdinalIgnoreCase) && !c.IsGroupHeader);
+                    .FirstOrDefault(c =>
+                        string.Equals(c.FileName, coreName, StringComparison.OrdinalIgnoreCase) &&
+                        !c.IsGroupHeader);
             }
 
-            if (!ReferenceEquals(SelectedCurrentSectionRetroArchCoreItem, match))
+            _isSyncingCurrentSectionCoreSelection = true;
+            try
             {
-                _isSyncingCurrentSectionCoreSelection = true;
-                SelectedCurrentSectionRetroArchCoreItem = match;
+                if (!string.Equals(SelectedCurrentSectionRetroArchCore, coreName, StringComparison.OrdinalIgnoreCase))
+                    SelectedCurrentSectionRetroArchCore = coreName;
+
+                if (!string.Equals(SelectedCurrentSectionRetroArchCoreItem?.FileName, match?.FileName, StringComparison.OrdinalIgnoreCase))
+                    SelectedCurrentSectionRetroArchCoreItem = match;
+            }
+            finally
+            {
                 _isSyncingCurrentSectionCoreSelection = false;
             }
         }

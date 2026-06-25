@@ -197,6 +197,23 @@ namespace AES_Lacrima.ViewModels
                 if (handler is ShadPs4Handler shadPs4LaunchHandler)
                     shadPs4LaunchHandler.UseIpcForCheatsLaunch = OperatingSystem.IsWindows();
 
+                if (handler.UsesRetroArchCores)
+                {
+                    SLog.Info(
+                        $"RetroArch launch for handler '{handler.HandlerId}' using core " +
+                        $"'{request.LaunchSettings?.SelectedRetroArchCore ?? "(auto)"}'.");
+
+                    if (string.Equals(handler.HandlerId, "retroarch-saturn", StringComparison.OrdinalIgnoreCase) &&
+                        RetroArchHandler.TryGetSaturnBiosValidationError(
+                            handler.LauncherPath,
+                            request.LaunchSettings?.SelectedRetroArchCore,
+                            handler.FlatpakAppId,
+                            out var saturnBiosError))
+                    {
+                        throw new InvalidOperationException(saturnBiosError);
+                    }
+                }
+
                 var startInfo = handler.BuildStartInfo(
                     handler.LauncherPath ?? string.Empty,
                     launchRomPath,
@@ -257,7 +274,7 @@ namespace AES_Lacrima.ViewModels
                     }
                 }
 
-                var resolvedFlatpakAppId = handler.FlatpakAppId;
+                var resolvedFlatpakAppId = handler.ShouldLaunchViaFlatpak() ? handler.FlatpakAppId : null;
                 if (!string.IsNullOrWhiteSpace(resolvedFlatpakAppId) &&
                     !EmulatorFlatpakCatalog.IsCompatibleApplicationId(handler.HandlerId, resolvedFlatpakAppId))
                 {
@@ -278,7 +295,7 @@ namespace AES_Lacrima.ViewModels
                     if (OperatingSystem.IsLinux())
                     {
                         if (!string.IsNullOrWhiteSpace(resolvedFlatpakAppId))
-                            FlatpakLaunchHelper.Apply(startInfo, resolvedFlatpakAppId, launchRomPath);
+                            FlatpakLaunchHelper.Apply(startInfo, resolvedFlatpakAppId, forCompositorLaunch: true, launchRomPath);
                         else
                             PrepareLinuxAppImageStartInfo(startInfo);
                     }
@@ -346,7 +363,10 @@ namespace AES_Lacrima.ViewModels
 
                 if (process != null)
                 {
-                    SLog.Info($"Emulator process launched: pid={process.Id}, name={process.ProcessName}, hasExited={process.HasExited}.");
+                    SLog.Info($"Emulator process launched: {LinuxProcessDiagnosticsHelper.Describe(process)}.");
+
+                    if (LinuxProcessDiagnosticsHelper.TryGetHasExited(process, out var hasExited) && hasExited)
+                        throw CreateLinuxCompositorChildExitException(request.Handler);
                 }
 
                 AttachShadPs4IpcSessionIfNeeded(handler, process);
@@ -446,7 +466,12 @@ namespace AES_Lacrima.ViewModels
                     cemuHandler.RestoreFullscreenScalingWorkaround(request.Handler.LauncherPath ?? string.Empty);
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
-                IsEmulatorLaunchInProgress = false;
+                var details = FormatEmulatorLaunchFailureDetails(request.Handler, ex);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    ShowEmulatorLaunchFailure(request.Handler, request.ItemTitle, details);
+                    IsEmulatorLaunchInProgress = false;
+                });
             }
         }
 
@@ -1012,8 +1037,8 @@ namespace AES_Lacrima.ViewModels
 
             IsEmulatorRunning = !process!.HasExited;
 
-            if (handler is RetroArchHandler retroArchHandler)
-                StartRetroArchLogWatcher(process, retroArchHandler);
+            if (handler.UsesRetroArchCores)
+                StartRetroArchLogWatcher(process, handler);
 
             if (process.HasExited)
                 HandleTrackedEmulatorExited(process);
@@ -1224,10 +1249,8 @@ namespace AES_Lacrima.ViewModels
             RestoreAppTopMost();
             RestoreHostWindowFocus();
 
-            if (CurrentEmulatorHandler is RetroArchHandler retroArchHandler)
-            {
-                TryShowRetroArchErrorPrompt(process, retroArchHandler);
-            }
+            if (currentHandler?.UsesRetroArchCores == true)
+                TryShowRetroArchErrorPrompt(process, currentHandler);
 
             var hadPendingLaunch = _pendingEmulatorLaunchRequest != null;
             if (!_isClosingActiveEmulatorForRelaunch)
@@ -1240,7 +1263,7 @@ namespace AES_Lacrima.ViewModels
             {
                 ShowEmulatorLaunchFailure(
                     currentHandler,
-                    _activeSteamLaunchTitle,
+                    _activeEmulatorGameTitle ?? _activeSteamLaunchTitle,
                     earlyLaunchFailureDetails);
             }
 
@@ -1252,8 +1275,7 @@ namespace AES_Lacrima.ViewModels
         {
             if (!OperatingSystem.IsLinux() ||
                 _linuxCaptureHandoffCompleted ||
-                _isClosingActiveEmulatorForRelaunch ||
-                handler is not SteamHandler)
+                _isClosingActiveEmulatorForRelaunch)
             {
                 return null;
             }
@@ -1261,16 +1283,18 @@ namespace AES_Lacrima.ViewModels
             if ((DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalSeconds > 60)
                 return null;
 
-            int exitCode;
-            try
-            {
-                exitCode = process.ExitCode;
-            }
-            catch
-            {
-                exitCode = -1;
-            }
+            if (handler is SteamHandler)
+                return TryBuildEarlySteamLaunchFailureDetails(process);
 
+            if (handler?.UsesRetroArchCores == true)
+                return BuildLinuxCompositorChildExitMessage(handler);
+
+            return null;
+        }
+
+        private string? TryBuildEarlySteamLaunchFailureDetails(Process process)
+        {
+            var exitCode = LinuxProcessDiagnosticsHelper.TryGetExitCode(process);
             var compositorOutput = _linuxCompositorSession?.RecentCompositorOutput;
             var builder = new StringBuilder();
             builder.AppendLine("The game exited before capture could start.");
@@ -1303,6 +1327,62 @@ namespace AES_Lacrima.ViewModels
             }
 
             return builder.ToString().Trim();
+        }
+
+        private LinuxCompositorLaunchException CreateLinuxCompositorChildExitException(IEmulatorHandler? handler)
+            => new(BuildLinuxCompositorChildExitMessage(handler));
+
+        private string BuildLinuxCompositorChildExitMessage(IEmulatorHandler? handler)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("The emulator exited immediately after launch.");
+
+            var compositorOutput = _linuxCompositorSession?.RecentCompositorOutput;
+            if (!string.IsNullOrWhiteSpace(compositorOutput))
+            {
+                builder.AppendLine();
+                builder.AppendLine("gamescope output:");
+                builder.AppendLine(compositorOutput);
+            }
+
+            if (handler?.UsesRetroArchCores == true)
+            {
+                if (RetroArchHandler.TryGetRetroArchErrorDetails(
+                        handler.LauncherPath,
+                        out var summary,
+                        out var details,
+                        handler.FlatpakAppId) &&
+                    !string.IsNullOrWhiteSpace(details))
+                {
+                    builder.AppendLine();
+                    builder.AppendLine(string.IsNullOrWhiteSpace(summary) ? "RetroArch log:" : summary);
+                    builder.AppendLine(details);
+                }
+                else
+                {
+                    var logPath = RetroArchHandler.GetRetroArchLogFilePath(
+                        handler.LauncherPath,
+                        handler.FlatpakAppId);
+                    if (!string.IsNullOrWhiteSpace(logPath))
+                    {
+                        builder.AppendLine();
+                        builder.AppendLine($"Check the RetroArch log at: {logPath}");
+                    }
+                }
+            }
+
+            return builder.ToString().Trim();
+        }
+
+        private string FormatEmulatorLaunchFailureDetails(IEmulatorHandler? handler, Exception ex)
+        {
+            if (ex is LinuxCompositorLaunchException compositorEx)
+                return compositorEx.Message;
+
+            if (ex.Message.Contains("has exited", StringComparison.OrdinalIgnoreCase))
+                return BuildLinuxCompositorChildExitMessage(handler);
+
+            return ex.Message;
         }
 
         private void DetachTrackedEmulatorProcess()
@@ -1616,10 +1696,19 @@ namespace AES_Lacrima.ViewModels
             return false;
         }
 
-        private void TryShowRetroArchErrorPrompt(Process process, RetroArchHandler handler)
+        private void TryShowRetroArchErrorPrompt(Process process, IEmulatorHandler handler)
         {
-            if (!RetroArchHandler.TryGetRetroArchErrorDetails(handler.LauncherPath, out var summary, out var details))
+            if (!handler.UsesRetroArchCores)
                 return;
+
+            if (!RetroArchHandler.TryGetRetroArchErrorDetails(
+                    handler.LauncherPath,
+                    out var summary,
+                    out var details,
+                    handler.FlatpakAppId))
+            {
+                return;
+            }
 
             if (string.IsNullOrWhiteSpace(details))
                 return;
@@ -1633,9 +1722,9 @@ namespace AES_Lacrima.ViewModels
             SLog.Warn($"RetroArch launch issue detected: {RetroArchErrorSummary}");
         }
 
-        private void StartRetroArchLogWatcher(Process process, RetroArchHandler handler)
+        private void StartRetroArchLogWatcher(Process process, IEmulatorHandler handler)
         {
-            if (process.HasExited)
+            if (!handler.UsesRetroArchCores || process.HasExited)
                 return;
 
             _retroArchLogWatcherCts?.Cancel();
@@ -1645,44 +1734,49 @@ namespace AES_Lacrima.ViewModels
 
             _ = Task.Run(async () =>
             {
-                var logFilePath = RetroArchHandler.GetRetroArchLogFilePath(handler.LauncherPath);
-                if (string.IsNullOrWhiteSpace(logFilePath))
+                var logFilePaths = RetroArchHandler.GetRetroArchLogFilePaths(handler.LauncherPath, handler.FlatpakAppId);
+                if (logFilePaths.Count == 0)
                     return;
 
-                var lastLineCount = 0;
+                var lastLineCounts = logFilePaths.ToDictionary(path => path, _ => 0, StringComparer.OrdinalIgnoreCase);
                 var startTime = DateTime.UtcNow;
                 while (!token.IsCancellationRequested && !process.HasExited && DateTime.UtcNow - startTime < TimeSpan.FromSeconds(12))
                 {
                     try
                     {
-                        if (!File.Exists(logFilePath))
+                        var sawNewLines = false;
+                        foreach (var logFilePath in logFilePaths)
                         {
-                            await Task.Delay(250, token).ConfigureAwait(false);
-                            continue;
-                        }
+                            if (!File.Exists(logFilePath))
+                                continue;
 
-                        var lines = File.ReadAllLines(logFilePath);
-                        if (lines.Length <= lastLineCount)
-                        {
-                            await Task.Delay(250, token).ConfigureAwait(false);
-                            continue;
-                        }
+                            var lines = File.ReadAllLines(logFilePath);
+                            if (!lastLineCounts.TryGetValue(logFilePath, out var lastLineCount))
+                                lastLineCount = 0;
 
-                        var newLines = lines.Skip(lastLineCount).ToArray();
-                        lastLineCount = lines.Length;
+                            if (lines.Length <= lastLineCount)
+                                continue;
 
-                        if (RetroArchHandler.TryExtractRetroArchErrorDetails(newLines, out var summary, out var details))
-                        {
-                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            var newLines = lines.Skip(lastLineCount).ToArray();
+                            lastLineCounts[logFilePath] = lines.Length;
+                            sawNewLines = true;
+
+                            if (RetroArchHandler.TryExtractRetroArchErrorDetails(newLines, out var summary, out var details))
                             {
-                                EmulatorErrorOverlayTitle = "RetroArch launch warning";
-                                RetroArchErrorSummary = string.IsNullOrWhiteSpace(summary)
-                                    ? "RetroArch reported an error during launch."
-                                    : summary;
-                                RetroArchErrorDetails = details;
-                            }, DispatcherPriority.Background);
-                            break;
+                                await Dispatcher.UIThread.InvokeAsync(() =>
+                                {
+                                    EmulatorErrorOverlayTitle = "RetroArch launch warning";
+                                    RetroArchErrorSummary = string.IsNullOrWhiteSpace(summary)
+                                        ? "RetroArch reported an error during launch."
+                                        : summary;
+                                    RetroArchErrorDetails = details;
+                                }, DispatcherPriority.Background);
+                                return;
+                            }
                         }
+
+                        if (!sawNewLines)
+                            await Task.Delay(250, token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {

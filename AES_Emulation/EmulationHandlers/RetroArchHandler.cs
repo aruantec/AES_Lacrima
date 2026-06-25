@@ -102,7 +102,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         startInfo.CreateNoWindow = true; // This hides the console log window
         startInfo.WindowStyle = ProcessWindowStyle.Hidden; // Additional hint for some versions of Windows/RetroArch
         var corePath = FindRetroArchCore(launcherPath, romPath, sectionTitle, selectedRetroArchCore, flatpakAppId);
-        var logFilePath = GetRetroArchLogFilePath(launcherPath);
+        var logFilePath = GetRetroArchLogFilePath(launcherPath, flatpakAppId);
 
         if (!string.IsNullOrWhiteSpace(corePath))
         {
@@ -114,7 +114,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                 startInfo.ArgumentList.Add("--fullscreen");
             }
 
-            var focusConfigPath = GetRetroArchFocusOverrideConfigPath();
+            var focusConfigPath = GetRetroArchFocusOverrideConfigPath(flatpakAppId);
             if (!string.IsNullOrWhiteSpace(focusConfigPath))
             {
                 startInfo.ArgumentList.Add("--appendconfig");
@@ -123,7 +123,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
             if (OperatingSystem.IsLinux())
             {
-                var gamescopeConfigPath = GetRetroArchLinuxGamescopeConfigPath();
+                var gamescopeConfigPath = GetRetroArchLinuxGamescopeConfigPath(flatpakAppId);
                 if (!string.IsNullOrWhiteSpace(gamescopeConfigPath))
                 {
                     startInfo.ArgumentList.Add("--appendconfig");
@@ -146,6 +146,17 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             return startInfo;
         }
 
+        var platform = GetRetroArchPlatform(sectionTitle, romPath);
+        if (platform != RetroArchPlatform.Unknown)
+        {
+            var platformLabel = string.IsNullOrWhiteSpace(sectionTitle) ? platform.ToString() : sectionTitle;
+            var message =
+                $"No RetroArch core was found for {platformLabel}. " +
+                "Install a compatible core from RetroArch's Online Updater, or download RetroArch with cores from emulation settings.";
+            Log.Warn($"{message} launcher='{launcherPath}', flatpak='{flatpakAppId}', rom='{romPath}', selectedCore='{selectedRetroArchCore}'.");
+            throw new FileNotFoundException(message, selectedRetroArchCore ?? romPath);
+        }
+
         Log.Warn($"RetroArch core not found for launcher path '{launcherPath}'. Launching RetroArch without a core path to avoid init_libretro_symbols() errors.");
         startInfo.ArgumentList.Clear();
 
@@ -165,27 +176,141 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         return startInfo;
     }
 
-    public static string? GetRetroArchLogFilePath(string? launcherPath)
+    private static readonly string[] SaturnBiosFileNames =
     {
-        try
-        {
-            // Always use a writable temp location for RetroArch logs.
-            // Launcher directory may be protected on Windows (Program Files), which can cause first-run failures.
-            var directory = Path.GetTempPath();
-            var logFilePath = Path.Combine(directory, "retroarch-launch.log");
-            return logFilePath;
-        }
-        catch
-        {
-            return null;
-        }
+        "saturn_bios.bin",
+        "sega_101.bin",
+        "mpr-17933.bin"
+    };
+
+    public static string? GetRetroArchLogFilePath(string? launcherPath, string? flatpakAppId = null)
+    {
+        var paths = GetRetroArchLogFilePaths(launcherPath, flatpakAppId);
+        return paths.FirstOrDefault(File.Exists) ?? paths.FirstOrDefault();
     }
 
-    private static string? GetRetroArchFocusOverrideConfigPath()
+    public static IReadOnlyList<string> GetRetroArchLogFilePaths(string? launcherPath, string? flatpakAppId = null)
+    {
+        var paths = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !seen.Add(path))
+                return;
+
+            paths.Add(path);
+        }
+
+        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId, launcherPath))
+            Add(Path.Combine(configRoot, "retroarch-launch.log"));
+
+        Add(Path.Combine(Path.GetTempPath(), "retroarch-launch.log"));
+        return paths;
+    }
+
+    public static IReadOnlyList<string> GetRetroArchSystemDirectories(string? launcherPath, string? flatpakAppId = null)
+    {
+        var directories = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !seen.Add(path))
+                return;
+
+            directories.Add(path);
+        }
+
+        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId, launcherPath))
+            Add(Path.Combine(configRoot, "system"));
+
+        var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath);
+        if (!string.IsNullOrWhiteSpace(workingDirectory))
+            Add(Path.Combine(workingDirectory, "system"));
+
+        return directories;
+    }
+
+    public static bool TryGetSaturnBiosValidationError(
+        string? launcherPath,
+        string? selectedRetroArchCore,
+        string? flatpakAppId,
+        out string errorMessage)
+    {
+        errorMessage = string.Empty;
+
+        if (!RequiresSaturnBios(selectedRetroArchCore))
+            return false;
+
+        var systemDirectories = GetRetroArchSystemDirectories(launcherPath, flatpakAppId);
+        if (systemDirectories.Count == 0)
+            return false;
+
+        if (SaturnBiosFileNames.Any(fileName =>
+                systemDirectories.Any(directory => File.Exists(Path.Combine(directory, fileName)))))
+        {
+            return false;
+        }
+
+        var primarySystemDirectory = systemDirectories[0];
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine("Sega Saturn BIOS files are missing.");
+        builder.AppendLine();
+        builder.AppendLine("Copy legally obtained BIOS dumps into this RetroArch system folder:");
+        builder.AppendLine(primarySystemDirectory);
+        builder.AppendLine();
+        builder.AppendLine("Required files (at least one region):");
+        foreach (var fileName in SaturnBiosFileNames)
+            builder.AppendLine($"  - {fileName}");
+        builder.AppendLine();
+        builder.AppendLine("US: saturn_bios.bin | Japan: sega_101.bin | Europe: mpr-17933.bin");
+
+        errorMessage = builder.ToString().Trim();
+        return true;
+    }
+
+    private static bool RequiresSaturnBios(string? selectedRetroArchCore)
+    {
+        if (string.IsNullOrWhiteSpace(selectedRetroArchCore))
+            return true;
+
+        var normalized = Path.GetFileNameWithoutExtension(selectedRetroArchCore).ToLowerInvariant();
+        return normalized.Contains("saturn", StringComparison.Ordinal) ||
+               normalized.Contains("yabause", StringComparison.Ordinal) ||
+               normalized.Contains("yabasanshiro", StringComparison.Ordinal) ||
+               normalized.Contains("beetle", StringComparison.Ordinal);
+    }
+
+    private static string? ResolveRetroArchWritableDirectory(string? launcherPath, string? flatpakAppId = null)
+    {
+        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId, launcherPath))
+        {
+            if (string.IsNullOrWhiteSpace(configRoot))
+                continue;
+
+            try
+            {
+                Directory.CreateDirectory(configRoot);
+                return configRoot;
+            }
+            catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
+        }
+
+        var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath);
+        if (!string.IsNullOrWhiteSpace(workingDirectory))
+            return workingDirectory;
+
+        return null;
+    }
+
+    private static string? GetRetroArchFocusOverrideConfigPath(string? flatpakAppId = null)
     {
         try
         {
-            var path = Path.Combine(Path.GetTempPath(), "aes-lacrima-retroarch-focus.cfg");
+            var path = Path.Combine(
+                ResolveRetroArchWritableDirectory(null, flatpakAppId) ?? Path.GetTempPath(),
+                "aes-lacrima-retroarch-focus.cfg");
             if (!File.Exists(path))
             {
                 File.WriteAllLines(path, new[]
@@ -203,13 +328,16 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         }
     }
 
-    private static string? GetRetroArchLinuxGamescopeConfigPath()
+    private static string? GetRetroArchLinuxGamescopeConfigPath(string? flatpakAppId = null)
     {
         try
         {
-            var path = Path.Combine(Path.GetTempPath(), "aes-lacrima-retroarch-gamescope.cfg");
+            var path = Path.Combine(
+                ResolveRetroArchWritableDirectory(null, flatpakAppId) ?? Path.GetTempPath(),
+                "aes-lacrima-retroarch-gamescope.cfg");
             File.WriteAllLines(path, new[]
             {
+                "video_driver = \"gl\"",
                 "video_context_driver = \"x\"",
                 "video_fullscreen = \"true\"",
                 "video_windowed_fullscreen = \"true\""
@@ -223,26 +351,30 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         }
     }
 
+    private static string? ResolveRetroArchConfigFilePath(string? launcherPath, string? flatpakAppId = null)
+    {
+        var cfgCandidates = new List<string>();
+        var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath);
+        if (!string.IsNullOrWhiteSpace(workingDirectory))
+        {
+            cfgCandidates.Add(Path.Combine(workingDirectory, "retroarch.cfg"));
+            cfgCandidates.Add(Path.Combine(workingDirectory, "RetroArch.cfg"));
+            cfgCandidates.Add(Path.Combine(workingDirectory, "Retroarch.cfg"));
+        }
+
+        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId, launcherPath))
+            cfgCandidates.Add(Path.Combine(configRoot, "retroarch.cfg"));
+
+        return cfgCandidates.FirstOrDefault(File.Exists)
+            ?? cfgCandidates.FirstOrDefault()
+            ?? (string.IsNullOrWhiteSpace(workingDirectory) ? null : Path.Combine(workingDirectory, "retroarch.cfg"));
+    }
+
     private static void EnsureRetroArchFullscreenConfig(string launcherPath, string? flatpakAppId = null)
     {
         try
         {
-            var cfgCandidates = new List<string>();
-            var workingDirectory = ResolveLauncherWorkingDirectory(launcherPath);
-            if (!string.IsNullOrWhiteSpace(workingDirectory))
-            {
-                cfgCandidates.Add(Path.Combine(workingDirectory, "retroarch.cfg"));
-                cfgCandidates.Add(Path.Combine(workingDirectory, "RetroArch.cfg"));
-                cfgCandidates.Add(Path.Combine(workingDirectory, "Retroarch.cfg"));
-            }
-
-            foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId))
-                cfgCandidates.Add(Path.Combine(configRoot, "retroarch.cfg"));
-
-            var cfgPath = cfgCandidates.FirstOrDefault(File.Exists)
-                ?? cfgCandidates.FirstOrDefault()
-                ?? (string.IsNullOrWhiteSpace(workingDirectory) ? null : Path.Combine(workingDirectory, "retroarch.cfg"));
-
+            var cfgPath = ResolveRetroArchConfigFilePath(launcherPath, flatpakAppId);
             if (string.IsNullOrWhiteSpace(cfgPath))
                 return;
 
@@ -253,6 +385,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             SetOrAddRetroArchCfgValue(lines, "video_fullscreen", "\"true\"");
             SetOrAddRetroArchCfgValue(lines, "video_windowed_fullscreen", "\"true\"");
 
+            Directory.CreateDirectory(Path.GetDirectoryName(cfgPath)!);
             File.WriteAllLines(cfgPath, lines);
         }
         catch (Exception ex)
@@ -280,60 +413,48 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         lines.Add($"{key} = {value}");
     }
 
-    public static bool TryGetRetroArchErrorDetails(string? launcherPath, out string summary, out string details)
+    public static bool TryGetRetroArchErrorDetails(string? launcherPath, out string summary, out string details, string? flatpakAppId = null)
     {
         summary = string.Empty;
         details = string.Empty;
 
-        var logFilePath = GetRetroArchLogFilePath(launcherPath);
-        if (string.IsNullOrWhiteSpace(logFilePath) || !File.Exists(logFilePath))
-            return false;
-
-        try
+        foreach (var logFilePath in GetRetroArchLogFilePaths(launcherPath, flatpakAppId))
         {
-            var lines = File.ReadAllLines(logFilePath);
-            var errorLines = new List<string>();
+            if (string.IsNullOrWhiteSpace(logFilePath) || !File.Exists(logFilePath))
+                continue;
 
-            foreach (var line in lines)
+            try
             {
-                if (line.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) ||
-                    line.Contains("libretro ERROR", StringComparison.OrdinalIgnoreCase) ||
-                    line.Contains("Required files are missing", StringComparison.OrdinalIgnoreCase) ||
-                    line.Contains("Failed to load", StringComparison.OrdinalIgnoreCase) ||
-                    line.Contains("Cannot initialize", StringComparison.OrdinalIgnoreCase))
-                {
-                    errorLines.Add(line.Trim());
-                }
-            }
+                var lines = File.ReadAllLines(logFilePath);
+                if (TryBuildRetroArchErrorDetails(lines, launcherPath, flatpakAppId, out summary, out details))
+                    return true;
 
-            if (errorLines.Count > 0)
+                var tail = lines.Skip(Math.Max(0, lines.Length - 80))
+                    .Select(l => l.Trim())
+                    .Where(l => !string.IsNullOrWhiteSpace(l));
+                details = string.Join(Environment.NewLine, tail);
+                summary = details.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(details))
+                    return true;
+            }
+            catch (Exception)
             {
-                details = string.Join(Environment.NewLine, errorLines);
-                summary = errorLines.Last();
-
-                if (summary.Contains("Post-processing shader not found", StringComparison.OrdinalIgnoreCase) ||
-                    details.Contains("default_pre_post_process.glsl", StringComparison.OrdinalIgnoreCase))
-                {
-                    summary = "Dolphin core is missing required shader resources.";
-                    details += Environment.NewLine +
-                        "Ensure RetroArch has the Dolphin system files under system\\dolphin-emu\\Sys\\Shaders\\default_pre_post_process.glsl.";
-                }
-
-                return true;
+                // Try the next candidate log path.
             }
+        }
 
-            var tail = lines.Skip(Math.Max(0, lines.Length - 80)).Select(l => l.Trim()).Where(l => !string.IsNullOrWhiteSpace(l));
-            details = string.Join(Environment.NewLine, tail);
-            summary = details.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
-            return !string.IsNullOrWhiteSpace(details);
-        }
-        catch (Exception)
-        {
-            return false;
-        }
+        return false;
     }
 
     public static bool TryExtractRetroArchErrorDetails(string[] lines, out string summary, out string details)
+        => TryBuildRetroArchErrorDetails(lines, null, null, out summary, out details);
+
+    private static bool TryBuildRetroArchErrorDetails(
+        string[] lines,
+        string? launcherPath,
+        string? flatpakAppId,
+        out string summary,
+        out string details)
     {
         summary = string.Empty;
         details = string.Empty;
@@ -341,33 +462,89 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         var errorLines = new List<string>();
         foreach (var line in lines)
         {
-            if (line.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("libretro ERROR", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("Required files are missing", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("Failed to load", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("Cannot initialize", StringComparison.OrdinalIgnoreCase))
-            {
+            if (IsRetroArchErrorLine(line))
                 errorLines.Add(line.Trim());
-            }
         }
 
-        if (errorLines.Count > 0)
+        if (errorLines.Count == 0)
+            return false;
+
+        details = string.Join(Environment.NewLine, errorLines);
+        summary = errorLines.Last();
+        EnhanceRetroArchErrorDetails(ref summary, ref details, lines, launcherPath, flatpakAppId);
+        return true;
+    }
+
+    private static bool IsRetroArchErrorLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        if (line.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("libretro ERROR", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("Required files are missing", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("Failed to load", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("Cannot initialize", StringComparison.OrdinalIgnoreCase) ||
+            line.Contains("missing the bios", StringComparison.OrdinalIgnoreCase))
         {
-            details = string.Join(Environment.NewLine, errorLines);
-            summary = errorLines.Last();
-
-            if (summary.Contains("Post-processing shader not found", StringComparison.OrdinalIgnoreCase) ||
-                details.Contains("default_pre_post_process.glsl", StringComparison.OrdinalIgnoreCase))
-            {
-                summary = "Dolphin core is missing required shader resources.";
-                details += Environment.NewLine +
-                    "Ensure RetroArch has the Dolphin system files under system\\dolphin-emu\\Sys\\Shaders\\default_pre_post_process.glsl.";
-            }
-
             return true;
         }
 
-        return false;
+        return line.Contains("NOT FOUND", StringComparison.OrdinalIgnoreCase) &&
+               (line.Contains("_bios", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("sega_101", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("mpr-17933", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void EnhanceRetroArchErrorDetails(
+        ref string summary,
+        ref string details,
+        string[] lines,
+        string? launcherPath,
+        string? flatpakAppId)
+    {
+        if (details.Contains("missing the bios", StringComparison.OrdinalIgnoreCase) ||
+            (details.Contains("NOT FOUND", StringComparison.OrdinalIgnoreCase) &&
+             details.Contains("saturn_bios", StringComparison.OrdinalIgnoreCase)))
+        {
+            summary = "Sega Saturn BIOS files are missing.";
+            var systemDirectory = TryParseRetroArchSystemDirectoryFromLog(lines) ??
+                                  GetRetroArchSystemDirectories(launcherPath, flatpakAppId).FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(systemDirectory))
+            {
+                details += Environment.NewLine + Environment.NewLine +
+                           "Copy legally obtained BIOS dumps into:" + Environment.NewLine +
+                           systemDirectory + Environment.NewLine +
+                           "Required files (at least one region): saturn_bios.bin, sega_101.bin, mpr-17933.bin";
+            }
+
+            return;
+        }
+
+        if (summary.Contains("Post-processing shader not found", StringComparison.OrdinalIgnoreCase) ||
+            details.Contains("default_pre_post_process.glsl", StringComparison.OrdinalIgnoreCase))
+        {
+            summary = "Dolphin core is missing required shader resources.";
+            details += Environment.NewLine +
+                       "Ensure RetroArch has the Dolphin system files under system\\dolphin-emu\\Sys\\Shaders\\default_pre_post_process.glsl.";
+        }
+    }
+
+    private static string? TryParseRetroArchSystemDirectoryFromLog(string[] lines)
+    {
+        foreach (var line in lines)
+        {
+            const string marker = "GET_SYSTEM_DIRECTORY:";
+            var markerIndex = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0)
+                continue;
+
+            var quotedPath = line[(markerIndex + marker.Length)..].Trim().Trim('"');
+            if (!string.IsNullOrWhiteSpace(quotedPath))
+                return quotedPath;
+        }
+
+        return null;
     }
 
     public static IReadOnlyList<string> GetRetroArchCores(string? launcherPath, string? flatpakAppId = null)
@@ -383,20 +560,41 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         {
             try
             {
-                foreach (var file in Directory.EnumerateFiles(directory, "*libretro*", SearchOption.AllDirectories))
-                {
-                    if (!extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-                        continue;
+                if (!Directory.Exists(directory))
+                    continue;
 
-                    var fileName = Path.GetFileName(file);
-                    if (!string.IsNullOrWhiteSpace(fileName))
-                        foundCores.Add(fileName);
-                }
+                CollectRetroArchCoreFiles(directory, foundCores, extensions, maxDepth: 2);
             }
             catch (Exception logEx) { Log.Warn("Non-critical error", logEx); }
         }
 
         return foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static void CollectRetroArchCoreFiles(
+        string directory,
+        HashSet<string> foundCores,
+        IReadOnlyCollection<string> extensions,
+        int maxDepth)
+    {
+        if (maxDepth < 0 || !Directory.Exists(directory))
+            return;
+
+        foreach (var file in Directory.EnumerateFiles(directory, "*libretro*", SearchOption.TopDirectoryOnly))
+        {
+            if (!extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            var fileName = Path.GetFileName(file);
+            if (!string.IsNullOrWhiteSpace(fileName))
+                foundCores.Add(fileName);
+        }
+
+        if (maxDepth == 0)
+            return;
+
+        foreach (var childDirectory in Directory.EnumerateDirectories(directory))
+            CollectRetroArchCoreFiles(childDirectory, foundCores, extensions, maxDepth - 1);
     }
 
     public static IReadOnlyList<string> GetRetroArchCoreCandidateDirectories(string? launcherPath, string? flatpakAppId = null)
@@ -425,7 +623,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             Add(Path.GetFullPath(Path.Combine(baseDir, "..", "cores")));
         }
 
-        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId))
+        foreach (var configRoot in GetRetroArchConfigRoots(flatpakAppId, launcherPath))
         {
             Add(Path.Combine(configRoot, "cores"));
             Add(configRoot);
@@ -452,10 +650,14 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         return directories;
     }
 
-    private static IEnumerable<string> GetRetroArchConfigRoots(string? flatpakAppId)
+    private static IEnumerable<string> GetRetroArchConfigRoots(string? flatpakAppId, string? launcherPath = null)
     {
         if (OperatingSystem.IsLinux())
         {
+            var appImageConfigRoot = GetRetroArchAppImageConfigRoot(launcherPath);
+            if (!string.IsNullOrWhiteSpace(appImageConfigRoot))
+                yield return appImageConfigRoot;
+
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             yield return Path.Combine(home, ".config", "retroarch");
 
@@ -484,19 +686,36 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         }
     }
 
+    private static string? GetRetroArchAppImageConfigRoot(string? launcherPath)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(launcherPath))
+            return null;
+
+        if (!launcherPath.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return Path.Combine(launcherPath + ".home", ".config", "retroarch");
+    }
+
     private static string? FindRetroArchCore(string? launcherPath, string? romPath, string? sectionTitle, string? selectedRetroArchCore, string? flatpakAppId = null)
     {
-        var candidateDirectories = GetRetroArchCoreCandidateDirectories(launcherPath, flatpakAppId);
+        var candidateDirectories = GetRetroArchLaunchCoreDirectories(launcherPath, flatpakAppId);
         if (candidateDirectories.Count == 0)
             return null;
 
         if (!string.IsNullOrWhiteSpace(selectedRetroArchCore))
         {
             var explicitPath = ResolveRetroArchCorePath(candidateDirectories.ToArray(), selectedRetroArchCore);
+            explicitPath = PreferFlatpakAccessibleCorePath(explicitPath, selectedRetroArchCore, flatpakAppId, candidateDirectories);
             if (string.IsNullOrWhiteSpace(explicitPath))
             {
                 Log.Warn($"Selected RetroArch core '{selectedRetroArchCore}' could not be resolved for launcher '{launcherPath}' (section='{sectionTitle}', rom='{romPath}').");
-                throw new FileNotFoundException($"Selected RetroArch core '{selectedRetroArchCore}' could not be found.", selectedRetroArchCore);
+                var flatpakHint = string.IsNullOrWhiteSpace(flatpakAppId)
+                    ? string.Empty
+                    : " Install the core from RetroArch's Online Updater inside the Flatpak build.";
+                throw new FileNotFoundException(
+                    $"Selected RetroArch core '{selectedRetroArchCore}' could not be found.{flatpakHint}",
+                    selectedRetroArchCore);
             }
 
             if (!IsRetroArchCoreUsable(explicitPath, launcherPath))
@@ -518,17 +737,112 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             foreach (var fileName in GetRetroArchCoreFileNames(platform))
             {
                 var candidate = Path.Combine(directory, fileName);
-                if (File.Exists(candidate) && IsRetroArchCoreUsable(candidate, launcherPath))
+                if (File.Exists(candidate) &&
+                    IsFlatpakLaunchCorePathUsable(candidate, flatpakAppId) &&
+                    IsRetroArchCoreUsable(candidate, launcherPath))
+                {
                     return candidate;
+                }
             }
 
             var fallbackCore = FindRetroArchCoreByKeyword(directory, platform);
-            if (!string.IsNullOrWhiteSpace(fallbackCore) && IsRetroArchCoreUsable(fallbackCore, launcherPath))
+            if (!string.IsNullOrWhiteSpace(fallbackCore) &&
+                IsFlatpakLaunchCorePathUsable(fallbackCore, flatpakAppId) &&
+                IsRetroArchCoreUsable(fallbackCore, launcherPath))
+            {
                 return fallbackCore;
+            }
         }
 
         Log.Warn($"No RetroArch core found in candidate directories for launcher '{launcherPath}' and section '{sectionTitle}'.");
         return null;
+    }
+
+    private static IReadOnlyList<string> GetRetroArchLaunchCoreDirectories(string? launcherPath, string? flatpakAppId)
+    {
+        var directories = GetRetroArchCoreCandidateDirectories(launcherPath, flatpakAppId);
+        if (string.IsNullOrWhiteSpace(flatpakAppId))
+            return directories;
+
+        var flatpakDirectories = new List<string>();
+        var otherDirectories = new List<string>();
+        foreach (var directory in directories)
+        {
+            if (IsFlatpakDataDirectory(directory, flatpakAppId))
+                flatpakDirectories.Add(directory);
+            else
+                otherDirectories.Add(directory);
+        }
+
+        flatpakDirectories.AddRange(otherDirectories);
+        return flatpakDirectories;
+    }
+
+    private static string? PreferFlatpakAccessibleCorePath(
+        string? resolvedPath,
+        string selectedRetroArchCore,
+        string? flatpakAppId,
+        IReadOnlyList<string> candidateDirectories)
+    {
+        if (string.IsNullOrWhiteSpace(flatpakAppId))
+            return resolvedPath;
+
+        if (!string.IsNullOrWhiteSpace(resolvedPath) && IsFlatpakLaunchCorePathUsable(resolvedPath, flatpakAppId))
+            return resolvedPath;
+
+        var flatpakDirectories = candidateDirectories
+            .Where(directory => IsFlatpakDataDirectory(directory, flatpakAppId))
+            .ToArray();
+        if (flatpakDirectories.Length == 0)
+            return resolvedPath;
+
+        var selectedName = Path.IsPathRooted(selectedRetroArchCore)
+            ? Path.GetFileName(selectedRetroArchCore)
+            : selectedRetroArchCore;
+        if (string.IsNullOrWhiteSpace(selectedName))
+            return resolvedPath;
+
+        var flatpakPath = ResolveRetroArchCorePath(flatpakDirectories, selectedName);
+        if (!string.IsNullOrWhiteSpace(flatpakPath))
+            return flatpakPath;
+
+        return IsFlatpakLaunchCorePathUsable(resolvedPath, flatpakAppId) ? resolvedPath : null;
+    }
+
+    private static bool IsFlatpakDataDirectory(string directory, string flatpakAppId)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(flatpakAppId))
+            return false;
+
+        try
+        {
+            var normalizedDirectory = Path.GetFullPath(directory);
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var flatpakRoot = Path.GetFullPath(Path.Combine(home, ".var", "app", flatpakAppId));
+            return normalizedDirectory.StartsWith(flatpakRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsFlatpakLaunchCorePathUsable(string? corePath, string? flatpakAppId)
+    {
+        if (string.IsNullOrWhiteSpace(corePath) || string.IsNullOrWhiteSpace(flatpakAppId))
+            return true;
+
+        try
+        {
+            var normalizedPath = Path.GetFullPath(corePath);
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var flatpakRoot = Path.GetFullPath(Path.Combine(home, ".var", "app", flatpakAppId));
+            return normalizedPath.StartsWith(flatpakRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string? ResolveRetroArchCorePath(string[] candidateDirectories, string selectedRetroArchCore)
@@ -572,7 +886,7 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
         if (!string.IsNullOrWhiteSpace(installDir))
             installRoots.Add(installDir);
 
-        foreach (var configRoot in GetRetroArchConfigRoots(null))
+        foreach (var configRoot in GetRetroArchConfigRoots(null, launcherPath))
             installRoots.Add(configRoot);
 
         bool directoryExists(string relativePath)

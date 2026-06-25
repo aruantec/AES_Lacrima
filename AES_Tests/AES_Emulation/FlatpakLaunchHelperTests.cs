@@ -6,6 +6,23 @@ namespace AES_Tests.AES_Emulation;
 public sealed class FlatpakLaunchHelperTests
 {
     [Fact]
+    public void Apply_ForCompositorLaunch_AddsX11SocketGrant()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "retroarch",
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("--fullscreen");
+
+        FlatpakLaunchHelper.Apply(startInfo, "org.libretro.RetroArch", forCompositorLaunch: true);
+
+        Assert.Contains("--socket=x11", startInfo.ArgumentList);
+        Assert.Contains("--socket=pulseaudio", startInfo.ArgumentList);
+        Assert.Contains("--share=ipc", startInfo.ArgumentList);
+    }
+
+    [Fact]
     public void Apply_AddsFilesystemGrantForContentPath()
     {
         var tempDirectory = Directory.CreateTempSubdirectory("aes-flatpak-launch-test");

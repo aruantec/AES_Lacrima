@@ -62,9 +62,7 @@ public partial class EmulationViewModel
             if (handler.UsesRetroArchCores)
             {
                 SettingsViewModel?.RefreshRetroArchCores();
-                OnPropertyChanged(nameof(CurrentSectionRetroArchCores));
-                OnPropertyChanged(nameof(ShowCurrentSectionRetroArchCoreSelection));
-                SyncCurrentSectionRetroArchCoreSelection();
+                RefreshCurrentSectionRetroArchCoreBindings();
             }
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));

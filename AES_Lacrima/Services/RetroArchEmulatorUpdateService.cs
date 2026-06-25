@@ -64,10 +64,24 @@ public partial class RetroArchEmulatorUpdateService
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl);
 
+    private const string FlatpakResolvedLauncherPrefix = "flatpak:";
+
     public static void ApplyResolvedLauncher(IEmulatorHandler handler, string? resolvedLauncherPath)
     {
         if (handler == null || string.IsNullOrWhiteSpace(resolvedLauncherPath))
             return;
+
+        if (resolvedLauncherPath.StartsWith(FlatpakResolvedLauncherPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var appId = resolvedLauncherPath[FlatpakResolvedLauncherPrefix.Length..].Trim();
+            if (!string.IsNullOrWhiteSpace(appId) &&
+                EmulatorFlatpakCatalog.IsCompatibleApplicationId(handler.HandlerId, appId))
+            {
+                handler.FlatpakAppId = appId;
+            }
+
+            return;
+        }
 
         var normalized = handler.NormalizeLauncherPath(resolvedLauncherPath);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -76,7 +90,25 @@ public partial class RetroArchEmulatorUpdateService
         if (string.Equals(handler.LauncherPath, normalized, StringComparison.OrdinalIgnoreCase))
             return;
 
+        handler.FlatpakAppId = null;
         handler.LauncherPath = normalized;
+    }
+
+    public static void ApplyRetroArchHandlerConfiguration(IEmulatorHandler target, IEmulatorHandler source)
+    {
+        if (target == null || source == null || ReferenceEquals(target, source))
+            return;
+
+        if (!string.IsNullOrWhiteSpace(source.LauncherPath) && string.IsNullOrWhiteSpace(target.LauncherPath))
+            ApplyResolvedLauncher(target, source.LauncherPath);
+
+        if (string.IsNullOrWhiteSpace(target.FlatpakAppId) &&
+            !target.IsLauncherPathValid(target.LauncherPath) &&
+            !string.IsNullOrWhiteSpace(source.FlatpakAppId) &&
+            EmulatorFlatpakCatalog.IsCompatibleApplicationId(target.HandlerId, source.FlatpakAppId))
+        {
+            target.FlatpakAppId = source.FlatpakAppId;
+        }
     }
 
     public string? DiscoverInstalledLauncherPath(string sectionKey, string sectionTitle, string? configuredLauncherPath = null)

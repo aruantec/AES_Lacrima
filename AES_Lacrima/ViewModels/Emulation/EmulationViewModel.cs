@@ -1545,7 +1545,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 return;
 
             if (isCoreChange)
-                SyncCurrentSectionRetroArchCoreSelection();
+                RefreshCurrentSectionRetroArchCoreBindings();
             else
                 SyncCurrentSectionEmulatorContext();
         }
@@ -1962,7 +1962,21 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             SyncSelectedAlbumIndexFromAlbum(value);
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
+
+            if (CurrentEmulationSectionHasRetroArchHandler())
+                SettingsViewModel?.RefreshRetroArchCores();
+
+            SyncCurrentSectionEmulatorContext();
+
             AutoSave();
+        }
+
+        partial void OnRenderOptionsSelectedTabIndexChanged(int value)
+        {
+            if (!IsRenderOptionsOpen || value != 1)
+                return;
+
+            RefreshCurrentSectionRetroArchHandlerOptions();
         }
 
         partial void OnLoadedAlbumChanged(FolderMediaItem? value)

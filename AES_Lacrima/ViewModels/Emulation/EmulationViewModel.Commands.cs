@@ -54,9 +54,24 @@ namespace AES_Lacrima.ViewModels
 
         /// <summary>
         /// Album used for section-scoped UI (render options handler tab, per-section settings).
-        /// Only an opened album drives handler context; row selection alone does not.
+        /// Carousel selection takes priority; opened album is used when nothing is selected.
         /// </summary>
-        private FolderMediaItem? GetActiveEmulationSectionAlbum() => LoadedAlbum;
+        private FolderMediaItem? GetActiveEmulationSectionAlbum() => SelectedAlbum ?? LoadedAlbum;
+
+        private EmulationSectionItem? ResolveCurrentEmulationSection()
+            => TryResolveEmulationSection(GetActiveEmulationSectionAlbum());
+
+        private bool CurrentEmulationSectionHasRetroArchHandler()
+            => ResolveCurrentEmulationSection()?.Handlers
+                .Any(item => item.Handler.UsesRetroArchCores) == true;
+
+        private void RefreshCurrentSectionRetroArchHandlerOptions()
+        {
+            if (CurrentEmulationSectionHasRetroArchHandler())
+                SettingsViewModel?.RefreshRetroArchCores();
+
+            RefreshCurrentSectionLaunchOptionsState();
+        }
 
         private EmulationSectionItem? TryResolveEmulationSection(FolderMediaItem? album)
         {
@@ -106,7 +121,6 @@ namespace AES_Lacrima.ViewModels
                 UpdateCurrentEmulatorHandlerForSelection(GetActiveEmulationSectionAlbum());
 
             RefreshCurrentSectionLaunchOptionsState();
-            SyncCurrentSectionRetroArchCoreSelection();
             TryDiscoverInstalledRetroArchLauncher();
 
             if (!IsEmulatorRunning && !IsGameplayRecording)
@@ -263,8 +277,13 @@ namespace AES_Lacrima.ViewModels
             IsRenderOptionsOpen = !IsRenderOptionsOpen;
             NotifyCaptureChromeMarginChanged();
 
-            if (IsRenderOptionsOpen && !IsEmulatorRunning && !IsGameplayRecording)
+            if (!IsRenderOptionsOpen)
+                return;
+
+            if (!IsEmulatorRunning && !IsGameplayRecording)
                 RefreshCurrentSectionFlatpakApplications();
+
+            RefreshCurrentSectionRetroArchHandlerOptions();
         }
 
         private async Task OpenCurrentSectionEdenUpdates()
@@ -314,10 +333,10 @@ namespace AES_Lacrima.ViewModels
                             handler.LauncherPath);
                     }
 
-                    if (string.IsNullOrWhiteSpace(handler.FlatpakAppId))
-                        LinuxAppImageLaunchHelper.PrepareDirectExtractAndRunLaunch(startInfo);
+                    if (handler.ShouldLaunchViaFlatpak())
+                        FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId!);
                     else
-                        FlatpakLaunchHelper.Apply(startInfo, handler.FlatpakAppId);
+                        LinuxAppImageLaunchHelper.PrepareDirectExtractAndRunLaunch(startInfo);
                 }
 
                 _ = Process.Start(startInfo);

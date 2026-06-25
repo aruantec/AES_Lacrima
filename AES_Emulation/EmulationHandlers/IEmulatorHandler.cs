@@ -28,6 +28,8 @@ public interface IEmulatorHandler : INotifyPropertyChanged
 
     bool IsLauncherPathValid(string? launcherPath);
 
+    bool ShouldLaunchViaFlatpak();
+
     string? NormalizeLauncherPath(string? launcherPath);
 
     ICommand? BrowseLauncherCommand { get; set; }

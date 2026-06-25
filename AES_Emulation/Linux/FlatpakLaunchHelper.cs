@@ -21,13 +21,31 @@ public static class FlatpakLaunchHelper
         "--save_state",
         "-l",
         "--load_state",
+        "-L",
+        "--libretro",
         "-C",
         "--config",
+        "--appendconfig",
+    };
+
+    private static readonly HashSet<string> CompositorSocketGrants = new(StringComparer.Ordinal)
+    {
+        "--socket=x11",
+        "--socket=pulseaudio",
+        "--share=ipc",
     };
 
     public static bool IsFlatpakAvailable() => LinuxFlatpakApplicationService.IsFlatpakAvailable();
 
     public static void Apply(ProcessStartInfo startInfo, string flatpakAppId, string? contentPath = null, params string?[] additionalGrantPaths)
+        => Apply(startInfo, flatpakAppId, forCompositorLaunch: false, contentPath, additionalGrantPaths);
+
+    public static void Apply(
+        ProcessStartInfo startInfo,
+        string flatpakAppId,
+        bool forCompositorLaunch,
+        string? contentPath = null,
+        params string?[] additionalGrantPaths)
     {
         var flatpakPath = LinuxFlatpakApplicationService.FindFlatpakExecutable();
         if (flatpakPath == null || string.IsNullOrWhiteSpace(flatpakAppId))
@@ -44,6 +62,16 @@ public static class FlatpakLaunchHelper
 
         foreach (var grant in CollectFilesystemGrants(forwardedArgs, contentPath, startInfo.WorkingDirectory, additionalGrantPaths))
             startInfo.ArgumentList.Add(grant);
+
+        if (forCompositorLaunch)
+        {
+            foreach (var grant in CompositorSocketGrants)
+                startInfo.ArgumentList.Add(grant);
+
+            startInfo.ArgumentList.Add("--env=SDL_VIDEODRIVER=x11");
+            startInfo.ArgumentList.Add("--env=GDK_BACKEND=x11");
+            startInfo.ArgumentList.Add("--env=QT_QPA_PLATFORM=xcb");
+        }
 
         startInfo.ArgumentList.Add(flatpakAppId);
 

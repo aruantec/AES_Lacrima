@@ -41,8 +41,8 @@ public partial class EmulationViewModel
         if (handler == null || !handler.HasLauncherPath)
             return null;
 
-        var launchSettings = album != null
-            ? ResolveEmulationLaunchSettingsForAlbum(album)
+        var launchSettings = album != null && TryResolveEmulationSection(album) is { } section
+            ? SettingsViewModel?.GetResolvedEmulationSectionLaunchSettingsForLaunch(section, handler)
             : SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(albumTitle);
         return new PendingEmulatorLaunchRequest(
             albumTitle,

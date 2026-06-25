@@ -46,7 +46,7 @@ namespace AES_Lacrima.ViewModels
     public partial class EmulationViewModel : ViewModelBase, IEmulationViewModel
     {
         public EmulationSectionItem? CurrentEmulationSectionItem =>
-            TryResolveEmulationSection(GetActiveEmulationSectionAlbum());
+            ResolveCurrentEmulationSection();
 
         /// <summary>
         /// Configured handler for the active emulation section (album list selection).

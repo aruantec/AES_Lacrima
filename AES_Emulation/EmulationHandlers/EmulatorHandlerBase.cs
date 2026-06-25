@@ -100,6 +100,17 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
                Linux.LinuxFlatpakApplicationService.IsApplicationInstalled(FlatpakAppId);
     }
 
+    public bool ShouldLaunchViaFlatpak()
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(FlatpakAppId))
+            return false;
+
+        if (IsLauncherPathValid(LauncherPath))
+            return false;
+
+        return EmulatorFlatpakCatalog.IsCompatibleApplicationId(HandlerId, FlatpakAppId);
+    }
+
     public virtual bool IsLauncherPathValid(string? launcherPath)
     {
         var normalizedPath = NormalizeLauncherPath(launcherPath);

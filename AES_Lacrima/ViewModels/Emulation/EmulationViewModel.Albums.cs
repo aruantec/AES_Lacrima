@@ -78,10 +78,29 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             var handler = ResolveEmulatorHandlerForAlbum(album);
-            if (handler == null || !handler.HasLauncherPath)
+            if (handler == null)
+            {
+                SLog.Warn($"No emulator handler resolved for album '{album.Title}'.");
+                ShowEmulatorLaunchFailure(
+                    null,
+                    item.Title,
+                    "No emulator is configured for this section. Open render options and select an emulator.");
                 return;
+            }
 
-            var launchSettings = ResolveEmulationLaunchSettingsForAlbum(album);
+            if (!handler.HasLauncherPath)
+            {
+                SLog.Warn($"Emulator handler '{handler.HandlerId}' has no launcher for album '{album.Title}'.");
+                var details = handler.UsesRetroArchCores
+                    ? "RetroArch is selected but no launcher was found. Use the setup button to install RetroArch, configure a Flatpak app, or set the executable path in emulation settings."
+                    : $"Set the launcher path for {handler.DisplayName} in emulation settings.";
+                ShowEmulatorLaunchFailure(handler, item.Title, details);
+                return;
+            }
+
+            var launchSettings = TryResolveEmulationSection(album) is { } section
+                ? SettingsViewModel?.GetResolvedEmulationSectionLaunchSettingsForLaunch(section, handler)
+                : ResolveEmulationLaunchSettingsForAlbum(album);
             var launchRequest = new PendingEmulatorLaunchRequest(
                 album.Title ?? string.Empty,
                 item.Title ?? Path.GetFileNameWithoutExtension(item.FileName),

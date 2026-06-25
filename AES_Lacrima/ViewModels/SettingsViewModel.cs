@@ -56,7 +56,6 @@ public record ShaderItem(string Path, string Name);
 public sealed class EmulationHandlerAppItem : ObservableObject
 {
     private readonly EmulationSectionItem _section;
-    private RetroArchCoreItem? _selectedRetroArchCoreItem;
     private FlatpakApplicationItem? _selectedFlatpakApplication;
     private bool _isSyncingFlatpakSelection;
     private int _flatpakListRefreshDepth;
@@ -83,11 +82,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
     private void OnSectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.OrdinalIgnoreCase))
-        {
-            _selectedRetroArchCoreItem = GroupedRetroArchCores.FirstOrDefault(c =>
-                string.Equals(c.FileName, _section.SelectedRetroArchCore, StringComparison.OrdinalIgnoreCase) && !c.IsGroupHeader);
-            OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
-        }
+            SyncRetroArchCoreSelection();
     }
 
     public IEmulatorHandler Handler { get; }
@@ -161,23 +156,25 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 
     public string? SelectedRetroArchCore
     {
-        get => _section.SelectedRetroArchCore;
+        get => _section.GetSelectedRetroArchCoreForHandler(Handler.HandlerId);
         set
         {
-            _section.SelectedRetroArchCore = value;
+            _section.SetSelectedRetroArchCoreForHandler(Handler.HandlerId, value);
+            OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
         }
     }
 
     public RetroArchCoreItem? SelectedRetroArchCoreItem
     {
-        get => _selectedRetroArchCoreItem;
+        get => GroupedRetroArchCores.FirstOrDefault(c =>
+            string.Equals(c.FileName, _section.GetSelectedRetroArchCoreForHandler(Handler.HandlerId), StringComparison.OrdinalIgnoreCase) &&
+            !c.IsGroupHeader);
         set
         {
             if (value is { IsGroupHeader: true })
                 return;
 
-            _selectedRetroArchCoreItem = value;
             SelectedRetroArchCore = value?.FileName;
         }
     }
@@ -239,8 +236,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
 
     public void SyncRetroArchCoreSelection()
     {
-        _selectedRetroArchCoreItem = GroupedRetroArchCores.FirstOrDefault(c =>
-            string.Equals(c.FileName, _section.SelectedRetroArchCore, StringComparison.OrdinalIgnoreCase) && !c.IsGroupHeader);
+        OnPropertyChanged(nameof(SelectedRetroArchCore));
         OnPropertyChanged(nameof(SelectedRetroArchCoreItem));
     }
 
@@ -401,18 +397,69 @@ public partial class EmulationSectionItem : ObservableObject
 
     public string? SelectedRetroArchCore
     {
-        get => LaunchSettings?.SelectedRetroArchCore;
-        set
+        get => GetSelectedRetroArchCoreForHandler(SelectedHandlerId);
+        set => SetSelectedRetroArchCoreForHandler(SelectedHandlerId, value);
+    }
+
+    public string? GetSelectedRetroArchCoreForHandler(string? handlerId)
+    {
+        if (LaunchSettings == null)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(handlerId) &&
+            LaunchSettings.SelectedRetroArchCoreByHandlerId != null &&
+            LaunchSettings.SelectedRetroArchCoreByHandlerId.TryGetValue(handlerId, out var perHandlerCore) &&
+            !string.IsNullOrWhiteSpace(perHandlerCore))
         {
-            if (LaunchSettings == null)
-                LaunchSettings = new EmulationSectionLaunchSettings();
-
-            if (string.Equals(LaunchSettings.SelectedRetroArchCore, value, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            LaunchSettings.SelectedRetroArchCore = value;
-            OnPropertyChanged(nameof(SelectedRetroArchCore));
+            return perHandlerCore;
         }
+
+        return LaunchSettings.SelectedRetroArchCore;
+    }
+
+    public void SetSelectedRetroArchCoreForHandler(string? handlerId, string? coreFileName)
+    {
+        LaunchSettings ??= new EmulationSectionLaunchSettings();
+        LaunchSettings.SelectedRetroArchCoreByHandlerId ??=
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(handlerId))
+        {
+            if (string.IsNullOrWhiteSpace(coreFileName))
+                LaunchSettings.SelectedRetroArchCoreByHandlerId.Remove(handlerId);
+            else
+                LaunchSettings.SelectedRetroArchCoreByHandlerId[handlerId] = coreFileName;
+        }
+
+        if (string.IsNullOrWhiteSpace(handlerId) ||
+            string.Equals(SelectedHandlerId, handlerId, StringComparison.OrdinalIgnoreCase))
+        {
+            LaunchSettings.SelectedRetroArchCore = coreFileName;
+        }
+
+        OnPropertyChanged(nameof(SelectedRetroArchCore));
+    }
+
+    public void MigrateLegacyRetroArchCoreSelection()
+    {
+        if (LaunchSettings == null ||
+            LaunchSettings.SelectedRetroArchCoreByHandlerId is { Count: > 0 } ||
+            string.IsNullOrWhiteSpace(LaunchSettings.SelectedRetroArchCore))
+        {
+            return;
+        }
+
+        var handlerId = SelectedHandlerId;
+        if (string.IsNullOrWhiteSpace(handlerId))
+        {
+            handlerId = Handlers
+                .Select(item => item.Handler)
+                .FirstOrDefault(handler => handler.UsesRetroArchCores)
+                ?.HandlerId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(handlerId))
+            SetSelectedRetroArchCoreForHandler(handlerId, LaunchSettings.SelectedRetroArchCore);
     }
 
     public bool HasRetroArchCores => RetroArchCores.Count > 0;
@@ -438,6 +485,10 @@ public partial class EmulationSectionItem : ObservableObject
     {
         foreach (var handlerAppItem in Handlers)
             handlerAppItem.NotifyDefaultSelectionChanged();
+
+        OnPropertyChanged(nameof(SelectedRetroArchCore));
+        foreach (var handlerAppItem in Handlers)
+            handlerAppItem.SyncRetroArchCoreSelection();
     }
 
     private void Handlers_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -449,6 +500,9 @@ public sealed class EmulationSectionLaunchSettings
     public bool? StartFullscreen { get; set; }
 
     public string? SelectedRetroArchCore { get; set; }
+
+    public Dictionary<string, string> SelectedRetroArchCoreByHandlerId { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public string? RetroArchRepositoryOverride { get; set; }
 
@@ -501,6 +555,9 @@ public sealed class EmulationSectionLaunchSettings
         {
             StartFullscreen = StartFullscreen,
             SelectedRetroArchCore = SelectedRetroArchCore,
+            SelectedRetroArchCoreByHandlerId = new Dictionary<string, string>(
+                SelectedRetroArchCoreByHandlerId,
+                StringComparer.OrdinalIgnoreCase),
             RetroArchRepositoryOverride = RetroArchRepositoryOverride,
             SelectedRetroArchVersion = SelectedRetroArchVersion,
             IncludeRetroArchCores = IncludeRetroArchCores,
@@ -3410,29 +3467,40 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         var foundCores = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var handler in retroArchHandlers)
         {
-            foreach (var core in RetroArchHandler.GetRetroArchCores(handler.LauncherPath, handler.FlatpakAppId))
+            var flatpakId = handler.ShouldLaunchViaFlatpak() ? handler.FlatpakAppId : null;
+            foreach (var core in RetroArchHandler.GetRetroArchCores(handler.LauncherPath, flatpakId))
                 foundCores.Add(core);
         }
 
-        var availableCores = foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
-
-        var grouped = RetroArchHandler.GetGroupedRetroArchCores(availableCores);
+        var grouped = RetroArchHandler.GetGroupedRetroArchCores(foundCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList());
 
         foreach (var section in EmulationSections)
         {
+            section.MigrateLegacyRetroArchCoreSelection();
+
+            var sectionCores = new HashSet<string>(foundCores, StringComparer.OrdinalIgnoreCase);
+            foreach (var handlerItem in section.Handlers.Where(item => item.Handler.UsesRetroArchCores))
+            {
+                var selected = section.GetSelectedRetroArchCoreForHandler(handlerItem.HandlerId);
+                if (!string.IsNullOrWhiteSpace(selected))
+                    sectionCores.Add(selected);
+            }
+
+            var availableCores = sectionCores.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
+            grouped = RetroArchHandler.GetGroupedRetroArchCores(availableCores);
+
             section.RetroArchCores.Clear();
             section.RetroArchCores.AddRange(availableCores);
             section.GroupedRetroArchCores = new AvaloniaList<RetroArchCoreItem>(grouped);
 
-            if (!string.IsNullOrWhiteSpace(section.SelectedRetroArchCore) &&
-                !section.RetroArchCores.Contains(section.SelectedRetroArchCore, StringComparer.OrdinalIgnoreCase))
+            foreach (var handlerItem in section.Handlers.Where(item => item.Handler.UsesRetroArchCores))
             {
-                section.SelectedRetroArchCore = null;
-            }
+                if (!string.IsNullOrWhiteSpace(section.GetSelectedRetroArchCoreForHandler(handlerItem.HandlerId)))
+                    continue;
 
-            if (string.IsNullOrWhiteSpace(section.SelectedRetroArchCore))
-            {
-                section.SelectedRetroArchCore = SelectDefaultRetroArchCore(section, availableCores);
+                var defaultCore = SelectDefaultRetroArchCore(section, availableCores);
+                if (!string.IsNullOrWhiteSpace(defaultCore))
+                    section.SetSelectedRetroArchCoreForHandler(handlerItem.HandlerId, defaultCore);
             }
 
             foreach (var handlerItem in section.Handlers)
@@ -3890,16 +3958,18 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (match.Handlers.Count == 0)
             return null;
 
-        IEmulatorHandler? selectedHandler = null;
         if (!string.IsNullOrWhiteSpace(match.SelectedHandlerId))
         {
-            selectedHandler = match.Handlers
+            var selectedHandler = match.Handlers
                 .FirstOrDefault(handlerItem =>
                     string.Equals(handlerItem.HandlerId, match.SelectedHandlerId, StringComparison.OrdinalIgnoreCase))
                 ?.Handler;
 
-            if (selectedHandler is { HasLauncherPath: true })
+            if (selectedHandler != null)
+            {
+                EnsureRetroArchLauncherResolved(selectedHandler, match);
                 return selectedHandler;
+            }
         }
 
         var configuredHandler = match.Handlers
@@ -3909,13 +3979,54 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (configuredHandler != null)
             return configuredHandler;
 
-        if (selectedHandler != null)
-            return selectedHandler;
-
         if (match.Handlers.Count == 1)
             return match.Handlers[0].Handler;
 
         return match.Handlers.Select(item => item.Handler).FirstOrDefault();
+    }
+
+    private void EnsureRetroArchLauncherResolved(IEmulatorHandler handler, EmulationSectionItem section)
+    {
+        if (!handler.UsesRetroArchCores || handler.HasLauncherPath)
+            return;
+
+        foreach (var sibling in section.Handlers.Select(item => item.Handler))
+        {
+            if (ReferenceEquals(sibling, handler) ||
+                !sibling.UsesRetroArchCores ||
+                !sibling.HasLauncherPath)
+            {
+                continue;
+            }
+
+            RetroArchEmulatorUpdateService.ApplyRetroArchHandlerConfiguration(handler, sibling);
+            if (handler.HasLauncherPath)
+                return;
+        }
+
+        foreach (var registeredHandler in EmulatorHandlerRegistry.GetRegisteredHandlers())
+        {
+            if (ReferenceEquals(registeredHandler, handler) ||
+                !registeredHandler.UsesRetroArchCores ||
+                !registeredHandler.HasLauncherPath)
+            {
+                continue;
+            }
+
+            RetroArchEmulatorUpdateService.ApplyRetroArchHandlerConfiguration(handler, registeredHandler);
+            if (handler.HasLauncherPath)
+                return;
+        }
+
+        var updater = DiLocator.ResolveViewModel<RetroArchEmulatorUpdateService>();
+        if (updater == null)
+            return;
+
+        var resolved = updater.DiscoverInstalledLauncherPath(
+            section.SectionKey,
+            section.SectionTitle,
+            handler.LauncherPath);
+        RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, resolved);
     }
 
     public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettings(string? sectionKeyOrTitle)
@@ -3925,6 +4036,17 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         var match = FindEmulationSection(sectionKeyOrTitle);
         return match?.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings();
+    }
+
+    public EmulationSectionLaunchSettings GetResolvedEmulationSectionLaunchSettingsForLaunch(
+        EmulationSectionItem section,
+        IEmulatorHandler handler)
+    {
+        var settings = section.LaunchSettings?.Clone() ?? new EmulationSectionLaunchSettings();
+        if (handler.UsesRetroArchCores)
+            settings.SelectedRetroArchCore = section.GetSelectedRetroArchCoreForHandler(handler.HandlerId);
+
+        return settings;
     }
 
     private static EmulationSectionLaunchSettings CreateDefaultEmulationSectionLaunchSettings(string sectionKey, string sectionTitle)
@@ -4274,6 +4396,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             if (item.Handlers.Count == 1 && string.IsNullOrWhiteSpace(item.SelectedHandlerId))
                 item.SelectedHandlerId = item.Handlers[0].HandlerId;
 
+            item.MigrateLegacyRetroArchCoreSelection();
+
             if (EmulatorSectionDirectoryHelper.TryGetSectionConfiguration(
                     emulationSectionLauncherPaths,
                     item.SectionKey,
@@ -4456,27 +4580,28 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private void DiscoverInstalledRetroArchLaunchers()
     {
-        var updater = DiLocator.ResolveViewModel<RetroArchEmulatorUpdateService>();
-        if (updater == null)
+        if (DiLocator.ResolveViewModel<RetroArchEmulatorUpdateService>() == null)
             return;
 
         var changed = false;
         foreach (var section in EmulationSections)
         {
-            var handler = GetConfiguredEmulatorHandlerForSection(section);
-            if (handler == null || !handler.UsesRetroArchCores || handler.HasLauncherPath)
-                continue;
+            foreach (var handlerItem in section.Handlers)
+            {
+                var handler = handlerItem.Handler;
+                if (!handler.UsesRetroArchCores || handler.HasLauncherPath)
+                    continue;
 
-            var resolved = updater.DiscoverInstalledLauncherPath(
-                section.SectionKey,
-                section.SectionTitle,
-                handler.LauncherPath);
-            if (string.IsNullOrWhiteSpace(resolved))
-                continue;
-
-            RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, resolved);
-            if (handler.HasLauncherPath)
-                changed = true;
+                var previousPath = handler.LauncherPath;
+                var previousFlatpak = handler.FlatpakAppId;
+                EnsureRetroArchLauncherResolved(handler, section);
+                if ((!string.Equals(previousPath, handler.LauncherPath, StringComparison.OrdinalIgnoreCase) ||
+                     !string.Equals(previousFlatpak, handler.FlatpakAppId, StringComparison.Ordinal)) &&
+                    handler.HasLauncherPath)
+                {
+                    changed = true;
+                }
+            }
         }
 
         if (changed)
@@ -4488,13 +4613,36 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (string.IsNullOrWhiteSpace(sectionTitle) || string.IsNullOrWhiteSpace(launcherPath))
             return;
 
+        var section = FindEmulationSection(sectionTitle);
+        if (section != null)
+        {
+            var retroArchHandler = section.Handlers
+                .Select(item => item.Handler)
+                .FirstOrDefault(handler => handler.UsesRetroArchCores && string.IsNullOrWhiteSpace(handler.LauncherPath));
+
+            if (retroArchHandler != null)
+            {
+                RetroArchEmulatorUpdateService.ApplyResolvedLauncher(retroArchHandler, launcherPath);
+                return;
+            }
+
+            var configuredHandler = GetConfiguredEmulatorHandlerForSection(section);
+            if (configuredHandler != null && string.IsNullOrWhiteSpace(configuredHandler.LauncherPath))
+            {
+                RetroArchEmulatorUpdateService.ApplyResolvedLauncher(configuredHandler, launcherPath);
+                return;
+            }
+        }
+
         var handler = GetConfiguredEmulatorHandler(sectionTitle)
+            ?? EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle)
+                .FirstOrDefault(candidate => candidate.UsesRetroArchCores)
             ?? EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle).FirstOrDefault();
 
         if (handler == null || !string.IsNullOrWhiteSpace(handler.LauncherPath))
             return;
 
-        handler.LauncherPath = launcherPath;
+        RetroArchEmulatorUpdateService.ApplyResolvedLauncher(handler, launcherPath);
     }
 
     private static bool HasPersistedEmulationSectionConfiguration(EmulationSectionItem item)
@@ -4504,6 +4652,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         return item.LaunchSettings?.StartFullscreen is not null ||
                !string.IsNullOrWhiteSpace(item.SelectedRetroArchCore) ||
+               item.LaunchSettings?.SelectedRetroArchCoreByHandlerId is { Count: > 0 } ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.EdenRepositoryOverride) ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedEdenVersion) ||
                item.LaunchSettings?.IncludeEdenPrereleases == true ||
@@ -4535,6 +4684,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         {
             StartFullscreen = persisted.StartFullscreen ?? defaults.StartFullscreen,
             SelectedRetroArchCore = persisted.SelectedRetroArchCore ?? defaults.SelectedRetroArchCore,
+            SelectedRetroArchCoreByHandlerId = MergeRetroArchCoreSelections(
+                defaults.SelectedRetroArchCoreByHandlerId,
+                persisted.SelectedRetroArchCoreByHandlerId),
             RetroArchRepositoryOverride = persisted.RetroArchRepositoryOverride ?? defaults.RetroArchRepositoryOverride,
             SelectedRetroArchVersion = persisted.SelectedRetroArchVersion ?? defaults.SelectedRetroArchVersion,
             IncludeRetroArchCores = persisted.IncludeRetroArchCores || defaults.IncludeRetroArchCores,
@@ -4558,6 +4710,20 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             SelectedDuckStationVersion = persisted.SelectedDuckStationVersion ?? defaults.SelectedDuckStationVersion,
             IncludeDuckStationPrereleases = persisted.IncludeDuckStationPrereleases || defaults.IncludeDuckStationPrereleases
         };
+    }
+
+    private static Dictionary<string, string> MergeRetroArchCoreSelections(
+        Dictionary<string, string> defaults,
+        Dictionary<string, string> persisted)
+    {
+        var merged = new Dictionary<string, string>(defaults, StringComparer.OrdinalIgnoreCase);
+        foreach (var (handlerId, coreName) in persisted)
+        {
+            if (!string.IsNullOrWhiteSpace(handlerId) && !string.IsNullOrWhiteSpace(coreName))
+                merged[handlerId] = coreName;
+        }
+
+        return merged;
     }
 
     partial void OnScaleFactorChanged(double value)
