@@ -377,10 +377,18 @@ public partial class AppUpdateService : ObservableObject
 
             Status = "Restarting to apply update...";
             App.IsSelfUpdating = true;
-            PendingUpdateApplier.LaunchRelaunch(installTarget.RestartPath);
-            WriteDiagnosticLog("Pending update staged. Relaunch requested. Requesting app shutdown.");
-            ShutdownApplication();
-            return true;
+
+            var manifest = PendingUpdateApplier.TryReadPendingManifest();
+            if (manifest != null && PendingUpdateApplier.TryScheduleExternalApply(manifest, Environment.ProcessId))
+            {
+                WriteDiagnosticLog("Pending update staged. External apply helper scheduled. Requesting app shutdown.");
+                ShutdownApplication();
+                return true;
+            }
+
+            App.IsSelfUpdating = false;
+            Status = "Unable to launch the update helper. Restart AES - Lacrima manually to try again.";
+            return false;
         }
         catch (Exception ex)
         {
@@ -1148,14 +1156,15 @@ public partial class AppUpdateService : ObservableObject
         {
             var extractDirectory = Path.Combine(stagingRoot, "extracted");
             ZipFile.ExtractToDirectory(downloadPath, extractDirectory, overwriteFiles: true);
-            return extractDirectory;
+            return NormalizeExtractionRoot(extractDirectory);
         }
 
         if (installTarget.Kind == UpdateTargetKind.MacBundle)
         {
             var extractDirectory = Path.Combine(stagingRoot, "extracted");
             ZipFile.ExtractToDirectory(downloadPath, extractDirectory, overwriteFiles: true);
-            var appBundle = Directory.EnumerateDirectories(extractDirectory, "*.app", SearchOption.AllDirectories)
+            var normalizedRoot = NormalizeExtractionRoot(extractDirectory);
+            var appBundle = Directory.EnumerateDirectories(normalizedRoot, "*.app", SearchOption.AllDirectories)
                 .FirstOrDefault();
             if (string.IsNullOrWhiteSpace(appBundle))
                 throw new InvalidOperationException("The downloaded macOS archive does not contain an application bundle.");
@@ -1183,6 +1192,15 @@ public partial class AppUpdateService : ObservableObject
         }
 
         throw new InvalidOperationException($"Unsupported update asset '{selectedAsset.Name}' for this installation.");
+    }
+
+    private static string NormalizeExtractionRoot(string extractDirectory)
+    {
+        var entries = Directory.EnumerateFileSystemEntries(extractDirectory).ToList();
+        if (entries.Count == 1 && Directory.Exists(entries[0]) && !Directory.EnumerateFiles(extractDirectory).Any())
+            return entries[0];
+
+        return extractDirectory;
     }
 
     private static PendingUpdateTargetKind ToPendingUpdateTargetKind(UpdateTargetKind kind) =>

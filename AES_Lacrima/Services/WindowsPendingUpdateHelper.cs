@@ -151,15 +151,20 @@ internal static class WindowsPendingUpdateHelper
             startInfo.ArgumentList.Add("-LogPath");
             startInfo.ArgumentList.Add(logPath);
 
-            Process.Start(startInfo);
-            WriteDiagnosticLog(
-                "Scheduled Windows external update apply helper",
-                $"WaitProcessId={waitProcessId}",
-                $"PreparedSourcePath={manifest.PreparedSourcePath}",
-                $"TargetPath={manifest.TargetPath}",
-                $"RestartPath={manifest.RestartPath}",
-                logPath);
-            return true;
+            if (TryStartPowerShell(startInfo))
+            {
+                WriteDiagnosticLog(
+                    "Scheduled Windows external update apply helper",
+                    $"WaitProcessId={waitProcessId}",
+                    $"PreparedSourcePath={manifest.PreparedSourcePath}",
+                    $"TargetPath={manifest.TargetPath}",
+                    $"RestartPath={manifest.RestartPath}",
+                    logPath);
+                return true;
+            }
+
+            WriteDiagnosticLog("Failed to start Windows external update helper process.");
+            return false;
         }
         catch (Exception ex)
         {
@@ -167,6 +172,26 @@ internal static class WindowsPendingUpdateHelper
             Log.Error("Failed to schedule Windows external update apply", ex);
             return false;
         }
+    }
+
+    private static bool TryStartPowerShell(ProcessStartInfo startInfo)
+    {
+        foreach (var shell in new[] { "powershell.exe", "pwsh.exe" })
+        {
+            try
+            {
+                startInfo.FileName = shell;
+                using var process = Process.Start(startInfo);
+                if (process != null)
+                    return true;
+            }
+            catch (Exception ex)
+            {
+                WriteDiagnosticLog($"Failed to launch {shell} update helper: {ex.Message}");
+            }
+        }
+
+        return false;
     }
 
     private static void WriteDiagnosticLog(string message, params string[] details)

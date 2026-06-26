@@ -1,12 +1,10 @@
 using AES_Core.IO;
 using log4net;
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
 
 using AES_Core.Logging;
 
@@ -102,44 +100,15 @@ internal static class PendingUpdateApplier
             $"PreviousProcessId={previousProcessId}");
     }
 
-    public static void LaunchRelaunch(string restartPath)
+    public static bool TryScheduleExternalApply(PendingUpdateManifest manifest, int waitProcessId)
     {
-        if (string.IsNullOrWhiteSpace(restartPath))
-            throw new InvalidOperationException("Unable to relaunch because the restart path is missing.");
-
-        WriteDiagnosticLog("Launching relaunch process", $"RestartPath={restartPath}");
-
-        if (OperatingSystem.IsMacOS() && restartPath.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "/usr/bin/open",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            startInfo.ArgumentList.Add("-n");
-            startInfo.ArgumentList.Add(restartPath);
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("Failed to launch the macOS relaunch helper.");
-            return;
-        }
-
-        var executableStartInfo = new ProcessStartInfo
-        {
-            FileName = restartPath,
-            UseShellExecute = OperatingSystem.IsWindows(),
-            CreateNoWindow = !OperatingSystem.IsWindows()
-        };
-
         if (OperatingSystem.IsWindows())
-        {
-            var workingDirectory = Path.GetDirectoryName(restartPath);
-            if (!string.IsNullOrWhiteSpace(workingDirectory))
-                executableStartInfo.WorkingDirectory = workingDirectory;
-        }
+            return WindowsPendingUpdateHelper.TryScheduleApply(manifest, waitProcessId);
 
-        using var relaunch = Process.Start(executableStartInfo)
-            ?? throw new InvalidOperationException("Failed to launch the relaunch process.");
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            return UnixPendingUpdateHelper.TryScheduleApply(manifest, waitProcessId);
+
+        return false;
     }
 
     public static bool TryApplyAtStartup()
@@ -179,36 +148,18 @@ internal static class PendingUpdateApplier
         if (!ValidateManifest(manifest))
             return false;
 
-        if (OperatingSystem.IsWindows()
-            && manifest.TargetKind == PendingUpdateTargetKind.DirectoryContents
-            && WindowsPendingUpdateHelper.TryScheduleApply(manifest, Environment.ProcessId))
+        if (TryScheduleExternalApply(manifest, Environment.ProcessId))
         {
             WriteDiagnosticLog(
-                "Exiting so the Windows external update helper can replace locked files.",
+                "Exiting so the external update helper can replace locked files.",
                 $"ProcessId={Environment.ProcessId}");
             Environment.Exit(0);
             return true;
         }
 
-        WaitForProcessExit(manifest.PreviousProcessId, TimeSpan.FromMinutes(2));
-
-        try
-        {
-            ApplyManifest(manifest);
-            CleanupAfterSuccessfulApply(manifest);
-            WriteDiagnosticLog(
-                "Pending update applied successfully. Relaunching updated build.",
-                $"RestartPath={manifest.RestartPath}");
-            LaunchRelaunch(manifest.RestartPath);
-            Environment.Exit(0);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteDiagnosticLog($"Pending update apply failed: {ex}");
-            Log.Error("Failed to apply pending update at startup", ex);
-            return false;
-        }
+        WriteDiagnosticLog("Failed to schedule external update apply; leaving pending update manifest in place.");
+        Log.Error("Failed to schedule external update apply at startup");
+        return false;
     }
 
     private static bool ValidateManifest(PendingUpdateManifest manifest)
@@ -240,159 +191,6 @@ internal static class PendingUpdateApplier
             _ => false
         };
 
-    private static void ApplyManifest(PendingUpdateManifest manifest)
-    {
-        switch (manifest.TargetKind)
-        {
-            case PendingUpdateTargetKind.DirectoryContents:
-                ApplyDirectoryContentsUpdate(manifest.PreparedSourcePath, manifest.TargetPath);
-                break;
-            case PendingUpdateTargetKind.MacBundle:
-                ApplyMacBundleUpdate(manifest.PreparedSourcePath, manifest.TargetPath);
-                break;
-            case PendingUpdateTargetKind.LinuxAppImage:
-                ApplyLinuxAppImageUpdate(manifest.PreparedSourcePath, manifest.TargetPath);
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported pending update target kind '{manifest.TargetKind}'.");
-        }
-    }
-
-    private static void ApplyDirectoryContentsUpdate(string sourceDirectory, string targetDirectory)
-    {
-        if (!OperatingSystem.IsWindows())
-            throw new InvalidOperationException("Directory-content self-update is only supported on Windows.");
-
-        Directory.CreateDirectory(targetDirectory);
-        foreach (var sourceFile in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(sourceDirectory, sourceFile);
-            var destinationFile = Path.Combine(targetDirectory, relativePath);
-            var destinationDirectory = Path.GetDirectoryName(destinationFile);
-            if (!string.IsNullOrWhiteSpace(destinationDirectory))
-                Directory.CreateDirectory(destinationDirectory);
-
-            CopyFileWithRetries(sourceFile, destinationFile);
-        }
-    }
-
-    private static void ApplyMacBundleUpdate(string sourceAppBundle, string targetAppBundle)
-    {
-        var temporaryBundle = $"{targetAppBundle}.new";
-        TryDeleteDirectory(temporaryBundle);
-        CopyDirectoryRecursive(sourceAppBundle, temporaryBundle);
-        TryDeleteDirectory(targetAppBundle);
-        Directory.Move(temporaryBundle, targetAppBundle);
-    }
-
-    private static void ApplyLinuxAppImageUpdate(string sourceFile, string targetFile)
-    {
-        TrySetUnixExecutable(sourceFile);
-        var temporaryFile = $"{targetFile}.new";
-        TryDeleteFile(temporaryFile);
-        CopyFileWithRetries(sourceFile, temporaryFile);
-        TrySetUnixExecutable(temporaryFile);
-
-        try
-        {
-            File.Move(temporaryFile, targetFile, overwrite: true);
-        }
-        catch (IOException)
-        {
-            CopyFileWithRetries(temporaryFile, targetFile);
-            TryDeleteFile(temporaryFile);
-        }
-    }
-
-    private static void CleanupAfterSuccessfulApply(PendingUpdateManifest manifest)
-    {
-        TryDeleteManifest();
-        TryDeleteDirectory(manifest.StagingRoot);
-    }
-
-    private static void WaitForProcessExit(int processId, TimeSpan timeout)
-    {
-        if (processId <= 0)
-            return;
-
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            try
-            {
-                using var process = Process.GetProcessById(processId);
-                if (process.HasExited)
-                    return;
-            }
-            catch (ArgumentException)
-            {
-                return;
-            }
-
-            Thread.Sleep(500);
-        }
-
-        WriteDiagnosticLog($"Timed out waiting for previous process {processId} to exit; attempting apply anyway.");
-    }
-
-    private static void CopyDirectoryRecursive(string sourceDirectory, string targetDirectory)
-    {
-        Directory.CreateDirectory(targetDirectory);
-
-        foreach (var directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(sourceDirectory, directory);
-            Directory.CreateDirectory(Path.Combine(targetDirectory, relativePath));
-        }
-
-        foreach (var sourceFile in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(sourceDirectory, sourceFile);
-            var destinationFile = Path.Combine(targetDirectory, relativePath);
-            CopyFileWithRetries(sourceFile, destinationFile);
-        }
-    }
-
-    private static void CopyFileWithRetries(string sourceFile, string destinationFile, int maxAttempts = 10)
-    {
-        var destinationDirectory = Path.GetDirectoryName(destinationFile);
-        if (!string.IsNullOrWhiteSpace(destinationDirectory))
-            Directory.CreateDirectory(destinationDirectory);
-
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            try
-            {
-                File.Copy(sourceFile, destinationFile, overwrite: true);
-                return;
-            }
-            catch (IOException ex) when (attempt < maxAttempts)
-            {
-                WriteDiagnosticLog($"Copy attempt {attempt} failed for '{destinationFile}': {ex.Message}");
-                Thread.Sleep(500);
-            }
-        }
-
-        File.Copy(sourceFile, destinationFile, overwrite: true);
-    }
-
-    private static void TrySetUnixExecutable(string path)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        try
-        {
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
-                | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("Failed to set executable permissions on staged update payload", ex);
-        }
-    }
-
     private static void TryDeleteManifest()
     {
         try
@@ -418,21 +216,6 @@ internal static class PendingUpdateApplier
         catch (Exception ex)
         {
             Log.Warn($"Failed to delete directory '{path}'", ex);
-        }
-    }
-
-    private static void TryDeleteFile(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            return;
-
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Failed to delete file '{path}'", ex);
         }
     }
 

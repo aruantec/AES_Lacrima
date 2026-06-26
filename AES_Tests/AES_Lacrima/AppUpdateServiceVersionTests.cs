@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using AES_Lacrima.Services;
@@ -73,6 +75,33 @@ public sealed class AppUpdateServiceVersionTests
 
         Assert.NotNull(selected);
         Assert.Equal("AES-Lacrima-Linux-x86_64.AppImage", selected!.Name);
+    }
+
+    [Fact]
+    public void NormalizeExtractionRoot_UsesSingleTopLevelDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "aes-update-test-" + Guid.NewGuid().ToString("N"));
+        var nested = Path.Combine(root, "payload");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(Path.Combine(nested, "marker.txt"), "ok");
+
+        try
+        {
+            var normalized = InvokeNormalizeExtractionRoot(root);
+            Assert.Equal(nested, normalized);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string InvokeNormalizeExtractionRoot(string extractDirectory)
+    {
+        var method = typeof(AppUpdateService).GetMethod("NormalizeExtractionRoot", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var value = method!.Invoke(null, [extractDirectory]);
+        return Assert.IsType<string>(value);
     }
 
     private static AppReleaseAssetInfo? InvokeSelectBestAsset(IReadOnlyList<AppReleaseAssetInfo> assets, bool preferAotUpdates)
