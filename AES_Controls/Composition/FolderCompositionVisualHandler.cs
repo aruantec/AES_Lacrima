@@ -126,19 +126,32 @@ internal sealed class FolderCompositionVisualHandler : CompositionCustomVisualHa
             case FolderItemCoverMessage cover:
                 if (cover.Index >= 0 && cover.Index < _itemSnapshots.Count)
                 {
-                    var prev = _itemSnapshots[cover.Index];
-                    if (!prev.UseFolderCover)
-                        prev.Cover?.Dispose();
-
+                    var previous = _itemSnapshots[cover.Index];
                     _itemSnapshots[cover.Index] = new FolderItemSnapshot(cover.Cover, false);
                     foreach (var state in _states)
                     {
                         if (state.SnapshotIndex != cover.Index)
                             continue;
+
                         state.Cover = cover.Cover;
                         state.LastCover = null;
                         break;
                     }
+
+                    if (!previous.UseFolderCover &&
+                        previous.Cover != null &&
+                        !ReferenceEquals(previous.Cover, cover.Cover) &&
+                        !_states.Any(state => ReferenceEquals(state.Cover, previous.Cover)))
+                    {
+                        try
+                        {
+                            previous.Cover.Dispose();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                        }
+                    }
+
                     EnsureAnimationLoop();
                 }
                 return;

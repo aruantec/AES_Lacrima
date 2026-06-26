@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using AES_Controls.Player.Models;
 using System.Numerics;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Rendering.Composition;
@@ -42,6 +44,7 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
     private const float DragCommitSeconds = 0.3f;
     private const float DragLiftScale = 1.04f;
     private const float HoverLiftScale = 0.034f;
+    private const int PendingDisposalFrameDelay = 3;
     private static readonly SKColor DefaultBackgroundColor = SKColor.Parse("#101010");
     private static readonly SKColor TileBackground = SKColor.Parse("#111111");
     private static readonly SKColor TileBorder = SKColor.Parse("#1A1A1A");
@@ -80,6 +83,15 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
     private readonly Dictionary<int, Vector2> _swapOffsetTargets = new();
     private readonly Dictionary<int, float> _hoverLift = new();
     private float _spinnerRotation;
+    private readonly HashSet<SKImage> _pendingDisposal = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<SKImage, int> _pendingDisposalAge = new(ReferenceEqualityComparer.Instance);
+
+    private sealed class ReferenceEqualityComparer : IEqualityComparer<SKImage>
+    {
+        public static ReferenceEqualityComparer Instance { get; } = new();
+        public bool Equals(SKImage? x, SKImage? y) => ReferenceEquals(x, y);
+        public int GetHashCode(SKImage obj) => RuntimeHelpers.GetHashCode(obj);
+    }
 
     private readonly List<AlbumTileVisual> _tiles = [];
     private string[] _titles = [];
@@ -128,17 +140,43 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
 
         public void Rebuild(IReadOnlyList<FolderItemSnapshot> snapshots, SKImage? defaultCover, bool spread, bool snap)
         {
-            foreach (var snapshot in SnapshotsOwned())
-            {
-                if (!snapshot.UseFolderCover)
-                    snapshot.Cover?.Dispose();
-            }
-
             _layers.Clear();
             Snapshots = snapshots.ToList();
             DefaultCover = defaultCover;
             _spread = spread;
             RecomputeTargets(snap);
+        }
+
+        public IEnumerable<SKImage> DrainCoverImages()
+        {
+            var images = new List<SKImage>();
+            if (DefaultCover != null)
+                images.Add(DefaultCover);
+
+            foreach (var layer in _layers)
+            {
+                if (layer.Cover != null)
+                    images.Add(layer.Cover);
+            }
+
+            DefaultCover = null;
+            _layers.Clear();
+            Snapshots.Clear();
+            return images;
+        }
+
+        public bool ReferencesImage(SKImage image)
+        {
+            if (ReferenceEquals(DefaultCover, image))
+                return true;
+
+            foreach (var layer in _layers)
+            {
+                if (ReferenceEquals(layer.Cover, image))
+                    return true;
+            }
+
+            return false;
         }
 
         private List<FolderItemSnapshot> Snapshots { get; set; } = [];
@@ -247,10 +285,16 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                 if (dest.Width <= 0.5f || dest.Height <= 0.5f || opacity <= 0.001)
                     return;
 
-                byte alpha = (byte)Math.Clamp((int)(255 * opacity), 0, 255);
-                using var paint = new SKPaint { IsAntialias = true, FilterQuality = SKFilterQuality.Medium, Color = SKColors.White.WithAlpha(alpha) };
-                var src = UniformToFillSrc(cover.Width, cover.Height, dest);
-                c.DrawImage(cover, src, dest, paint);
+                try
+                {
+                    byte alpha = (byte)Math.Clamp((int)(255 * opacity), 0, 255);
+                    using var paint = new SKPaint { IsAntialias = true, FilterQuality = SKFilterQuality.Medium, Color = SKColors.White.WithAlpha(alpha) };
+                    var src = UniformToFillSrc(cover.Width, cover.Height, dest);
+                    c.DrawImage(cover, src, dest, paint);
+                }
+                catch (ObjectDisposedException)
+                {
+                }
             }
         }
 
@@ -349,6 +393,7 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
             case null:
                 ReleaseAllTileImages();
                 _tiles.Clear();
+                ProcessPendingDisposals(force: true);
                 return;
             case Vector2 size:
                 _visualSize = size;
@@ -388,21 +433,25 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
 
                     if (tile.Folder.HasSameSnapshotStructure(covers.Snapshots))
                     {
-                        for (int i = 0; i < tile.Snapshots.Count; i++)
-                        {
-                            var previous = tile.Snapshots[i];
-                            var next = covers.Snapshots[i];
-                            if (!previous.UseFolderCover && previous.Cover != next.Cover)
-                                previous.Cover?.Dispose();
-                        }
-
-                        if (tile.DefaultCover != covers.DefaultCover)
-                            tile.DefaultCover?.Dispose();
+                        var oldSnapshots = tile.Snapshots.ToList();
+                        var oldDefault = tile.DefaultCover;
 
                         tile.DefaultCover = covers.DefaultCover;
                         tile.Snapshots.Clear();
                         tile.Snapshots.AddRange(covers.Snapshots);
                         tile.Folder.UpdateCoverImages(covers.Snapshots, covers.DefaultCover);
+
+                        if (oldDefault != null && !ReferenceEquals(oldDefault, covers.DefaultCover))
+                            QueueImageDisposal(oldDefault);
+
+                        foreach (var oldSnapshot in oldSnapshots)
+                        {
+                            if (oldSnapshot.UseFolderCover || oldSnapshot.Cover == null)
+                                continue;
+
+                            if (!IsImageReferencedByTiles(oldSnapshot.Cover))
+                                QueueImageDisposal(oldSnapshot.Cover);
+                        }
                     }
                     else
                     {
@@ -699,8 +748,10 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                            hoverAnimating ||
                            dragAnimating;
         bool animateSpinners = _loadingFlags.Any(static f => f);
+        ProcessPendingDisposals();
+        bool hasPendingDisposal = _pendingDisposal.Count > 0;
 
-        if (isAnimating || animateSpinners)
+        if (isAnimating || animateSpinners || hasPendingDisposal)
         {
             _spinnerRotation = (_spinnerRotation + 8f) % 360f;
             RegisterForNextAnimationFrameUpdate();
@@ -1146,16 +1197,95 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
             ReleaseTileImages(tile);
     }
 
-    private static void ReleaseTileImages(AlbumTileVisual tile)
+    private void ReleaseTileImages(AlbumTileVisual tile)
     {
-        tile.DefaultCover?.Dispose();
+        QueueImageDisposal(tile.DefaultCover);
         tile.DefaultCover = null;
-        foreach (var snap in tile.Snapshots)
+
+        foreach (var snapshot in tile.Snapshots)
         {
-            if (!snap.UseFolderCover)
-                snap.Cover?.Dispose();
+            if (!snapshot.UseFolderCover)
+                QueueImageDisposal(snapshot.Cover);
         }
+
         tile.Snapshots.Clear();
+
+        foreach (var image in tile.Folder.DrainCoverImages())
+            QueueImageDisposal(image);
+    }
+
+    private void QueueImageDisposal(SKImage? image)
+    {
+        if (image == null)
+            return;
+
+        if (!_pendingDisposal.Add(image))
+            return;
+
+        _pendingDisposalAge[image] = 0;
+        EnsureAnimationLoop();
+    }
+
+    private bool IsImageReferencedByTiles(SKImage image)
+    {
+        foreach (var tile in _tiles)
+        {
+            if (ReferenceEquals(tile.DefaultCover, image))
+                return true;
+
+            foreach (var snapshot in tile.Snapshots)
+            {
+                if (!snapshot.UseFolderCover && ReferenceEquals(snapshot.Cover, image))
+                    return true;
+            }
+
+            if (tile.Folder.ReferencesImage(image))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void ProcessPendingDisposals(bool force = false)
+    {
+        if (_pendingDisposal.Count == 0)
+            return;
+
+        foreach (var image in _pendingDisposal.ToArray())
+        {
+            if (IsImageReferencedByTiles(image))
+            {
+                _pendingDisposalAge[image] = 0;
+                continue;
+            }
+
+            if (!force)
+            {
+                _pendingDisposalAge.TryGetValue(image, out int age);
+                if (age < PendingDisposalFrameDelay)
+                {
+                    _pendingDisposalAge[image] = age + 1;
+                    continue;
+                }
+            }
+
+            if (!_pendingDisposal.Remove(image))
+                continue;
+
+            _pendingDisposalAge.Remove(image);
+            DisposeNativeImage(image);
+        }
+    }
+
+    private static void DisposeNativeImage(SKImage image)
+    {
+        try
+        {
+            image.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private void EnsureAnimationLoop()
