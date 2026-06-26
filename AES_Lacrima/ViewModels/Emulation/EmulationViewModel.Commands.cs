@@ -181,10 +181,12 @@ namespace AES_Lacrima.ViewModels
             if (index < 0 || index >= AlbumList.Count)
                 return;
 
+            CancelAlbumPreviewCoverLoadsOutsideRange(index, AlbumRowPreviewCoverRadius);
+
             if (AlbumList[index] is EmulationAlbumItem emulationAlbum && emulationAlbum.Children.Count > 0)
                 QueueAlbumPreviewCoverLoad(emulationAlbum);
 
-            QueueAlbumPresentationCoverLoadsNearIndex(index);
+            ScheduleNeighborAlbumPreviewCoverLoads(index);
         }
 
         partial void OnCarouselSliderPreviewChanged(double? value)

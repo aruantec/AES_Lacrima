@@ -131,8 +131,12 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingAlbumSelection;
         private CancellationTokenSource? _albumCoverScanCts;
         private DispatcherTimer? _albumRowCoverLoadDebounceTimer;
+        private DispatcherTimer? _albumRowNeighborCoverLoadTimer;
         private int _pendingAlbumRowCoverLoadIndex = -1;
-        private const int AlbumRowCoverLoadDebounceMs = 180;
+        private int _pendingNeighborCoverLoadIndex = -1;
+        private const int AlbumRowCoverLoadDebounceMs = 280;
+        private const int AlbumRowNeighborCoverLoadDelayMs = 450;
+        private const int AlbumRowPreviewCoverRadius = 3;
         private CancellationTokenSource? _gameplayPreviewCts;
         private bool _isGameplayPreviewActive;
         private bool _suppressSelectionStopForGameplayPreview;

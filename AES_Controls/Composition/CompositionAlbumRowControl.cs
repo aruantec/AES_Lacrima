@@ -607,6 +607,23 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         _isWheelScrolling = false;
         _knownScrollX = _animationSync.CurrentScrollX;
         _targetScrollX = _knownScrollX;
+        FlushDeferredTileCoverPushes();
+    }
+
+    private bool IsAlbumRowScrollActive()
+    {
+        if (_isScrollFrozen || _isWheelScrolling || _isPointerScrolling || _isScrollbarPressed)
+            return true;
+
+        if (Math.Abs(_velocityX) > 0.5)
+            return true;
+
+        if (Math.Abs(_targetScrollX - _knownScrollX) > 0.5)
+            return true;
+
+        return _animationSync.IsAnimating &&
+               (Math.Abs(_animationSync.VelocityX) > 0.5 ||
+                Math.Abs(_animationSync.TargetScrollX - _animationSync.CurrentScrollX) > 0.5);
     }
 
     private void BeginScrollInteraction()
@@ -615,6 +632,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             _isScrollFrozen = true;
             _visual?.SendHandlerMessage(new AlbumRowScrollFrozenMessage(true));
+            FolderCompositionTileControl.SetAlbumListScrollFrozen(true);
         }
 
         _scrollIdleTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ScrollIdleMs) };
@@ -631,7 +649,10 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             _isScrollFrozen = false;
             _visual?.SendHandlerMessage(new AlbumRowScrollFrozenMessage(false));
+            FolderCompositionTileControl.SetAlbumListScrollFrozen(false);
         }
+
+        FlushDeferredTileCoverPushes();
     }
 
     private void SettlePointerState()
@@ -1299,6 +1320,15 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         _tileCoverFingerprints.Remove(index);
         _pendingTileCoverIndices.Add(index);
+
+        if (IsAlbumRowScrollActive())
+            return;
+
+        EnsureTileCoverReloadDebounceTimer();
+    }
+
+    private void EnsureTileCoverReloadDebounceTimer()
+    {
         _tileCoverReloadDebounceTimer ??= new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(TileCoverReloadDebounceMs)
@@ -1307,6 +1337,14 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         _tileCoverReloadDebounceTimer.Tick += TileCoverReloadDebounceTimer_Tick;
         _tileCoverReloadDebounceTimer.Stop();
         _tileCoverReloadDebounceTimer.Start();
+    }
+
+    private void FlushDeferredTileCoverPushes()
+    {
+        if (_pendingTileCoverIndices.Count == 0)
+            return;
+
+        EnsureTileCoverReloadDebounceTimer();
     }
 
     private void TileCoverReloadDebounceTimer_Tick(object? sender, EventArgs e)
@@ -1320,7 +1358,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         PostToUi(() =>
         {
             foreach (var index in indices)
-                PushTileCovers(index);
+                PushTileCoversCore(index);
         });
     }
 
@@ -1433,6 +1471,17 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     }
 
     private void PushTileCovers(int index)
+    {
+        if (IsAlbumRowScrollActive())
+        {
+            SchedulePushTileCovers(index);
+            return;
+        }
+
+        PushTileCoversCore(index);
+    }
+
+    private void PushTileCoversCore(int index)
     {
         if (_visual == null || index < 0 || index >= _itemsSnapshot.Length)
             return;
