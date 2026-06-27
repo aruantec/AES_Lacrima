@@ -127,6 +127,7 @@ namespace AES_Lacrima.ViewModels
                 : "Launch emulator";
 
         public bool CanLaunchCurrentSectionHandlerSetup =>
+            LoadedAlbum != null &&
             CurrentSectionEmulatorHandler != null &&
             CurrentSectionEmulatorHandler?.HasLauncherPath == true &&
             !IsEmulatorRunning &&

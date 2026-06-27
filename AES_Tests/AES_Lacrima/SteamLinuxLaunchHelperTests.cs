@@ -116,8 +116,18 @@ public sealed class SteamLinuxLaunchHelperTests
             arg == "SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=1");
         Assert.Contains(startInfo.ArgumentList, arg =>
             arg.StartsWith("EnableConfiguratorSupport=", StringComparison.Ordinal));
-        Assert.DoesNotContain(startInfo.ArgumentList, arg =>
-            arg.StartsWith("LD_PRELOAD=", StringComparison.Ordinal));
+        if (SteamControllerEnvironmentHelper.ShouldApplySteamInputRouting())
+        {
+            Assert.Contains(startInfo.ArgumentList, arg =>
+                arg.StartsWith("SDL_GAMECONTROLLER_IGNORE_DEVICES=", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.DoesNotContain(startInfo.ArgumentList, arg =>
+                arg.StartsWith("LD_PRELOAD=", StringComparison.Ordinal));
+            Assert.DoesNotContain(startInfo.ArgumentList, arg =>
+                arg.StartsWith("SDL_GAMECONTROLLER_IGNORE_DEVICES=", StringComparison.Ordinal));
+        }
         Assert.DoesNotContain(startInfo.ArgumentList, arg =>
             arg == "ENABLE_GAMESCOPE_WSI=0");
         Assert.Contains(startInfo.ArgumentList, arg =>

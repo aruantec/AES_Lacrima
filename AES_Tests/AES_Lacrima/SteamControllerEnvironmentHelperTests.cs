@@ -86,6 +86,13 @@ public sealed class SteamControllerEnvironmentHelperTests
     }
 
     [Fact]
+    public void TryResolveSdlGameControllerIgnoreDevices_falls_back_to_playstation_devices()
+    {
+        var resolved = SteamControllerEnvironmentHelper.TryResolveSdlGameControllerIgnoreDevices("/tmp/no-steam", "123");
+        Assert.Equal(SteamControllerEnvironmentHelper.DefaultSteamInputIgnoreDevices, resolved);
+    }
+
+    [Fact]
     public void ParseIgnoreDevicesFromRuntimeLog_reads_pressure_vessel_line()
     {
         var logPath = Path.Combine(Path.GetTempPath(), "aes-steam-slr-" + Guid.NewGuid().ToString("N") + ".log");

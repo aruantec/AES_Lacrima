@@ -120,9 +120,10 @@ public static class SteamLinuxLaunchHelper
         startInfo.ArgumentList.Add("waitforexitandrun");
         startInfo.ArgumentList.Add(gameExecutable);
 
-        Log.Info(
-            $"Steam direct Proton launch: appId={game.AppId}, python='{pythonPath}', proton='{protonPath}', " +
-            $"game='{gameExecutable}', compat='{compatDataPath}'.");
+            Log.Info(
+                $"Steam direct Proton launch: appId={game.AppId}, python='{pythonPath}', proton='{protonPath}', " +
+                $"game='{gameExecutable}', compat='{compatDataPath}', " +
+                $"steamInputRouting={SteamControllerEnvironmentHelper.ShouldApplySteamInputRouting()}.");
         return true;
     }
 
@@ -145,7 +146,7 @@ public static class SteamLinuxLaunchHelper
                      appId,
                      installDirectory,
                      protonDirectory,
-                     applySteamInputDeviceFilters: false))
+                     applySteamInputDeviceFilters: SteamControllerEnvironmentHelper.ShouldApplySteamInputRouting()))
         {
             yield return assignment;
         }

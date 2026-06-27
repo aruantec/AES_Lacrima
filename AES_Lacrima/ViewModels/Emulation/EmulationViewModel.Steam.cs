@@ -25,6 +25,9 @@ namespace AES_Lacrima.ViewModels
         private CancellationTokenSource? _steamStartupSyncCts;
         private int _steamStartupSyncState;
         private readonly HashSet<EmulationAlbumItem> _steamAlbumsPendingPresentation = new();
+        private EmulationAlbumItem? _pendingSteamSyncAlbum;
+        private bool _pendingSteamSyncForcePresentation;
+        private bool _pendingSteamSyncForceRefresh;
 
         private void ScheduleDeferredSteamStartupSync()
         {
@@ -127,34 +130,77 @@ namespace AES_Lacrima.ViewModels
                 await SyncSteamLibraryAsync(album).ConfigureAwait(false);
         }
 
-        private async Task SyncSteamLibraryAsync(EmulationAlbumItem album, bool forcePresentation = false)
+        private async Task SyncSteamLibraryAsync(
+            EmulationAlbumItem album,
+            bool forcePresentation = false,
+            bool forceRefresh = false)
         {
             if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
                 return;
 
-            if (!await _steamSyncSemaphore.WaitAsync(0).ConfigureAwait(false))
+            if (!await _steamSyncSemaphore.WaitAsync(forceRefresh || forcePresentation ? Timeout.InfiniteTimeSpan : TimeSpan.Zero)
+                    .ConfigureAwait(false))
+            {
+                lock (_steamSyncGate)
+                {
+                    _pendingSteamSyncAlbum = album;
+                    _pendingSteamSyncForcePresentation |= forcePresentation;
+                    _pendingSteamSyncForceRefresh |= forceRefresh;
+                }
+
                 return;
+            }
 
             try
             {
-                IReadOnlyList<SteamInstalledGame> installedGames;
-                try
+                do
                 {
-                    installedGames = await Task.Run(SteamInstalledGameHelper.GetInstalledGames).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    SLog.Warn("Failed to enumerate installed Steam games.", ex);
-                    return;
-                }
+                    if (forceRefresh)
+                        SteamInstalledGameHelper.InvalidateInstalledGamesCache();
 
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    if (IsEmulatorRunning)
-                        return;
+                    IReadOnlyList<SteamInstalledGame> installedGames;
+                    try
+                    {
+                        installedGames = await Task.Run(SteamInstalledGameHelper.GetInstalledGames).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn("Failed to enumerate installed Steam games.", ex);
+                        break;
+                    }
 
-                    ApplySteamLibrarySnapshot(album, installedGames, forcePresentation);
-                }, DispatcherPriority.Background);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsEmulatorRunning)
+                            return;
+
+                        ApplySteamLibrarySnapshot(album, installedGames, forcePresentation);
+                    }, DispatcherPriority.Background);
+
+                    EmulationAlbumItem? pendingAlbum = null;
+                    bool pendingForcePresentation = false;
+                    bool pendingForceRefresh = false;
+                    lock (_steamSyncGate)
+                    {
+                        if (_pendingSteamSyncAlbum != null)
+                        {
+                            pendingAlbum = _pendingSteamSyncAlbum;
+                            pendingForcePresentation = _pendingSteamSyncForcePresentation;
+                            pendingForceRefresh = _pendingSteamSyncForceRefresh;
+                            _pendingSteamSyncAlbum = null;
+                            _pendingSteamSyncForcePresentation = false;
+                            _pendingSteamSyncForceRefresh = false;
+                        }
+                    }
+
+                    if (pendingAlbum == null)
+                        break;
+
+                    album = pendingAlbum;
+                    forcePresentation |= pendingForcePresentation;
+                    forceRefresh = pendingForceRefresh;
+                }
+                while (true);
             }
             finally
             {
@@ -221,7 +267,8 @@ namespace AES_Lacrima.ViewModels
         private void ApplySteamLibraryPresentationUpdates(EmulationAlbumItem album, bool addedNewItems)
         {
             UpdatePreviewItems(album);
-            QueueAlbumPreviewCoverLoad(album);
+            QueueAlbumPreviewCoverLoad(album, forceRestart: addedNewItems);
+            NotifyAlbumCoverDisplayChanged(album);
 
             if (!ReferenceEquals(LoadedAlbum, album))
                 return;
@@ -233,9 +280,6 @@ namespace AES_Lacrima.ViewModels
                 PointedIndex = -1;
                 CarouselSliderPreview = null;
             }
-
-            if (addedNewItems)
-                NotifyAlbumCoverDisplayChanged(album);
 
             OnPropertyChanged(nameof(HasActiveAlbumItems));
             OnPropertyChanged(nameof(ShowEmptyActiveAlbumHint));
@@ -249,14 +293,22 @@ namespace AES_Lacrima.ViewModels
             IReadOnlyList<SteamInstalledGame> installedGames,
             bool shouldPresent)
         {
-            if (album.Children.Count != installedGames.Count)
-                return false;
-
             var installedByPath = installedGames
                 .ToDictionary(game => game.GamePath, StringComparer.OrdinalIgnoreCase);
 
             if (installedByPath.Count != installedGames.Count)
                 return false;
+
+            var existingPaths = album.Children
+                .Select(item => item.FileName)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (existingPaths.Count != album.Children.Count ||
+                existingPaths.Count != installedGames.Count)
+            {
+                return false;
+            }
 
             foreach (var existing in album.Children)
             {
@@ -265,6 +317,12 @@ namespace AES_Lacrima.ViewModels
                 {
                     return false;
                 }
+            }
+
+            foreach (var game in installedGames)
+            {
+                if (!existingPaths.Contains(game.GamePath))
+                    return false;
             }
 
             var anyNeedsCover = false;
@@ -279,7 +337,7 @@ namespace AES_Lacrima.ViewModels
 
             if (anyNeedsCover)
             {
-                if (shouldPresent && ReferenceEquals(LoadedAlbum, album))
+                if (shouldPresent)
                     QueueAlbumPreviewCoverLoad(album);
                 else
                     _steamAlbumsPendingPresentation.Add(album);
@@ -300,7 +358,7 @@ namespace AES_Lacrima.ViewModels
                 return;
 
             SLog.Info($"Manual Steam library refresh requested for album '{album.Title}'.");
-            await SyncSteamLibraryAsync(album, forcePresentation: true).ConfigureAwait(false);
+            await SyncSteamLibraryAsync(album, forcePresentation: true, forceRefresh: true).ConfigureAwait(false);
         }
 
         private static MediaItem CreateSteamGameItem(SteamInstalledGame game, FolderMediaItem album)
@@ -322,6 +380,9 @@ namespace AES_Lacrima.ViewModels
         {
             if (item.CoverBitmap != null && !ReferenceEquals(item.CoverBitmap, album.CoverBitmap))
                 return false;
+
+            if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath))
+                iconPath = SteamInstalledGameHelper.GetPreferredIconPath(item.FileName);
 
             if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath))
                 return false;
@@ -393,12 +454,12 @@ namespace AES_Lacrima.ViewModels
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
+                    await SyncSteamLibraryAsync(album, forceRefresh: true).ConfigureAwait(false);
                     while (!token.IsCancellationRequested)
                     {
                         try
                         {
-                            await SyncSteamLibraryAsync(album).ConfigureAwait(false);
+                            await SyncSteamLibraryAsync(album, forceRefresh: true).ConfigureAwait(false);
                             await Task.Delay(TimeSpan.FromMinutes(1), token).ConfigureAwait(false);
                         }
                         catch (OperationCanceledException)
@@ -499,7 +560,7 @@ namespace AES_Lacrima.ViewModels
                 try
                 {
                     await Task.Delay(1500, token).ConfigureAwait(false);
-                    await SyncSteamLibraryAsync(album).ConfigureAwait(false);
+                    await SyncSteamLibraryAsync(album, forceRefresh: true).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -633,7 +694,7 @@ namespace AES_Lacrima.ViewModels
                 {
                     // Let the carousel finish layout before scanning manifests and hydrating covers.
                     await Task.Delay(500, token).ConfigureAwait(false);
-                    await SyncSteamLibraryAsync(album).ConfigureAwait(false);
+                    await SyncSteamLibraryAsync(album, forceRefresh: true).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {

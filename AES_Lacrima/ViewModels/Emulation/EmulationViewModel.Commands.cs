@@ -53,10 +53,10 @@ namespace AES_Lacrima.ViewModels
             GetActiveEmulationAlbum() is { } album && !IsSteamAlbum(album);
 
         /// <summary>
-        /// Album used for section-scoped UI (render options handler tab, per-section settings).
-        /// Carousel selection takes priority; opened album is used when nothing is selected.
+        /// Album used for section-scoped UI (handler setup button, render options, per-section settings).
+        /// Only the opened album drives this context; row selection alone must not surface handler controls.
         /// </summary>
-        private FolderMediaItem? GetActiveEmulationSectionAlbum() => SelectedAlbum ?? LoadedAlbum;
+        private FolderMediaItem? GetActiveEmulationSectionAlbum() => LoadedAlbum;
 
         private EmulationSectionItem? ResolveCurrentEmulationSection()
             => TryResolveEmulationSection(GetActiveEmulationSectionAlbum());

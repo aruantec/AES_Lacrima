@@ -1697,7 +1697,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 QueueGameplayPreview(HighlightedItem, immediate: true);
 
             if (_watchedSteamAlbum != null)
-                _ = SyncSteamLibraryAsync(_watchedSteamAlbum);
+                _ = SyncSteamLibraryAsync(_watchedSteamAlbum, forcePresentation: true, forceRefresh: true);
         }
 
         partial void OnIsEmulatorLaunchInProgressChanged(bool value)
@@ -1966,12 +1966,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             SyncSelectedAlbumIndexFromAlbum(value);
             OnPropertyChanged(nameof(ShowAlbumRomImportMenuItems));
-
-            if (CurrentEmulationSectionHasRetroArchHandler())
-                SettingsViewModel?.RefreshRetroArchCores();
-
-            SyncCurrentSectionEmulatorContext();
-
             AutoSave();
         }
 
