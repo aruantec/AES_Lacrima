@@ -336,11 +336,111 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
-    public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesRetroArchHandler()
+    public void EmulatorHandlerRegistry_FinalBurnNeo_IncludesRetroArchFbNeoHandler()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");
 
-        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "retroarch", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "retroarch-fbn", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EmulatorHandlerRegistry_FinalBurnNeo_DoesNotIncludeArcadeRetroArchHandler()
+    {
+        var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Final Burn Neo");
+
+        Assert.DoesNotContain(handlers, handler => string.Equals(handler.HandlerId, "retroarch", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EmulationSectionItem_RetroArchCoreSelections_AreIndependentForArcadeAndFbNeoHandlers()
+    {
+        var arcadeSection = new EmulationSectionItem
+        {
+            SectionKey = "ARCADE",
+            SectionTitle = "Arcade",
+            LaunchSettings = new EmulationSectionLaunchSettings()
+        };
+
+        var fbNeoSection = new EmulationSectionItem
+        {
+            SectionKey = "FBN",
+            SectionTitle = "Final Burn Neo",
+            LaunchSettings = new EmulationSectionLaunchSettings()
+        };
+
+        arcadeSection.SetSelectedRetroArchCoreForHandler("retroarch", "mame_libretro.dll");
+        fbNeoSection.SetSelectedRetroArchCoreForHandler("retroarch-fbn", "fbneo_libretro.dll");
+
+        Assert.Equal("mame_libretro.dll", arcadeSection.GetSelectedRetroArchCoreForHandler("retroarch"));
+        Assert.Equal("fbneo_libretro.dll", fbNeoSection.GetSelectedRetroArchCoreForHandler("retroarch-fbn"));
+    }
+
+    [Fact]
+    public void EmulationSectionItem_HasPersistedRetroArchCoreForHandler_RequiresPerHandlerEntry()
+    {
+        var section = new EmulationSectionItem
+        {
+            SectionKey = "ARCADE",
+            SectionTitle = "Arcade",
+            LaunchSettings = new EmulationSectionLaunchSettings
+            {
+                SelectedRetroArchCore = "mame2000_libretro.dll",
+                SelectedRetroArchCoreByHandlerId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["retroarch"] = "mame2010_libretro.dll"
+                }
+            }
+        };
+
+        Assert.True(section.HasPersistedRetroArchCoreForHandler("retroarch"));
+        Assert.Equal("mame2010_libretro.dll", section.GetSelectedRetroArchCoreForHandler("retroarch"));
+    }
+
+    [Fact]
+    public void EmulationSectionItem_MigrateLegacyRetroArchCoreSelection_BackfillsMissingHandlers()
+    {
+        var section = new EmulationSectionItem
+        {
+            SectionKey = "ARCADE",
+            SectionTitle = "Arcade",
+            LaunchSettings = new EmulationSectionLaunchSettings
+            {
+                SelectedRetroArchCore = "mame2010_libretro.dll",
+                SelectedRetroArchCoreByHandlerId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["retroarch-fbn"] = "fbneo_libretro.dll"
+                }
+            }
+        };
+
+        section.Handlers.Add(new EmulationHandlerAppItem(RetroArchHandler.Instance, section, _ => Task.CompletedTask));
+        section.Handlers.Add(new EmulationHandlerAppItem(RetroArchFbNeoHandler.Instance, section, _ => Task.CompletedTask));
+
+        section.MigrateLegacyRetroArchCoreSelection();
+
+        Assert.Equal("mame2010_libretro.dll", section.GetSelectedRetroArchCoreForHandler("retroarch"));
+        Assert.Equal("fbneo_libretro.dll", section.GetSelectedRetroArchCoreForHandler("retroarch-fbn"));
+    }
+    {
+        var section = new EmulationSectionItem
+        {
+            SectionKey = "FBN",
+            SectionTitle = "Final Burn Neo",
+            SelectedHandlerId = "retroarch",
+            LaunchSettings = new EmulationSectionLaunchSettings
+            {
+                SelectedRetroArchCoreByHandlerId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["retroarch"] = "fbneo_libretro.dll"
+                }
+            }
+        };
+
+        section.MigrateRetroArchFbNeoHandlerCoreSelection();
+
+        Assert.Equal("retroarch-fbn", section.SelectedHandlerId);
+        Assert.Equal("fbneo_libretro.dll", section.GetSelectedRetroArchCoreForHandler("retroarch-fbn"));
+        Assert.Null(section.GetSelectedRetroArchCoreForHandler("retroarch"));
     }
 
     [Fact]

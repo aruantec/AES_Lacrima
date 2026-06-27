@@ -99,6 +99,8 @@ public class CustomMetadata
     public int ArcadeLockedPillarboxCropRight { get; set; }
     /// <summary>Capture frame width when <see cref="ArcadeLockedPillarboxCropLeft"/> / <see cref="ArcadeLockedPillarboxCropRight"/> were saved.</summary>
     public int ArcadeLockedPillarboxCropFrameWidth { get; set; }
+    /// <summary>Per-ROM RetroArch core override for arcade sections. Empty uses the section default core.</summary>
+    public string ArcadeRetroArchCore { get; set; } = "";
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>
@@ -115,6 +117,7 @@ public class CustomMetadata
         ArcadeLockedPillarboxCropLeft = source.ArcadeLockedPillarboxCropLeft;
         ArcadeLockedPillarboxCropRight = source.ArcadeLockedPillarboxCropRight;
         ArcadeLockedPillarboxCropFrameWidth = source.ArcadeLockedPillarboxCropFrameWidth;
+        ArcadeRetroArchCore = source.ArcadeRetroArchCore;
     }
 }
 

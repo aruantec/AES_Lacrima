@@ -99,7 +99,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             var launchSettings = TryResolveEmulationSection(album) is { } section
-                ? SettingsViewModel?.GetResolvedEmulationSectionLaunchSettingsForLaunch(section, handler)
+                ? ResolveLaunchSettingsForRom(album, handler, item.FileName)
                 : ResolveEmulationLaunchSettingsForAlbum(album);
             var launchRequest = new PendingEmulatorLaunchRequest(
                 album.Title ?? string.Empty,

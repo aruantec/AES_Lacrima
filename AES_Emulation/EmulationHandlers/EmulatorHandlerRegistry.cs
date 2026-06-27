@@ -22,6 +22,7 @@ public static class EmulatorHandlerRegistry
             YmirHandler.Instance,
             FbNeoHandler.Instance,
             RetroArchHandler.Instance,
+            RetroArchFbNeoHandler.Instance,
             RetroArchGbaHandler.Instance,
             RetroArchGenesisHandler.Instance,
             RetroArchSaturnHandler.Instance,

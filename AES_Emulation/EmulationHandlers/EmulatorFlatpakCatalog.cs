@@ -16,6 +16,7 @@ public static class EmulatorFlatpakCatalog
         ["duckstation"] = new([], ["duckstation"]),
         ["flycast"] = new(["org.flycast.Flycast"], ["flycast"]),
         ["retroarch"] = new(["org.libretro.RetroArch"], ["retroarch", "libretro"]),
+        ["retroarch-fbn"] = new(["org.libretro.RetroArch"], ["retroarch", "libretro"]),
         ["retroarch-gba"] = new(["org.libretro.RetroArch"], ["retroarch", "libretro"]),
         ["retroarch-genesis"] = new(["org.libretro.RetroArch"], ["retroarch", "libretro"]),
         ["retroarch-saturn"] = new(["org.libretro.RetroArch"], ["retroarch", "libretro"]),

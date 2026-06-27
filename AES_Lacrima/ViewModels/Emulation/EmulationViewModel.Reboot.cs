@@ -42,7 +42,7 @@ public partial class EmulationViewModel
             return null;
 
         var launchSettings = album != null && TryResolveEmulationSection(album) is { } section
-            ? SettingsViewModel?.GetResolvedEmulationSectionLaunchSettingsForLaunch(section, handler)
+            ? ResolveLaunchSettingsForRom(album, handler, item.FileName)
             : SettingsViewModel?.GetResolvedEmulationSectionLaunchSettings(albumTitle);
         return new PendingEmulatorLaunchRequest(
             albumTitle,

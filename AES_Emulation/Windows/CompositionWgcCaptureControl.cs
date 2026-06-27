@@ -2114,9 +2114,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             var imageW = _letterboxImage.Width;
             var imageH = _letterboxImage.Height;
             var srcRect = new SKRect(0, 0, imageW, imageH);
-            var dest = ShouldAutoCropPillarboxes
-                ? viewRect
-                : CalculateUniformToFillRect(viewW, viewH, imageW, imageH);
+            var dest = CalculateUniformToFillRect(viewW, viewH, imageW, imageH);
             canvas.Save();
             canvas.ClipRect(viewRect);
             canvas.DrawImage(_letterboxImage, srcRect, dest, _letterboxPaint);

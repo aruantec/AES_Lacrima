@@ -175,6 +175,10 @@ public sealed class EmulationHandlerAppItem : ObservableObject
             if (value is { IsGroupHeader: true })
                 return;
 
+            // ComboBox list rebuilds push null through TwoWay binding; ignore those resets.
+            if (value == null && !string.IsNullOrWhiteSpace(_section.GetSelectedRetroArchCoreForHandler(Handler.HandlerId)))
+                return;
+
             SelectedRetroArchCore = value?.FileName;
         }
     }
@@ -191,6 +195,7 @@ public sealed class EmulationHandlerAppItem : ObservableObject
         {
             var id = Handler.HandlerId;
             return string.Equals(id, "retroarch", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, "retroarch-fbn", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "retroarch-saturn", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "retroarch-gba", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(id, "retroarch-genesis", StringComparison.OrdinalIgnoreCase) ||
@@ -417,6 +422,15 @@ public partial class EmulationSectionItem : ObservableObject
         return LaunchSettings.SelectedRetroArchCore;
     }
 
+    public bool HasPersistedRetroArchCoreForHandler(string? handlerId)
+    {
+        if (LaunchSettings?.SelectedRetroArchCoreByHandlerId == null || string.IsNullOrWhiteSpace(handlerId))
+            return false;
+
+        return LaunchSettings.SelectedRetroArchCoreByHandlerId.TryGetValue(handlerId, out var core) &&
+               !string.IsNullOrWhiteSpace(core);
+    }
+
     public void SetSelectedRetroArchCoreForHandler(string? handlerId, string? coreFileName)
     {
         LaunchSettings ??= new EmulationSectionLaunchSettings();
@@ -443,23 +457,67 @@ public partial class EmulationSectionItem : ObservableObject
     public void MigrateLegacyRetroArchCoreSelection()
     {
         if (LaunchSettings == null ||
-            LaunchSettings.SelectedRetroArchCoreByHandlerId is { Count: > 0 } ||
             string.IsNullOrWhiteSpace(LaunchSettings.SelectedRetroArchCore))
         {
             return;
         }
 
-        var handlerId = SelectedHandlerId;
-        if (string.IsNullOrWhiteSpace(handlerId))
+        LaunchSettings.SelectedRetroArchCoreByHandlerId ??=
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var legacyCore = LaunchSettings.SelectedRetroArchCore;
+
+        if (LaunchSettings.SelectedRetroArchCoreByHandlerId.Count == 0)
         {
-            handlerId = Handlers
-                .Select(item => item.Handler)
-                .FirstOrDefault(handler => handler.UsesRetroArchCores)
-                ?.HandlerId;
+            var handlerId = SelectedHandlerId;
+            if (string.IsNullOrWhiteSpace(handlerId))
+            {
+                handlerId = Handlers
+                    .Select(item => item.Handler)
+                    .FirstOrDefault(handler => handler.UsesRetroArchCores)
+                    ?.HandlerId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(handlerId))
+                SetSelectedRetroArchCoreForHandler(handlerId, legacyCore);
+
+            return;
         }
 
-        if (!string.IsNullOrWhiteSpace(handlerId))
-            SetSelectedRetroArchCoreForHandler(handlerId, LaunchSettings.SelectedRetroArchCore);
+        foreach (var handlerItem in Handlers.Where(item => item.Handler.UsesRetroArchCores))
+        {
+            if (HasPersistedRetroArchCoreForHandler(handlerItem.HandlerId))
+                continue;
+
+            SetSelectedRetroArchCoreForHandler(handlerItem.HandlerId, legacyCore);
+        }
+    }
+
+    public void MigrateRetroArchFbNeoHandlerCoreSelection()
+    {
+        if (!string.Equals(SectionKey, "FBN", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(SectionTitle, "Final Burn Neo", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        LaunchSettings ??= new EmulationSectionLaunchSettings();
+        LaunchSettings.SelectedRetroArchCoreByHandlerId ??=
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        const string legacyHandlerId = "retroarch";
+        const string fbNeoHandlerId = "retroarch-fbn";
+
+        if (!LaunchSettings.SelectedRetroArchCoreByHandlerId.ContainsKey(fbNeoHandlerId) &&
+            LaunchSettings.SelectedRetroArchCoreByHandlerId.TryGetValue(legacyHandlerId, out var legacyCore) &&
+            !string.IsNullOrWhiteSpace(legacyCore))
+        {
+            LaunchSettings.SelectedRetroArchCoreByHandlerId[fbNeoHandlerId] = legacyCore;
+            LaunchSettings.SelectedRetroArchCoreByHandlerId.Remove(legacyHandlerId);
+        }
+
+        if (string.Equals(SelectedHandlerId, legacyHandlerId, StringComparison.OrdinalIgnoreCase))
+            SelectedHandlerId = fbNeoHandlerId;
     }
 
     public bool HasRetroArchCores => RetroArchCores.Count > 0;
@@ -2861,15 +2919,6 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             };
 
             var handlers = EmulatorHandlerRegistry.GetHandlersForSection(sectionTitle);
-            if (sectionKey.Contains("FBN", StringComparison.OrdinalIgnoreCase) &&
-                !handlers.Any(handler => string.Equals(handler.HandlerId, RetroArchHandler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase)))
-            {
-                handlers = [..handlers, RetroArchHandler.Instance];
-            }
-            else if (handlers.Count == 0 && sectionKey.Contains("FBN", StringComparison.OrdinalIgnoreCase))
-            {
-                handlers = [RetroArchHandler.Instance];
-            }
 
             if (string.Equals(sectionKey, "GBA", StringComparison.OrdinalIgnoreCase))
                 handlers = handlers.Where(handler => handler.UsesRetroArchCores).ToList();
@@ -2977,6 +3026,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         try
         {
             var isRetroArchHandler = string.Equals(handlerId, "retroarch", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(handlerId, "retroarch-fbn", StringComparison.OrdinalIgnoreCase) ||
                                      string.Equals(handlerId, "retroarch-saturn", StringComparison.OrdinalIgnoreCase) ||
                                      string.Equals(handlerId, "retroarch-gba", StringComparison.OrdinalIgnoreCase) ||
                                      string.Equals(handlerId, "retroarch-genesis", StringComparison.OrdinalIgnoreCase);
@@ -3498,6 +3548,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         foreach (var section in EmulationSections)
         {
             section.MigrateLegacyRetroArchCoreSelection();
+            section.MigrateRetroArchFbNeoHandlerCoreSelection();
 
             var sectionCores = new HashSet<string>(foundCores, StringComparer.OrdinalIgnoreCase);
             foreach (var handlerItem in section.Handlers.Where(item => item.Handler.UsesRetroArchCores))
@@ -3516,7 +3567,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
             foreach (var handlerItem in section.Handlers.Where(item => item.Handler.UsesRetroArchCores))
             {
-                if (!string.IsNullOrWhiteSpace(section.GetSelectedRetroArchCoreForHandler(handlerItem.HandlerId)))
+                if (section.HasPersistedRetroArchCoreForHandler(handlerItem.HandlerId))
                     continue;
 
                 var defaultCore = SelectDefaultRetroArchCore(section, availableCores);
@@ -3640,8 +3691,19 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
         if (IsRetroArchArcadeSection(section.SectionKey, section.SectionTitle))
         {
-            var arcadePreference = new[] { "fbneo", "mame", "finalburn", "fbalpha", "neogeo" };
+            var arcadePreference = new[] { "mame2010", "mame2003_plus", "mame2003", "mame2000", "mame" };
             foreach (var keyword in arcadePreference)
+            {
+                var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+        }
+
+        if (IsRetroArchFbNeoSection(section.SectionKey, section.SectionTitle))
+        {
+            var fbNeoPreference = new[] { "fbneo", "finalburn", "fbalpha", "neogeo" };
+            foreach (var keyword in fbNeoPreference)
             {
                 var match = availableCores.FirstOrDefault(core => core.Contains(keyword, StringComparison.OrdinalIgnoreCase));
                 if (match != null)
@@ -3654,7 +3716,12 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
 
     private static bool IsRetroArchArcadeSection(string? sectionKey, string? sectionTitle)
     {
-        return IsRetroArchSection(sectionKey, sectionTitle, "arcade", "mame", "fbneo", "final burn neo", "fbn");
+        return IsRetroArchSection(sectionKey, sectionTitle, "arcade", "mame");
+    }
+
+    private static bool IsRetroArchFbNeoSection(string? sectionKey, string? sectionTitle)
+    {
+        return IsRetroArchSection(sectionKey, sectionTitle, "fbneo", "final burn neo", "fbn");
     }
 
     private static bool IsRetroArch3DSSection(string? sectionKey, string? sectionTitle)
@@ -4418,6 +4485,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                 item.SelectedHandlerId = item.Handlers[0].HandlerId;
 
             item.MigrateLegacyRetroArchCoreSelection();
+            item.MigrateRetroArchFbNeoHandlerCoreSelection();
 
             if (EmulatorSectionDirectoryHelper.TryGetSectionConfiguration(
                     emulationSectionLauncherPaths,
