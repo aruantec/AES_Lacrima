@@ -12,7 +12,7 @@ namespace AES_Lacrima.Services.Steam;
 /// Applies Steam Input / overlay environment for direct Proton launches.
 /// Normal Steam launches preload gameoverlayrenderer.so (Steam Input depends on it).
 /// gamescope --steam is intentionally not used: it breaks headless PipeWire capture.
-/// Physical controllers are left visible to Proton/SDL unless full Steam Input routing is active.
+/// Physical controllers are hidden and Steam's virtual gamepad is used when Steam is running.
 /// </summary>
 internal static class SteamControllerEnvironmentHelper
 {
@@ -24,6 +24,9 @@ internal static class SteamControllerEnvironmentHelper
     private static readonly Regex IgnoreDevicesRegex = new(
         @"^SDL_GAMECONTROLLER_IGNORE_DEVICES=(?<value>.+)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static bool ShouldApplySteamInputRouting()
+        => OperatingSystem.IsLinux() && SteamClientIpcHelper.IsSteamClientRunning();
 
     public static IEnumerable<string> BuildEnvironmentAssignments(
         string libraryRoot,
@@ -108,10 +111,13 @@ internal static class SteamControllerEnvironmentHelper
         return toolPaths.Count == 0 ? null : string.Join(':', toolPaths);
     }
 
+    internal const string DefaultSteamInputIgnoreDevices =
+        "0x054c/0x05c4,0x054c/0x09cc,0x054c/0x0ba0,0x054c/0x0ce6,0x054c/0x0df2";
+
     internal static string? TryResolveSdlGameControllerIgnoreDevices(string libraryRoot, string appId)
     {
         if (string.IsNullOrWhiteSpace(libraryRoot) || string.IsNullOrWhiteSpace(appId))
-            return null;
+            return DefaultSteamInputIgnoreDevices;
 
         try
         {
@@ -123,23 +129,35 @@ internal static class SteamControllerEnvironmentHelper
                 "var");
 
             if (!Directory.Exists(runtimeVarDirectory))
-                return null;
+                return DefaultSteamInputIgnoreDevices;
 
-            var pattern = $"slr-app{appId}-t*.log";
-            var latestLog = Directory.EnumerateFiles(runtimeVarDirectory, pattern)
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
+            var fromAppLog = TryResolveIgnoreDevicesFromLatestLog(
+                runtimeVarDirectory,
+                $"slr-app{appId}-t*.log");
+            if (!string.IsNullOrWhiteSpace(fromAppLog))
+                return fromAppLog;
 
-            if (string.IsNullOrWhiteSpace(latestLog))
-                return null;
-
-            return ParseIgnoreDevicesFromRuntimeLog(latestLog);
+            var fromAnyLog = TryResolveIgnoreDevicesFromLatestLog(runtimeVarDirectory, "slr-app*-t*.log");
+            if (!string.IsNullOrWhiteSpace(fromAnyLog))
+                return fromAnyLog;
         }
         catch (Exception ex)
         {
             Log.Debug($"Failed to resolve SDL_GAMECONTROLLER_IGNORE_DEVICES for app '{appId}'.", ex);
-            return null;
         }
+
+        return DefaultSteamInputIgnoreDevices;
+    }
+
+    private static string? TryResolveIgnoreDevicesFromLatestLog(string runtimeVarDirectory, string pattern)
+    {
+        var latestLog = Directory.EnumerateFiles(runtimeVarDirectory, pattern)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+
+        return string.IsNullOrWhiteSpace(latestLog)
+            ? null
+            : ParseIgnoreDevicesFromRuntimeLog(latestLog);
     }
 
     internal static string? ParseIgnoreDevicesFromRuntimeLog(string logPath)

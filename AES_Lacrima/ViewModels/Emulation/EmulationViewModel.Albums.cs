@@ -1663,7 +1663,11 @@ namespace AES_Lacrima.ViewModels
                     {
                         if (!allowOnlineLookup)
                         {
-                            if (HasLocalCoverFile(item.FileName) || HasLegacyEmbeddedCover(item.FileName))
+                            if (SteamInstalledGameHelper.IsSteamGamePath(item.FileName))
+                            {
+                                await TryLoadSteamGameCoverAsync(item, cancellationToken).ConfigureAwait(false);
+                            }
+                            else if (HasLocalCoverFile(item.FileName) || HasLegacyEmbeddedCover(item.FileName))
                             {
                                 await CoverLoader.EnsureCoverAsync(
                                         item,
@@ -1731,18 +1735,15 @@ namespace AES_Lacrima.ViewModels
                     }
                     finally
                     {
-                        if (ReferenceEquals(LoadedAlbum, album))
+                        try
                         {
-                            try
-                            {
-                                await Dispatcher.UIThread.InvokeAsync(
-                                    () => MarkRomItemCoverLoadComplete(item, album),
-                                    DispatcherPriority.Background);
-                            }
-                            catch (Exception ex)
-                            {
-                                SLog.Warn($"Failed to clear preview cover loading state for '{item.Title}'.", ex);
-                            }
+                            await Dispatcher.UIThread.InvokeAsync(
+                                () => MarkRomItemCoverLoadComplete(item, album),
+                                DispatcherPriority.Background);
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn($"Failed to clear preview cover loading state for '{item.Title}'.", ex);
                         }
                     }
                 }

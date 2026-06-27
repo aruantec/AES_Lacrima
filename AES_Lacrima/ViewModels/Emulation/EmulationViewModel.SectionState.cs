@@ -49,7 +49,7 @@ namespace AES_Lacrima.ViewModels
             ResolveCurrentEmulationSection();
 
         /// <summary>
-        /// Configured handler for the active emulation section (album list selection).
+        /// Configured handler for the opened emulation section.
         /// Unlike <see cref="CurrentEmulatorHandler"/>, this stays aligned with the section
         /// even while a game is running in another emulator.
         /// </summary>
