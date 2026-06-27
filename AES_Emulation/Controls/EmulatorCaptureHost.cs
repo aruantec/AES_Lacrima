@@ -501,13 +501,28 @@ public class EmulatorCaptureHost : ContentControl
             linuxCompositionBackend.RefreshCapturePresentation();
     }
 
+    public void SetUiBlocksShaderHotCompile(bool blocked)
+    {
+        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.SetUiBlocksShaderHotCompile(blocked);
+    }
+
     public void ForwardFocusToTarget()
     {
         if (OperatingSystem.IsLinux())
         {
-            _linuxInputTunnel?.ForwardFocusToTarget();
+            // gamescope runs on an isolated X11 display; host-display focus calls steal input
+            // from the compositor and can pause Steam titles mid-capture.
+            if (_linuxInputTunnel != null && TargetProcessId > 0)
+            {
+                _linuxInputTunnel.ForwardFocusToTarget();
+                return;
+            }
+
             if (_backend is LinuxCompositionCaptureControl linuxCompositionBackend)
                 linuxCompositionBackend.ForwardFocusToTarget();
+            else if (_backend is LinuxCaptureHost linuxBackend)
+                linuxBackend.ForwardFocusToTarget();
             return;
         }
 

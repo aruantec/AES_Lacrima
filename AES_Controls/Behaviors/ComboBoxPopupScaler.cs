@@ -15,7 +15,7 @@ namespace AES_Controls.Behaviors;
 /// </summary>
 public class ComboBoxPopupScaler : Behavior<ComboBox>
 {
-    private readonly Dictionary<ComboBox, IDisposable> _subscriptions = [];
+    private readonly Dictionary<ComboBox, Action<bool>> _dropDownCallbacks = [];
 
     /// <summary>
     /// Small padding kept between the drop-down and the edge of the placement bounds.
@@ -66,35 +66,29 @@ public class ComboBoxPopupScaler : Behavior<ComboBox>
 
     private void StartListening(ComboBox combo)
     {
-        if (_subscriptions.ContainsKey(combo)) return;
+        if (_dropDownCallbacks.ContainsKey(combo))
+            return;
 
-        var subscription = combo.GetObservable(ComboBox.IsDropDownOpenProperty)
-            .Subscribe(new SimpleObserver<bool>(isOpen =>
-            {
-                if (isOpen)
-                {
-                    ComboBoxDropDownOpenTracker.NotifyOpened();
-                    Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Background);
-                    Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Loaded);
-                    return;
-                }
+        Action<bool> onDropDownOpenChanged = isOpen =>
+        {
+            if (!isOpen)
+                return;
 
-                ComboBoxDropDownOpenTracker.NotifyClosed();
-            }));
+            Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(() => AdjustPopup(combo), DispatcherPriority.Loaded);
+        };
 
-        _subscriptions[combo] = subscription;
+        ComboBoxDropDownOpenTracker.EnsureTracking(combo, onDropDownOpenChanged);
+        _dropDownCallbacks[combo] = onDropDownOpenChanged;
     }
 
     private void StopListening(ComboBox combo)
     {
-        if (_subscriptions.TryGetValue(combo, out var subscription))
+        if (_dropDownCallbacks.TryGetValue(combo, out var callback))
         {
-            subscription.Dispose();
-            _subscriptions.Remove(combo);
+            ComboBoxDropDownOpenTracker.RemoveCallback(combo, callback);
+            _dropDownCallbacks.Remove(combo);
         }
-
-        if (combo.IsDropDownOpen)
-            ComboBoxDropDownOpenTracker.NotifyClosed();
     }
 
     private void AdjustPopup(ComboBox combo)

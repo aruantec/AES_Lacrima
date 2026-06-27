@@ -1388,6 +1388,19 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         partial void OnSelectedShaderFileItemChanged(ShaderFileItem value)
         {
+            // ComboBox two-way binding can emit a transient null while the dropdown is
+            // changing selection; ignore it so we do not clear the active shader mid-capture.
+            if (value == null)
+            {
+                if (!string.IsNullOrWhiteSpace(SelectedShaderPath))
+                    return;
+
+                SelectedShaderPath = string.Empty;
+                ClearShaderWhenPathEmpty = true;
+                AutoSave();
+                return;
+            }
+
             if (value is { IsSupportedInDirectComposition: false })
             {
                 SelectedShaderPath = string.Empty;
@@ -1395,14 +1408,19 @@ private bool _isShadPs4PatchesOverlayOpen;
             }
             else
             {
-                SelectedShaderPath = value?.FilePath ?? string.Empty;
-                ClearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(value?.FilePath);
+                SelectedShaderPath = value.FilePath ?? string.Empty;
+                ClearShaderWhenPathEmpty = string.IsNullOrWhiteSpace(value.FilePath);
             }
-
-            AutoSave();
         }
 
-        partial void OnSelectedShaderPathChanged(string value) => AutoSave();
+        partial void OnSelectedShaderPathChanged(string value)
+        {
+            if (!IsPrepared)
+                return;
+
+            // Defer disk IO so capture focus can return to gamescope first.
+            Dispatcher.UIThread.Post(SaveSettings, DispatcherPriority.Background);
+        }
 
         private void RefreshShaderFileItems()
         {

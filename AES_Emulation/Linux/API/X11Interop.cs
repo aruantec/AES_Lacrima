@@ -77,6 +77,9 @@ public static class X11Interop
     public static extern int XLowerWindow(IntPtr display, IntPtr window);
 
     [DllImport(libX11)]
+    public static extern int XRaiseWindow(IntPtr display, IntPtr window);
+
+    [DllImport(libX11)]
     public static extern int XConfigureWindow(IntPtr display, IntPtr window, uint valueMask, ref XWindowChanges changes);
 
     [StructLayout(LayoutKind.Sequential)]

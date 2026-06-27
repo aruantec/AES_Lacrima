@@ -23,10 +23,15 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
     private const int GlCullFace = 0x0B44;
     private const int GlRgba8 = 0x8058;
     private const uint GlBgra = 0x80E1;
+    private const int ShaderSwitchSettleFrames = 4;
 
     private GlInterface? _gl;
     private SlangShaderPipeline? _slangPipeline;
     private string? _loadedShaderPath;
+    private string? _requestedShaderPath;
+    private int _compileSettleFramesRemaining;
+    private bool _uiBlocksHotCompile;
+    private bool _isHotSwapPending;
     private int _captureTextureId;
     private int _intermediateTextureId;
     private int _intermediateFbo;
@@ -38,46 +43,43 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
 
     public bool HasActiveShader => _slangPipeline?.HasActiveShader == true;
 
+    public void SetUiBlocksHotCompile(bool blocked)
+    {
+        var wasBlocked = _uiBlocksHotCompile;
+        _uiBlocksHotCompile = blocked;
+        if (wasBlocked && !blocked && _isHotSwapPending)
+            _compileSettleFramesRemaining = 0;
+    }
+
     public void SetShaderPath(GlInterface gl, string? shaderPath)
     {
         _gl = gl;
         var resolved = LinuxCompositionShaderPaths.ResolvePresetPath(shaderPath);
-        if (string.Equals(_loadedShaderPath, resolved, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(_loadedShaderPath, resolved, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_requestedShaderPath, resolved, StringComparison.OrdinalIgnoreCase))
             return;
 
-        _slangPipeline?.Dispose();
-        _slangPipeline = null;
-        _loadedShaderPath = resolved;
+        var pathChanged = !string.Equals(_requestedShaderPath, resolved, StringComparison.OrdinalIgnoreCase);
+        _requestedShaderPath = resolved;
 
         if (string.IsNullOrWhiteSpace(resolved))
-            return;
-
-        try
         {
-            _slangPipeline = new SlangShaderPipeline(gl);
-            _slangPipeline.LoadShaderPreset(resolved);
-            if (_slangPipeline.HasActiveShader)
-            {
-                var loadNote = _slangPipeline.LastError ?? "ok";
-                if (_slangPipeline.UsedPassthroughFallback ||
-                    loadNote.Contains("passthrough", StringComparison.OrdinalIgnoreCase))
-                {
-                    Log.Warn($"Linux composition shader '{resolved}' is running compatibility passthrough: {loadNote}");
-                }
-                return;
-            }
-
-            Log.Warn($"Linux composition shader preset loaded no passes: '{resolved}'.");
-            _slangPipeline.Dispose();
-            _slangPipeline = null;
-            _loadedShaderPath = null;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Linux composition shader failed to load '{resolved}'.", ex);
+            _compileSettleFramesRemaining = 0;
+            _isHotSwapPending = false;
             _slangPipeline?.Dispose();
             _slangPipeline = null;
             _loadedShaderPath = null;
+            _requestedShaderPath = null;
+            return;
+        }
+
+        // SetShaderPath runs every render frame; only (re)start the hot-swap timer when the
+        // requested preset actually changes. Resetting settle frames each frame prevented
+        // hot-swaps from ever compiling after the first successful load.
+        if (pathChanged && !string.Equals(_loadedShaderPath, resolved, StringComparison.OrdinalIgnoreCase))
+        {
+            _isHotSwapPending = _loadedShaderPath != null;
+            _compileSettleFramesRemaining = _isHotSwapPending ? ShaderSwitchSettleFrames : 0;
         }
     }
 
@@ -93,6 +95,7 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
         int cropLeft = 0,
         int cropRight = 0)
     {
+        TryCompilePendingShader(gl);
         if (!HasActiveShader)
             return false;
 
@@ -160,6 +163,71 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
             Math.Max(cropLeft + 1, frame.Width - Math.Clamp(cropRight, 0, Math.Max(0, frame.Width - 1))),
             frame.Height);
         canvas.DrawImage(image, srcRect, destRect);
+        return true;
+    }
+
+    private bool TryCompilePendingShader(GlInterface gl)
+    {
+        var resolved = _requestedShaderPath;
+        if (string.IsNullOrWhiteSpace(resolved))
+            return false;
+
+        if (string.Equals(_loadedShaderPath, resolved, StringComparison.OrdinalIgnoreCase))
+            return HasActiveShader;
+
+        if (_uiBlocksHotCompile && _isHotSwapPending)
+            return HasActiveShader;
+
+        if (_compileSettleFramesRemaining > 0)
+        {
+            _compileSettleFramesRemaining--;
+            return HasActiveShader;
+        }
+
+        try
+        {
+            if (!TryLoadShader(gl, resolved, allowSourceCompile: true))
+            {
+                if (_isHotSwapPending)
+                {
+                    Log.Warn(
+                        $"Linux composition shader '{resolved}' failed during hot-swap; keeping the current shader.");
+                }
+
+                return HasActiveShader;
+            }
+
+            _isHotSwapPending = false;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Linux composition shader failed to load '{resolved}'.", ex);
+            return HasActiveShader;
+        }
+    }
+
+    private bool TryLoadShader(GlInterface gl, string resolved, bool allowSourceCompile)
+    {
+        var candidate = new SlangShaderPipeline(gl);
+        candidate.LoadShaderPreset(resolved, allowSourceCompile);
+        if (!candidate.HasActiveShader)
+        {
+            candidate.Dispose();
+            return false;
+        }
+
+        _slangPipeline?.Dispose();
+        _slangPipeline = candidate;
+        _loadedShaderPath = resolved;
+
+        var loadNote = _slangPipeline.LastError ?? "ok";
+        if (_slangPipeline.UsedPassthroughFallback ||
+            loadNote.Contains("passthrough", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Warn($"Linux composition shader '{resolved}' is running compatibility passthrough: {loadNote}");
+        }
+
         return true;
     }
 
@@ -258,6 +326,10 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
         _slangPipeline?.Dispose();
         _slangPipeline = null;
         _loadedShaderPath = null;
+        _requestedShaderPath = null;
+        _compileSettleFramesRemaining = 0;
+        _uiBlocksHotCompile = false;
+        _isHotSwapPending = false;
         _gl = null;
     }
 }

@@ -36,6 +36,7 @@ public class CachedContentPresenter : Control
     private readonly Dictionary<object, Control> _views = [];
     private readonly Dictionary<ContentControl, object> _hostViewModels = [];
     private readonly Panel _hostPanel = new();
+    private readonly object _warmupGate = new();
     private CancellationTokenSource? _transitionCts;
     private bool _warmupInProgress;
 
@@ -373,22 +374,25 @@ public class CachedContentPresenter : Control
     /// </summary>
     public void Warmup(object viewModel)
     {
-        if (_cache.ContainsKey(viewModel))
-            return;
+        lock (_warmupGate)
+        {
+            if (_cache.ContainsKey(viewModel))
+                return;
 
-        var view = EnsureViewBuilt(viewModel);
-        var size = GetWarmupSize();
-        var rect = new Rect(size);
+            var view = EnsureViewBuilt(viewModel);
+            var size = GetWarmupSize();
+            var rect = new Rect(size);
 
-        view.Measure(size);
-        view.Arrange(rect);
+            view.Measure(size);
+            view.Arrange(rect);
 
-        var viewHost = CreateViewHost(viewModel);
-        _cache[viewModel] = viewHost;
-        _hostPanel.Children.Add(viewHost);
+            var viewHost = CreateViewHost(viewModel);
+            _cache[viewModel] = viewHost;
+            _hostPanel.Children.Add(viewHost);
 
-        viewHost.Measure(size);
-        viewHost.Arrange(rect);
+            viewHost.Measure(size);
+            viewHost.Arrange(rect);
+        }
     }
 
     private async Task PrerenderHostAsync(object viewModel, TopLevel? topLevel, CancellationToken token)
