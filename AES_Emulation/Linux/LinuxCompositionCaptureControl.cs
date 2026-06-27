@@ -1,14 +1,17 @@
 using System;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using AES_Controls;
 using AES_Emulation.Linux.API;
+using AES_Emulation.Services;
 
 namespace AES_Emulation.Linux;
 
@@ -68,6 +71,21 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
 
     public static readonly StyledProperty<double> CaptureWindowAspectRatioProperty =
         AvaloniaProperty.Register<LinuxCompositionCaptureControl, double>(nameof(CaptureWindowAspectRatio), 0);
+
+    public static readonly StyledProperty<bool> UseBackCoverLetterboxFillProperty =
+        AvaloniaProperty.Register<LinuxCompositionCaptureControl, bool>(nameof(UseBackCoverLetterboxFill), false);
+
+    public static readonly StyledProperty<Bitmap?> LetterboxBitmapProperty =
+        AvaloniaProperty.Register<LinuxCompositionCaptureControl, Bitmap?>(nameof(LetterboxBitmap));
+
+    public static readonly StyledProperty<string?> CaptureRomPathProperty =
+        AvaloniaProperty.Register<LinuxCompositionCaptureControl, string?>(nameof(CaptureRomPath));
+
+    public static readonly StyledProperty<bool> EnablePillarboxCropProperty =
+        AvaloniaProperty.Register<LinuxCompositionCaptureControl, bool>(nameof(EnablePillarboxCrop), false);
+
+    public static readonly StyledProperty<bool> AggressivePillarboxCropProperty =
+        AvaloniaProperty.Register<LinuxCompositionCaptureControl, bool>(nameof(AggressivePillarboxCrop), false);
 
     public static readonly DirectProperty<LinuxCompositionCaptureControl, string> StatusTextProperty =
         AvaloniaProperty.RegisterDirect<LinuxCompositionCaptureControl, string>(
@@ -255,6 +273,57 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         set => SetValue(CaptureWindowAspectRatioProperty, value);
     }
 
+    public bool UseBackCoverLetterboxFill
+    {
+        get => GetValue(UseBackCoverLetterboxFillProperty);
+        set => SetValue(UseBackCoverLetterboxFillProperty, value);
+    }
+
+    public Bitmap? LetterboxBitmap
+    {
+        get => GetValue(LetterboxBitmapProperty);
+        set => SetValue(LetterboxBitmapProperty, value);
+    }
+
+    public string? CaptureRomPath
+    {
+        get => GetValue(CaptureRomPathProperty);
+        set => SetValue(CaptureRomPathProperty, value);
+    }
+
+    public bool TryGetPillarboxCrop(out int left, out int right, out int frameWidth)
+    {
+        left = right = frameWidth = 0;
+        return _handler?.TryGetPillarboxCrop(out left, out right, out frameWidth) == true;
+    }
+
+    public void ApplyArcadeLockedPillarboxCrop(ArcadePillarboxApplyLockMessage message)
+    {
+        SendHandlerMessage(message);
+    }
+
+    public void UnlockArcadePillarboxCrop(ArcadePillarboxUnlockMessage message)
+    {
+        SendHandlerMessage(message);
+    }
+
+    public void ReloadArcadeLockedPillarboxCrop()
+    {
+        SendHandlerMessage(new ArcadePillarboxApplyLockMessage { RomPath = CaptureRomPath });
+    }
+
+    public bool EnablePillarboxCrop
+    {
+        get => GetValue(EnablePillarboxCropProperty);
+        set => SetValue(EnablePillarboxCropProperty, value);
+    }
+
+    public bool AggressivePillarboxCrop
+    {
+        get => GetValue(AggressivePillarboxCropProperty);
+        set => SetValue(AggressivePillarboxCropProperty, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -438,6 +507,17 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
                  change.Property == ClearShaderWhenPathEmptyProperty ||
                  change.Property == CaptureWindowAspectRatioProperty)
             UpdateHandlerSettings();
+        else if (change.Property == UseBackCoverLetterboxFillProperty ||
+                 change.Property == LetterboxBitmapProperty)
+        {
+            SendLetterboxUpdate();
+            UpdateHandlerSettings();
+        }
+        else if (change.Property == CaptureRomPathProperty)
+            UpdateHandlerSettings();
+        else if (change.Property == EnablePillarboxCropProperty ||
+                 change.Property == AggressivePillarboxCropProperty)
+            UpdateHandlerSettings();
     }
 
     private void EnsureCaptureSession()
@@ -472,6 +552,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             _lastCompositorProcessId = CompositorProcessId;
             _portalSessionRequested = true;
             IsCaptureInitializing = true;
+            SendArcadeLockedCropFromMetadata();
             SendHandlerMessage(new PipeWireSessionMessage(_capture));
             LinuxCaptureBridge.aes_linux_capture_set_target_window(_capture, TargetHwnd);
             UpdateFallbackRenderLoop();
@@ -485,6 +566,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             _lastTargetHwnd = IntPtr.Zero;
             _portalSessionRequested = true;
             IsCaptureInitializing = true;
+            SendArcadeLockedCropFromMetadata();
             SendHandlerMessage(new PipeWireSessionMessage(_capture));
             LinuxCaptureBridge.aes_linux_capture_set_use_pipewire(_capture, 1);
             LinuxCaptureBridge.aes_linux_capture_set_target(
@@ -516,6 +598,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         }
 
         _hasAppliedRenderOptions = false;
+        SendArcadeLockedCropFromMetadata();
         SendHandlerMessage(new PipeWireSessionMessage(_capture));
         return true;
     }
@@ -686,7 +769,66 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             (float)Saturation,
             ColorTint,
             shaderPath,
-            CaptureWindowAspectRatio));
+            CaptureWindowAspectRatio,
+            EnablePillarboxCrop,
+            AggressivePillarboxCrop,
+            CaptureRomPath));
+
+        SendArcadeLockedCropFromMetadata();
+        SendLetterboxUpdate();
+    }
+
+    private void SendLetterboxUpdate()
+    {
+        if (!UseBackCoverLetterboxFill)
+        {
+            SendHandlerMessage(new PipeWireLetterboxMessage { Enabled = false });
+            return;
+        }
+
+        var bitmap = LetterboxBitmap;
+        if (bitmap == null)
+        {
+            SendHandlerMessage(new PipeWireLetterboxMessage { Enabled = true });
+            return;
+        }
+
+        var width = bitmap.PixelSize.Width;
+        var height = bitmap.PixelSize.Height;
+        if (width <= 0 || height <= 0)
+        {
+            SendHandlerMessage(new PipeWireLetterboxMessage { Enabled = true });
+            return;
+        }
+
+        var stride = width * 4;
+        var bufferSize = height * stride;
+        var pixels = new byte[bufferSize];
+        var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+        try
+        {
+            bitmap.CopyPixels(new PixelRect(0, 0, width, height), handle.AddrOfPinnedObject(), bufferSize, stride);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        SendHandlerMessage(new PipeWireLetterboxMessage
+        {
+            Enabled = true,
+            Pixels = pixels,
+            Width = width,
+            Height = height
+        });
+    }
+
+    private void SendArcadeLockedCropFromMetadata()
+    {
+        if (string.IsNullOrWhiteSpace(CaptureRomPath))
+            return;
+
+        SendHandlerMessage(new ArcadePillarboxApplyLockMessage { RomPath = CaptureRomPath });
     }
 
     private void SendHandlerMessage(object? message)

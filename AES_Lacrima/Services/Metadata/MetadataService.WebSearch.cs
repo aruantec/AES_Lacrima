@@ -40,7 +40,10 @@ namespace AES_Lacrima.Services
 {
     public partial class MetadataService : ViewModelBase, IMetadataService 
     {
-        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(IReadOnlyList<string> queries, bool isRomSearch = false)
+        private static async Task<List<WebImageSearchResult>> SearchWebImagesAsync(
+            IReadOnlyList<string> queries,
+            bool isRomSearch = false,
+            bool wallpaperBezelSearch = false)
         {
             var interimResults = new List<WebImageSearchResult>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -96,7 +99,7 @@ namespace AES_Lacrima.Services
                     var ddgTasks = normalizedQueries.Select(async query =>
                     {
                         var results = new List<WebImageSearchResult>();
-                        await LoadDuckDuckGoImageResults(query, new HashSet<string>(), results);
+                        await LoadDuckDuckGoImageResults(query, new HashSet<string>(), results, wallpaperBezelSearch);
                         foreach (var r in results) AddResult(r);
                     });
                     await Task.WhenAll(ddgTasks).WaitAsync(timeoutCts.Token);
@@ -111,7 +114,7 @@ namespace AES_Lacrima.Services
                     var bingTasks = normalizedQueries.Select(async query =>
                     {
                         var results = new List<WebImageSearchResult>();
-                        await LoadBingImageResults(query, new HashSet<string>(), results);
+                        await LoadBingImageResults(query, new HashSet<string>(), results, wallpaperBezelSearch);
                         foreach (var r in results) AddResult(r);
                     });
                     await Task.WhenAll(bingTasks).WaitAsync(timeoutCts.Token);
@@ -126,7 +129,7 @@ namespace AES_Lacrima.Services
                     var googleTasks = normalizedQueries.Select(async query =>
                     {
                         var results = new List<WebImageSearchResult>();
-                        await LoadGoogleImageResults(query, new HashSet<string>(), results);
+                        await LoadGoogleImageResults(query, new HashSet<string>(), results, wallpaperBezelSearch);
                         foreach (var r in results) AddResult(r);
                     });
                     await Task.WhenAll(googleTasks).WaitAsync(timeoutCts.Token);
@@ -137,11 +140,15 @@ namespace AES_Lacrima.Services
             return interimResults;
         }
 
-        private static async Task LoadDuckDuckGoImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
+        private static async Task LoadDuckDuckGoImageResults(
+            string query,
+            HashSet<string> seen,
+            List<WebImageSearchResult> sink,
+            bool wallpaperBezelSearch = false)
         {
             try
             {
-                foreach (var ddgQuery in BuildGoogleQueries(query))
+                foreach (var ddgQuery in BuildGoogleQueries(query, wallpaperBezelSearch))
                 {
                     if (sink.Count >= MaxImageSearchResults)
                         break;
@@ -201,11 +208,15 @@ namespace AES_Lacrima.Services
             }
         }
 
-        private static async Task LoadBingImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
+        private static async Task LoadBingImageResults(
+            string query,
+            HashSet<string> seen,
+            List<WebImageSearchResult> sink,
+            bool wallpaperBezelSearch = false)
         {
             try
             {
-                foreach (var bingQuery in BuildGoogleQueries(query))
+                foreach (var bingQuery in BuildGoogleQueries(query, wallpaperBezelSearch))
                 {
                     if (sink.Count >= MaxImageSearchResults)
                         break;
@@ -232,11 +243,15 @@ namespace AES_Lacrima.Services
             }
         }
 
-        private static async Task LoadGoogleImageResults(string query, HashSet<string> seen, List<WebImageSearchResult> sink)
+        private static async Task LoadGoogleImageResults(
+            string query,
+            HashSet<string> seen,
+            List<WebImageSearchResult> sink,
+            bool wallpaperBezelSearch = false)
         {
             try
             {
-                foreach (var googleQuery in BuildGoogleQueries(query))
+                foreach (var googleQuery in BuildGoogleQueries(query, wallpaperBezelSearch))
                 {
                     if (sink.Count >= MaxImageSearchResults)
                         break;
@@ -263,7 +278,7 @@ namespace AES_Lacrima.Services
             }
         }
 
-        private static IEnumerable<string> BuildGoogleQueries(string query)
+        private static IEnumerable<string> BuildGoogleQueries(string query, bool wallpaperBezelSearch = false)
         {
             var googleQueries = new List<string>();
             var normalized = NormalizeSearchTitle(query);
@@ -271,6 +286,9 @@ namespace AES_Lacrima.Services
 
             foreach (var aliasQuery in ExpandSearchQueryAliases(normalized))
                 AddDistinctQuery(googleQueries, aliasQuery);
+
+            if (wallpaperBezelSearch)
+                return googleQueries;
 
             AddDistinctQuery(googleQueries, $"{normalized} album cover");
             AddDistinctQuery(googleQueries, $"{normalized} cover art");

@@ -33,6 +33,7 @@ using System.Threading.Tasks;
 using TagLib;
 using File = System.IO.File;
 using Path = System.IO.Path;
+using SkiaSharp;
 
 
 namespace AES_Lacrima.Services
@@ -203,6 +204,33 @@ namespace AES_Lacrima.Services
         }
 
         [RelayCommand]
+        private async Task SearchWallpaperAndBezelsByTitleAsync()
+        {
+            var titleNorm = NormalizeSearchTitle(Title);
+            if (string.IsNullOrWhiteSpace(titleNorm))
+                titleNorm = NormalizeSearchTitle(_currentSelectedMedia?.Title);
+
+            if (string.IsNullOrWhiteSpace(titleNorm))
+                titleNorm = NormalizeSearchTitle(GetSearchFallbackFromFilename());
+
+            if (string.IsNullOrWhiteSpace(titleNorm))
+                return;
+
+            IReadOnlyList<string> searchQueries = _currentSelectedMedia != null
+                ? BuildWallpaperBezelSearchQueries(_currentSelectedMedia, Album)
+                : BuildWallpaperBezelSearchQueriesFromTitle(titleNorm, Album);
+
+            if (searchQueries.Count == 0)
+                return;
+
+            _searchMode = MetadataSearchMode.WallpaperBezel;
+            NotifyImageSearchOverlayPresentationChanged();
+            var activeQuery = searchQueries[0];
+            ImageSearchQuery = activeQuery;
+            await SearchImagesCoreAsync(activeQuery, searchQueries, isRomSearch: true);
+        }
+
+        [RelayCommand]
         private async Task AddGameplayAsync()
         {
             if (_currentSelectedMedia == null)
@@ -255,15 +283,28 @@ namespace AES_Lacrima.Services
         {
             OnPropertyChanged(nameof(ImageSearchOverlayHeader));
             OnPropertyChanged(nameof(IsCoverImageSearchMode));
+            OnPropertyChanged(nameof(IsWallpaperBezelImageSearchMode));
+            OnPropertyChanged(nameof(IsImageSearchPreviewVisible));
             OnPropertyChanged(nameof(CoverPreviewLayoutLabel));
+            OnPropertyChanged(nameof(WallpaperBezelPreviewLayoutLabel));
+            OnPropertyChanged(nameof(WallpaperBezelPreviewKindLabel));
         }
 
         internal void SetImageSearchPreview(WebImageSearchResult? result)
         {
             ImageSearchPreviewUrl = result?.FullImageUrl;
+            if (_searchMode != MetadataSearchMode.WallpaperBezel)
+                return;
+
+            ImageSearchPreviewWallpaperBezelKind = result != null
+                ? WallpaperBezelImageHeuristics.InferKind(result.FullImageUrl)
+                : TagImageKind.BackCover;
         }
 
-        internal void ClearImageSearchPreview() => ImageSearchPreviewUrl = null;
+        internal void ClearImageSearchPreview()
+        {
+            ImageSearchPreviewUrl = null;
+        }
 
         private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries, bool isRomSearch = false)
         {
@@ -271,14 +312,24 @@ namespace AES_Lacrima.Services
             IsImageSearchOverlayOpen = true;
             IsImageSearchLoading = true;
             ImageSearchStatus = "Searching web images...";
+            var wallpaperBezelSearch = _searchMode == MetadataSearchMode.WallpaperBezel;
 
             try
             {
-                var results = await SearchWebImagesAsync(searchQueries, isRomSearch);
+                var results = await SearchWebImagesAsync(searchQueries, isRomSearch, wallpaperBezelSearch);
+                if (wallpaperBezelSearch)
+                {
+                    results = WallpaperBezelImageHeuristics.RankCandidates(results)
+                        .Where(candidate => !WallpaperBezelImageHeuristics.ShouldSkipSearchResultUrl(candidate.FullImageUrl))
+                        .ToList();
+                }
+
                 ImageSearchResults = new AvaloniaList<WebImageSearchResult>(results.Take(MaxImageSearchResults).ToList());
                 ImageSearchStatus = ImageSearchResults.Count == 0
                     ? $"No images found for \"{activeQuery}\"."
-                    : $"Found {ImageSearchResults.Count} image candidates for \"{activeQuery}\".";
+                    : wallpaperBezelSearch
+                        ? $"Found {ImageSearchResults.Count} wallpaper/bezel candidates for \"{activeQuery}\"."
+                        : $"Found {ImageSearchResults.Count} image candidates for \"{activeQuery}\".";
             }
             catch (Exception ex)
             {
@@ -315,10 +366,82 @@ namespace AES_Lacrima.Services
                 return;
             }
 
+            if (_searchMode == MetadataSearchMode.WallpaperBezel)
+            {
+                if (await TryAddWallpaperBezelImageFromUrlAsync(result.FullImageUrl))
+                {
+                    IsImageSearchOverlayOpen = false;
+                }
+
+                return;
+            }
+
             if (await TryAddImageFromUrlAsync(result.FullImageUrl, SelectedImageKind))
             {
                 IsImageSearchOverlayOpen = false;
                 ImageSearchStatus = $"Selected image added as {SelectedImageKind}.";
+            }
+        }
+
+        private async Task<bool> TryAddWallpaperBezelImageFromUrlAsync(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                ImageSearchStatus = "Invalid image URL.";
+                return false;
+            }
+
+            try
+            {
+                using var response = await ImageHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode)
+                {
+                    ImageSearchStatus = "Could not download image.";
+                    return false;
+                }
+
+                var mimeType = response.Content.Headers.ContentType?.MediaType;
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                if (bytes.Length == 0)
+                {
+                    ImageSearchStatus = "Downloaded image is empty.";
+                    return false;
+                }
+
+                mimeType ??= GuessMimeTypeFromUrl(uri.AbsolutePath);
+                if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                {
+                    ImageSearchStatus = "URL is not an image.";
+                    return false;
+                }
+
+                var width = 0;
+                var height = 0;
+                try
+                {
+                    using var decoded = SKBitmap.Decode(bytes);
+                    if (decoded != null)
+                    {
+                        width = decoded.Width;
+                        height = decoded.Height;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SLog.Warn("Failed to decode wallpaper/bezel candidate dimensions.", ex);
+                }
+
+                var kind = WallpaperBezelImageHeuristics.InferKind(url, width, height);
+                AddImageToCollection(bytes, mimeType, kind, uri.AbsoluteUri);
+                ImageSearchStatus = $"Selected image added as {kind}.";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Failed to add wallpaper/bezel image from URL: {url}", ex);
+                ImageSearchStatus = "Failed to add image from URL.";
+                return false;
             }
         }
     }

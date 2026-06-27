@@ -89,7 +89,9 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
         SKRect destRect,
         float brightness,
         float saturation,
-        Color tint)
+        Color tint,
+        int cropLeft = 0,
+        int cropRight = 0)
     {
         if (!HasActiveShader)
             return false;
@@ -152,7 +154,11 @@ internal sealed class LinuxCompositionShaderRenderer : IDisposable
         if (image == null)
             return false;
 
-        var srcRect = new SKRect(0, 0, frame.Width, frame.Height);
+        var srcRect = new SKRect(
+            Math.Clamp(cropLeft, 0, Math.Max(0, frame.Width - 1)),
+            0,
+            Math.Max(cropLeft + 1, frame.Width - Math.Clamp(cropRight, 0, Math.Max(0, frame.Width - 1))),
+            frame.Height);
         canvas.DrawImage(image, srcRect, destRect);
         return true;
     }

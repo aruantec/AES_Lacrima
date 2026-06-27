@@ -36,7 +36,8 @@ public static class EmulationLetterboxHelper
                 if (entry.Kind != TagImageKind.BackCover || entry.Data.Length == 0)
                     continue;
 
-                using var stream = new MemoryStream(entry.Data, writable: false);
+                var bytes = CoverImageBarCropHelper.TryCropBytes(entry.Data, romPath);
+                using var stream = new MemoryStream(bytes, writable: false);
                 return Bitmap.DecodeToWidth(stream, 1920);
             }
 

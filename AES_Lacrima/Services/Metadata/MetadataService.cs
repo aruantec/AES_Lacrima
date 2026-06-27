@@ -144,11 +144,19 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private AvaloniaList<WebImageSearchResult> _imageSearchResults = [];
 
         public string ImageSearchOverlayHeader =>
-            _searchMode == MetadataSearchMode.GameplayVideo
-                ? "Select Gameplay Video"
-                : "Select Cover Image";
+            _searchMode switch
+            {
+                MetadataSearchMode.GameplayVideo => "Select Gameplay Video",
+                MetadataSearchMode.WallpaperBezel => "Select Wallpaper or Bezel",
+                _ => "Select Cover Image"
+            };
 
         public bool IsCoverImageSearchMode => _searchMode == MetadataSearchMode.Images;
+
+        public bool IsWallpaperBezelImageSearchMode => _searchMode == MetadataSearchMode.WallpaperBezel;
+
+        public bool IsImageSearchPreviewVisible =>
+            IsCoverImageSearchMode || IsWallpaperBezelImageSearchMode;
 
         public string CoverPreviewLayoutLabel => CoverPreviewLayoutMode switch
         {
@@ -162,6 +170,24 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _imageSearchPreviewUrl;
 
         [ObservableProperty] private string? _imageSearchPreviewTitle;
+
+        [ObservableProperty] private TagImageKind _imageSearchPreviewWallpaperBezelKind = TagImageKind.BackCover;
+
+        public string WallpaperBezelPreviewLayoutLabel =>
+            ImageSearchPreviewWallpaperBezelKind == TagImageKind.Wallpaper
+                ? "Wallpaper preview"
+                : "Letterbox bezel preview";
+
+        public string WallpaperBezelPreviewKindLabel =>
+            ImageSearchPreviewWallpaperBezelKind == TagImageKind.Wallpaper
+                ? "Will save as Wallpaper"
+                : "Will save as Back Cover (letterbox fill)";
+
+        partial void OnImageSearchPreviewWallpaperBezelKindChanged(TagImageKind value)
+        {
+            OnPropertyChanged(nameof(WallpaperBezelPreviewLayoutLabel));
+            OnPropertyChanged(nameof(WallpaperBezelPreviewKindLabel));
+        }
 
         partial void OnCoverPreviewLayoutModeChanged(CoverLayoutMode value) =>
             OnPropertyChanged(nameof(CoverPreviewLayoutLabel));

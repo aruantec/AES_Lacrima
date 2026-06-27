@@ -1,5 +1,6 @@
 using AES_Controls.EmuGrabbing.ShaderHandling;
 using AES_Controls;
+using AES_Emulation.Services;
 using AES_Emulation.Windows.API;
 using Avalonia;
 using Avalonia.Controls;
@@ -269,6 +270,15 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         set => SetValue(EnableAutoCropProperty, value);
     }
 
+    public static readonly StyledProperty<bool> AggressivePillarboxCropProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(AggressivePillarboxCrop), false);
+
+    public bool AggressivePillarboxCrop
+    {
+        get => GetValue(AggressivePillarboxCropProperty);
+        set => SetValue(AggressivePillarboxCropProperty, value);
+    }
+
     public static readonly StyledProperty<int> ClientAreaCropLeftInsetProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, int>(nameof(ClientAreaCropLeftInset), 0);
 
@@ -348,6 +358,45 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     {
         get => GetValue(LetterboxBitmapProperty);
         set => SetValue(LetterboxBitmapProperty, value);
+    }
+
+    public static readonly StyledProperty<string?> CaptureRomPathProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, string?>(nameof(CaptureRomPath));
+
+    public string? CaptureRomPath
+    {
+        get => GetValue(CaptureRomPathProperty);
+        set => SetValue(CaptureRomPathProperty, value);
+    }
+
+    public bool TryGetPillarboxCrop(out int left, out int right, out int frameWidth)
+    {
+        left = right = frameWidth = 0;
+        return _handler?.TryGetPillarboxCrop(out left, out right, out frameWidth) == true;
+    }
+
+    public void ApplyArcadeLockedPillarboxCrop(ArcadePillarboxApplyLockMessage message)
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        SendHandlerMessage(message);
+    }
+
+    public void UnlockArcadePillarboxCrop(ArcadePillarboxUnlockMessage message)
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        SendHandlerMessage(message);
+    }
+
+    public void ReloadArcadeLockedPillarboxCrop()
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        SendHandlerMessage(new ArcadePillarboxApplyLockMessage { RomPath = CaptureRomPath });
     }
 
     // New: request the control to stop the active capture session immediately.
@@ -1087,10 +1136,12 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                  change.Property == OverlayOpacityProperty ||
                  change.Property == OverlayBackgroundColorProperty ||
                  change.Property == EnableAutoCropProperty ||
+                 change.Property == AggressivePillarboxCropProperty ||
                  change.Property == OverlayXProperty ||
                  change.Property == OverlayYProperty ||
                  change.Property == UseBackCoverLetterboxFillProperty ||
-                 change.Property == LetterboxBitmapProperty)
+                 change.Property == LetterboxBitmapProperty ||
+                 change.Property == CaptureRomPathProperty)
         {
             SendLetterboxUpdate();
             UpdateHandlerSettings();
@@ -1144,6 +1195,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             UseOwnerInvalidation = _useOwnerRenderFallback
         };
         _handler?.ApplySessionStateCore(sessionMessage);
+        SendArcadeLockedCropFromMetadata();
         if (deferCompositorNotification)
             QueueHandlerSessionNotification(sessionMessage);
         else
@@ -1204,7 +1256,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         if (!IsWindowsPlatform)
             return;
 
-        var effectiveEnableAutoCrop = IsBackCoverLetterboxBackgroundActive;
+        var effectiveEnableAutoCrop = EnableAutoCrop || IsBackCoverLetterboxBackgroundActive;
 
         if (Log.IsDebugEnabled)
         {
@@ -1235,11 +1287,22 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             OverlayOpacity = (float)OverlayOpacity,
             OverlayBackgroundColor = OverlayBackgroundColor,
             EnableAutoCrop = effectiveEnableAutoCrop,
+            AggressivePillarboxCrop = AggressivePillarboxCrop,
+            CaptureRomPath = CaptureRomPath,
             OverlayPosition = new Vector2((float)OverlayPosition.X, (float)OverlayPosition.Y)
         });
 
         SendLetterboxUpdate();
         UpdateNativePresentationPipeline(force: false);
+        SendArcadeLockedCropFromMetadata();
+    }
+
+    private void SendArcadeLockedCropFromMetadata()
+    {
+        if (!IsWindowsPlatform || string.IsNullOrWhiteSpace(CaptureRomPath))
+            return;
+
+        SendHandlerMessage(new ArcadePillarboxApplyLockMessage { RomPath = CaptureRomPath });
     }
 
     private void SendLetterboxUpdate()
@@ -1457,6 +1520,8 @@ internal class WgcSettingsMessage
     public float OverlayOpacity;
     public Color OverlayBackgroundColor;
     public bool EnableAutoCrop;
+    public bool AggressivePillarboxCrop;
+    public string? CaptureRomPath;
     public Vector2 OverlayPosition;
 }
 
@@ -1504,6 +1569,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     // Auto Crop
     private bool _enableAutoCrop = false;
+    private bool _aggressivePillarboxCrop = false;
+    private string? _captureRomPath;
     private int _cropLeft = 0;
     private int _cropRight = 0;
     private int _pillarboxStableFrames;
@@ -1519,6 +1586,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private int _animToRight;
     private bool _pillarboxAnimActive;
     private bool _pillarboxAnimClosingBars;
+    private readonly ArcadePillarboxCropResolver _arcadeCropResolver = new();
 
     internal Action<byte[], int, int>? RecordingFrameHandler;
     private readonly GameplayRecordingFrameWorker _recordingFrameWorker = new();
@@ -1568,6 +1636,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private int _letterboxWidth;
     private int _letterboxHeight;
     private readonly SKPaint _letterboxFallbackPaint = new() { Color = SKColors.Black, Style = SKPaintStyle.Fill };
+    private readonly SKPaint _letterboxPaint = new() { FilterQuality = SKFilterQuality.Medium, IsAntialias = true };
     private bool _interopCpuMirrorEnabled;
     private WgcAngleInterop? _angleInterop;
     private WgcWglDxInterop? _wglDxInterop;
@@ -1647,6 +1716,16 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 RequestRender();
             }
         }
+        else if (message is ArcadePillarboxApplyLockMessage applyLock)
+        {
+            ApplyArcadePillarboxLockMessage(applyLock);
+            RequestRender();
+        }
+        else if (message is ArcadePillarboxUnlockMessage unlock)
+        {
+            UnlockArcadePillarboxCrop(unlock.RomPath);
+            RequestRender();
+        }
         else if (message is WgcLetterboxMessage letterbox)
         {
             ApplyLetterboxMessage(letterbox);
@@ -1670,7 +1749,16 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _showDetailedGpuInfo = st.ShowDetailedGpuInfo;
             _overlayOpacity = st.OverlayOpacity;
             _overlayBackgroundColor = st.OverlayBackgroundColor;
+            var aggressiveChanged = _aggressivePillarboxCrop != st.AggressivePillarboxCrop;
+            var autoCropChanged = _enableAutoCrop != st.EnableAutoCrop;
             _enableAutoCrop = st.EnableAutoCrop;
+            _aggressivePillarboxCrop = st.AggressivePillarboxCrop;
+            var romChanged = !string.Equals(_captureRomPath, st.CaptureRomPath, StringComparison.OrdinalIgnoreCase);
+            _captureRomPath = st.CaptureRomPath;
+            if (romChanged || aggressiveChanged || autoCropChanged)
+                ReloadArcadeCropResolverState();
+            else
+                EnforceLockedArcadeCrop();
             _overlayPosition = st.OverlayPosition;
             _settingsDirty = true;
             _useNativeHlslPipeline = st.UseNativeHlslPipeline;
@@ -1992,6 +2080,22 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         _letterboxImage = SKImage.FromPixelCopy(info, letterbox.Pixels);
         _letterboxWidth = letterbox.Width;
         _letterboxHeight = letterbox.Height;
+        EnforceLockedArcadeCrop();
+    }
+
+    internal bool TryGetPillarboxCrop(out int left, out int right, out int frameWidth)
+    {
+        left = _cropLeft;
+        right = _cropRight;
+        frameWidth = _texWidth;
+        if (frameWidth <= 0 && _session != nint.Zero &&
+            WgcBridgeApi.PeekLatestFrame(_session, out int w, out _, out _) &&
+            w > 0)
+        {
+            frameWidth = w;
+        }
+
+        return frameWidth > 0 && (left > 0 || right > 0);
     }
 
     private void DrawLetterboxBackground(SKCanvas canvas)
@@ -2007,10 +2111,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         var viewRect = new SKRect(0, 0, viewW, viewH);
         if (_letterboxImage != null && _letterboxWidth > 0 && _letterboxHeight > 0)
         {
-            var dest = CalculateUniformToFillRect(viewW, viewH, _letterboxWidth, _letterboxHeight);
+            var imageW = _letterboxImage.Width;
+            var imageH = _letterboxImage.Height;
+            var srcRect = new SKRect(0, 0, imageW, imageH);
+            var dest = ShouldAutoCropPillarboxes
+                ? viewRect
+                : CalculateUniformToFillRect(viewW, viewH, imageW, imageH);
             canvas.Save();
             canvas.ClipRect(viewRect);
-            canvas.DrawImage(_letterboxImage, dest);
+            canvas.DrawImage(_letterboxImage, srcRect, dest, _letterboxPaint);
             canvas.Restore();
             return;
         }
@@ -2047,7 +2156,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     {
         if (_rectDirty || _texWidth != w || _texHeight != h)
         {
-            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+            var contentW = w - _cropLeft - _cropRight;
+            _cachedDestRect = ShouldAutoCropPillarboxes
+                ? BuildSnappedFullHeightDestRect(_visualSize.X, _visualSize.Y, contentW, h)
+                : CalculateAspectRect(_visualSize.X, _visualSize.Y, contentW, h);
             _rectDirty = false;
         }
 
@@ -2164,7 +2276,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         var dest = _cachedDestRect;
         if (_rectDirty)
         {
-            dest = CalculateAspectRect(_visualSize.X, _visualSize.Y, frameWidth - cropLeft - cropRight, frameHeight);
+            var contentW = frameWidth - cropLeft - cropRight;
+            dest = ShouldAutoCropPillarboxes
+                ? BuildSnappedFullHeightDestRect(_visualSize.X, _visualSize.Y, contentW, frameHeight)
+                : CalculateAspectRect(_visualSize.X, _visualSize.Y, contentW, frameHeight);
         }
 
         localDestRect = new Rect(dest.Left, dest.Top, dest.Width, dest.Height);
@@ -2181,7 +2296,15 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         _lastNativeFrameCount = -1;
         _pillarboxScanCounter = 0;
         if (sm.Session != nint.Zero)
-            ResetPillarboxDetectionState();
+        {
+            if (_ownerRef?.TryGetTarget(out var owner) == true &&
+                !string.IsNullOrWhiteSpace(owner.CaptureRomPath))
+            {
+                _captureRomPath = owner.CaptureRomPath;
+            }
+
+            ReloadArcadeCropResolverState();
+        }
         _ownerInvalidateQueued = 0;
         _ownerStatsUpdateQueued = 0;
         _loggedRenderEntry = false;
@@ -2278,7 +2401,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
                 if (ShouldAutoCropPillarboxes)
                 {
-                    TryDetectPillarboxesFromSession(activeSession);
+                    if (_arcadeCropResolver.IsLocked)
+                        EnforceLockedArcadeCrop(_texWidth);
+                    else
+                        TryDetectPillarboxesFromSession(activeSession);
                     StepPillarboxCropAnimation();
                 }
 
@@ -2338,7 +2464,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     }
 
     private bool ShouldAutoCropPillarboxes =>
-        _useBackCoverLetterboxFill && _letterboxImage != null;
+        _enableAutoCrop || (_useBackCoverLetterboxFill && _letterboxImage != null);
+
+    private PillarboxDetectionProfile PillarboxDetectionProfile =>
+        _aggressivePillarboxCrop ? PillarboxDetectionProfile.AggressiveArcade : PillarboxDetectionProfile.Standard;
 
     private void ClearPillarboxCropIfInactive()
     {
@@ -2358,12 +2487,20 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void DrawCapturedFrame(SKCanvas canvas, GRContext? grContext, IntPtr ptr, int w, int h)
     {
-        if (ShouldAutoCropPillarboxes && ShouldScanPillarboxThisFrame())
-            AutoDetectPillarboxes(ptr, w, h);
+        if (ShouldAutoCropPillarboxes)
+        {
+            if (_arcadeCropResolver.IsLocked)
+                EnforceLockedArcadeCrop(w);
+            else if (ShouldScanPillarboxThisFrame())
+                AutoDetectPillarboxes(ptr, w, h);
+        }
 
         if (_rectDirty || _texWidth != w || _texHeight != h)
         {
-            _cachedDestRect = CalculateAspectRect(_visualSize.X, _visualSize.Y, w - _cropLeft - _cropRight, h);
+            var contentW = w - _cropLeft - _cropRight;
+            _cachedDestRect = ShouldAutoCropPillarboxes
+                ? BuildSnappedFullHeightDestRect(_visualSize.X, _visualSize.Y, contentW, h)
+                : CalculateAspectRect(_visualSize.X, _visualSize.Y, contentW, h);
             _texWidth = w;
             _texHeight = h;
             _rectDirty = false;
@@ -2602,6 +2739,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private bool ShouldScanPillarboxThisFrame()
     {
+        if (_arcadeCropResolver.IsLocked)
+            return false;
+
         if (_forcePillarboxDetectFrames > 0)
         {
             _forcePillarboxDetectFrames--;
@@ -2612,7 +2752,51 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         return ++_pillarboxScanCounter % interval == 0;
     }
 
-    private void ResetPillarboxDetectionState()
+    private void ResetPillarboxDetectionState() => ReloadArcadeCropResolverState();
+
+    private void ReloadArcadeCropResolverState()
+    {
+        ApplyArcadePillarboxLockMessage(new ArcadePillarboxApplyLockMessage { RomPath = _captureRomPath });
+    }
+
+    private void ApplyArcadePillarboxLockMessage(ArcadePillarboxApplyLockMessage message)
+    {
+        if (!string.IsNullOrWhiteSpace(message.RomPath))
+            _captureRomPath = message.RomPath;
+
+        if (message.Left > 0 || message.Right > 0)
+            _arcadeCropResolver.SetLockedCrop(message.Left, message.Right, message.FrameWidth);
+        else
+            _arcadeCropResolver.Reset(_captureRomPath);
+
+        if (!_arcadeCropResolver.IsLocked)
+        {
+            ResetLivePillarboxDetectionState();
+            return;
+        }
+
+        _forcePillarboxDetectFrames = 0;
+        _pillarboxStableFrames = 6;
+        _lastDetectedLeft = -1;
+        _lastDetectedRight = -1;
+        _pillarboxAnimActive = false;
+        EnforceLockedArcadeCrop(message.FrameWidth);
+        _rectDirty = true;
+
+        if (_session != nint.Zero)
+            WgcBridgeApi.ResetDirectCompositionContentBarCrop(_session);
+    }
+
+    private void UnlockArcadePillarboxCrop(string? romPath)
+    {
+        if (!string.IsNullOrWhiteSpace(romPath))
+            _captureRomPath = romPath;
+
+        _arcadeCropResolver.ClearLock();
+        ResetLivePillarboxDetectionState();
+    }
+
+    private void ResetLivePillarboxDetectionState()
     {
         _cropLeft = 0;
         _cropRight = 0;
@@ -2629,11 +2813,53 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             WgcBridgeApi.ResetDirectCompositionContentBarCrop(_session);
     }
 
+    private void EnforceLockedArcadeCrop(int frameWidth = 0)
+    {
+        if (!_arcadeCropResolver.IsLocked || !ShouldAutoCropPillarboxes)
+            return;
+
+        frameWidth = frameWidth > 0 ? frameWidth : _texWidth;
+        if (frameWidth <= 0 && _session != nint.Zero &&
+            WgcBridgeApi.PeekLatestFrame(_session, out int w, out _, out _) &&
+            w > 0)
+        {
+            frameWidth = w;
+        }
+
+        if (frameWidth <= 0)
+            return;
+
+        if (!_arcadeCropResolver.TryGetLockedCrop(frameWidth, out var left, out var right))
+            return;
+
+        ApplyCropImmediate(left, right);
+    }
+
+    private void ApplyCropImmediate(int left, int right)
+    {
+        _targetCropLeft = left;
+        _targetCropRight = right;
+        _cropLeft = left;
+        _cropRight = right;
+        _lastDetectedLeft = left;
+        _lastDetectedRight = right;
+        _pillarboxStableFrames = 6;
+        _pillarboxAnimActive = false;
+        _rectDirty = true;
+    }
+
     /// <summary>
     /// Capture viewport resized (e.g. album panel hidden). Keep current crop so bars do not flash.
     /// </summary>
     private void OnCaptureLayoutChanged()
     {
+        if (_arcadeCropResolver.IsLocked)
+        {
+            _rectDirty = true;
+            EnforceLockedArcadeCrop(_texWidth);
+            return;
+        }
+
         _pillarboxStableFrames = 0;
         _lastDetectedLeft = -1;
         _lastDetectedRight = -1;
@@ -2667,6 +2893,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private unsafe void AutoDetectPillarboxes(IntPtr ptr, int w, int h)
     {
+        if (_arcadeCropResolver.IsLocked)
+        {
+            EnforceLockedArcadeCrop(w);
+            return;
+        }
+
         if (!ShouldAutoCropPillarboxes || w < 80 || h < 80 || ptr == IntPtr.Zero)
         {
             ClearPillarboxCropIfInactive();
@@ -2675,21 +2907,31 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         var stride = w * 4;
         var span = new ReadOnlySpan<byte>((void*)ptr, stride * h);
-        PillarboxBarDetector.DetectInsets(span, w, h, stride, out var detectedLeft, out var detectedRight, out _, out _);
-        UpdatePillarboxCropTargets(detectedLeft, detectedRight);
+        PillarboxBarDetector.DetectInsets(span, w, h, stride, out var detectedLeft, out var detectedRight, out _, out _, PillarboxDetectionProfile);
+        UpdatePillarboxCropTargets(detectedLeft, detectedRight, w);
     }
 
     private bool IsPillarboxCropAnimating =>
         _pillarboxAnimActive || _cropLeft != _targetCropLeft || _cropRight != _targetCropRight;
 
-    private void UpdatePillarboxCropTargets(int detectedLeft, int detectedRight)
+    private void UpdatePillarboxCropTargets(int detectedLeft, int detectedRight, int frameWidth)
     {
-        if (detectedLeft == _lastDetectedLeft && detectedRight == _lastDetectedRight)
+        if (_arcadeCropResolver.IsLocked)
+        {
+            EnforceLockedArcadeCrop(frameWidth);
+            return;
+        }
+
+        var (left, right) = _aggressivePillarboxCrop && frameWidth > 0
+            ? _arcadeCropResolver.Resolve(frameWidth, detectedLeft, detectedRight)
+            : (detectedLeft, detectedRight);
+
+        if (left == _lastDetectedLeft && right == _lastDetectedRight)
             _pillarboxStableFrames = Math.Min(_pillarboxStableFrames + 1, 60);
         else
         {
-            _lastDetectedLeft = detectedLeft;
-            _lastDetectedRight = detectedRight;
+            _lastDetectedLeft = left;
+            _lastDetectedRight = right;
             _pillarboxStableFrames = 1;
         }
 
@@ -2697,12 +2939,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_pillarboxStableFrames < requiredStableFrames)
             return;
 
-        if (detectedLeft == _targetCropLeft && detectedRight == _targetCropRight)
+        if (left == _targetCropLeft && right == _targetCropRight)
             return;
 
-        _targetCropLeft = detectedLeft;
-        _targetCropRight = detectedRight;
-        BeginPillarboxCropAnimation(detectedLeft, detectedRight);
+        _targetCropLeft = left;
+        _targetCropRight = right;
+        BeginPillarboxCropAnimation(left, right);
     }
 
     private void BeginPillarboxCropAnimation(int toLeft, int toRight)
@@ -2724,6 +2966,12 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
     private void StepPillarboxCropAnimation()
     {
+        if (_arcadeCropResolver.IsLocked)
+        {
+            EnforceLockedArcadeCrop(_texWidth);
+            return;
+        }
+
         if (!_pillarboxAnimActive)
         {
             if (_cropLeft != _targetCropLeft || _cropRight != _targetCropRight)
@@ -3018,6 +3266,27 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         };
 
         _overlayGraphPath ??= new SKPath();
+    }
+
+    private static SKRect BuildFullHeightDestRect(float viewW, float viewH, float frameW, float frameH)
+    {
+        if (viewW <= 0 || viewH <= 0 || frameW <= 0 || frameH <= 0)
+            return new SKRect(0, 0, Math.Max(0, viewW), Math.Max(0, viewH));
+
+        var width = viewH * (frameW / frameH);
+        return new SKRect((viewW - width) * 0.5f, 0, (viewW + width) * 0.5f, viewH);
+    }
+
+    private static SKRect BuildSnappedFullHeightDestRect(float viewW, float viewH, float frameW, float frameH)
+    {
+        var rect = BuildFullHeightDestRect(viewW, viewH, frameW, frameH);
+        rect.Top = 0;
+        rect.Bottom = viewH;
+        if (rect.Left < 0)
+            rect.Left = 0;
+        if (rect.Right > viewW)
+            rect.Right = viewW;
+        return rect;
     }
 
     private SKRect CalculateAspectRect(float viewW, float viewH, float frameW, float frameH)

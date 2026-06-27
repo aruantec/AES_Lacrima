@@ -40,7 +40,8 @@ namespace AES_Lacrima.Services
     internal enum MetadataSearchMode
     {
         Images,
-        GameplayVideo
+        GameplayVideo,
+        WallpaperBezel
     }
 
     public sealed class WebImageSearchResult

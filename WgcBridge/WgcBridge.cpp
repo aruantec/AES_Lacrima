@@ -2082,28 +2082,29 @@ struct CaptureSession
                 const float insetRight = (static_cast<float>(cropRight) / static_cast<float>(contentWidth)) * uSpan;
                 u0 = (std::min)(1.0f, (std::max)(0.0f, u0 + insetLeft));
                 u1 = (std::max)(0.0f, (std::min)(1.0f, u1 - insetRight));
+            }
 
-                const float croppedUSpan = u1 - u0;
-                const float croppedVSpan = v1 - v0;
-                if (croppedUSpan > 0.02f && croppedVSpan > 0.02f)
+            const float croppedUSpan = u1 - u0;
+            const float croppedVSpan = v1 - v0;
+            if (croppedUSpan > 0.02f && croppedVSpan > 0.02f)
+            {
+                const float cropAspect =
+                    (croppedUSpan * static_cast<float>(fullWidth)) /
+                    (croppedVSpan * static_cast<float>(fullHeight));
+
+                // Fill viewport height so back-cover bezels meet the top/bottom edges.
+                top = 1.0f;
+                bottom = -1.0f;
+                if (cropAspect > viewAspect)
                 {
-                    const float cropAspect =
-                        (croppedUSpan * static_cast<float>(fullWidth)) /
-                        (croppedVSpan * static_cast<float>(fullHeight));
-
-                    // Uniform letterbox on cropped content (side pillars + back-cover fill).
-                    if (cropAspect > viewAspect)
-                    {
-                        const float scaleY = viewAspect / cropAspect;
-                        top = scaleY;
-                        bottom = -scaleY;
-                    }
-                    else
-                    {
-                        const float scaleX = cropAspect / viewAspect;
-                        left = -scaleX;
-                        right = scaleX;
-                    }
+                    left = -1.0f;
+                    right = 1.0f;
+                }
+                else
+                {
+                    const float halfW = cropAspect / viewAspect;
+                    left = -halfW;
+                    right = halfW;
                 }
             }
         }

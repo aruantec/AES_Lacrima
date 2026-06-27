@@ -118,6 +118,48 @@ public sealed class BinaryMetadataHelperTests : IDisposable
     }
 
     [Fact]
+    public void SaveMetadata_ThenLoadMetadata_RoundTripsArcadeLockedPillarboxCrop()
+    {
+        var cachePath = Path.Combine(_tempDirectory, "arcade-crop.json");
+        var metadata = new CustomMetadata
+        {
+            Title = "1941",
+            ArcadeLockedPillarboxCropLeft = 120,
+            ArcadeLockedPillarboxCropRight = 118,
+            ArcadeLockedPillarboxCropFrameWidth = 1920
+        };
+
+        BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+        var loaded = BinaryMetadataHelper.LoadMetadata(cachePath);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(120, loaded.ArcadeLockedPillarboxCropLeft);
+        Assert.Equal(118, loaded.ArcadeLockedPillarboxCropRight);
+        Assert.Equal(1920, loaded.ArcadeLockedPillarboxCropFrameWidth);
+    }
+
+    [Fact]
+    public void CopyPreservedCacheFieldsFrom_KeepsArcadeLockedPillarboxCrop()
+    {
+        var source = new CustomMetadata
+        {
+            RomScanned = true,
+            ArcadeLockedPillarboxCropLeft = 64,
+            ArcadeLockedPillarboxCropRight = 72,
+            ArcadeLockedPillarboxCropFrameWidth = 1280
+        };
+        var target = new CustomMetadata { Title = "Edited title" };
+
+        target.CopyPreservedCacheFieldsFrom(source);
+
+        Assert.True(target.RomScanned);
+        Assert.Equal(64, target.ArcadeLockedPillarboxCropLeft);
+        Assert.Equal(72, target.ArcadeLockedPillarboxCropRight);
+        Assert.Equal(1280, target.ArcadeLockedPillarboxCropFrameWidth);
+        Assert.Equal("Edited title", target.Title);
+    }
+
+    [Fact]
     public void SaveMetadata_ThenLoadMetadata_RoundTripsUserEditedFlag()
     {
         var cachePath = Path.Combine(_tempDirectory, "user-edited.json");

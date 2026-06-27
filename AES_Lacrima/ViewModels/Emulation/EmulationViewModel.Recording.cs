@@ -284,5 +284,7 @@ public partial class EmulationViewModel
     {
         _activeCaptureHost = host;
         ConfigureCaptureGameplayRecording(host);
+        ReloadArcadeLockedCropOnCaptureHost();
+        NotifyArcadePillarboxCropCommandsChanged();
     }
 }

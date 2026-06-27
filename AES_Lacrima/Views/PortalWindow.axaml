@@ -22,7 +22,8 @@
                                        TargetProcessId="{Binding EmulatorTargetProcessId}"
                                        TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                        ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
-                                       EnablePillarboxCrop="{Binding EnableLetterboxPillarboxCrop}"
+                                       EnablePillarboxCrop="{Binding EnableCapturePillarboxCrop}"
+                                       AggressivePillarboxCrop="{Binding AggressivePillarboxCrop}"
                                        ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
                                        ClientAreaCropTopInset="{Binding ClientAreaCropTopInset}"
                                        ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"
@@ -41,7 +42,8 @@
                                        RestoreTargetWindowOnStop="{Binding RestoreTargetWindowOnStop}"
                                        CaptureMode="{Binding SelectedCaptureMode}"
                                        UseBackCoverLetterboxFill="{Binding UseBackCoverLetterboxFill}"
-                                       LetterboxBitmap="{Binding CaptureLetterboxBitmap}" />
+                                       LetterboxBitmap="{Binding CaptureLetterboxBitmap}"
+                                       CaptureRomPath="{Binding ActiveCaptureRomPath}" />
         <Border x:Name="CaptureContextMenuLayer"
                 Background="Transparent"
                 HorizontalAlignment="Stretch"
@@ -71,6 +73,14 @@
                         <MenuItem Header="32:9" CornerRadius="8" Command="{Binding SetCaptureAspectRatioCommand}" CommandParameter="32:9" />
                         <MenuItem Header="1:1" CornerRadius="8" Command="{Binding SetCaptureAspectRatioCommand}" CommandParameter="1:1" />
                     </MenuItem>
+                    <MenuItem Header="Use Current Crop Size"
+                              CornerRadius="8"
+                              Command="{Binding SaveCurrentArcadePillarboxCropCommand}"
+                              IsVisible="{Binding RemoveArcadePillarboxBars}" />
+                    <MenuItem Header="Clear Saved Crop Size"
+                              CornerRadius="8"
+                              Command="{Binding ClearArcadeLockedPillarboxCropCommand}"
+                              IsVisible="{Binding HasArcadeLockedPillarboxCrop}" />
                     <MenuItem Header="Reboot"
                               CornerRadius="8"
                               Command="{Binding RebootEmulatorCommand}"

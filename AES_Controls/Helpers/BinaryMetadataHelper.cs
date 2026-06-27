@@ -93,10 +93,29 @@ public class CustomMetadata
     /// User-edited metadata from the metadata editor should not be overwritten by scrapers.
     /// </summary>
     public bool UserEdited { get; set; }
+    /// <summary>User-locked arcade pillarbox crop left inset at <see cref="ArcadeLockedPillarboxCropFrameWidth"/>.</summary>
+    public int ArcadeLockedPillarboxCropLeft { get; set; }
+    /// <summary>User-locked arcade pillarbox crop right inset at <see cref="ArcadeLockedPillarboxCropFrameWidth"/>.</summary>
+    public int ArcadeLockedPillarboxCropRight { get; set; }
+    /// <summary>Capture frame width when <see cref="ArcadeLockedPillarboxCropLeft"/> / <see cref="ArcadeLockedPillarboxCropRight"/> were saved.</summary>
+    public int ArcadeLockedPillarboxCropFrameWidth { get; set; }
     /// <summary>Gets or sets the list of associated images.</summary>
     public List<ImageData> Images { get; set; } = [];
     /// <summary>Gets or sets the list of associated video data.</summary>
     public List<VideoData> Videos { get; set; } = [];
+
+    /// <summary>
+    /// Copies scanner/session fields that the metadata editor does not edit but must not clear on save.
+    /// </summary>
+    public void CopyPreservedCacheFieldsFrom(CustomMetadata source)
+    {
+        RomScanned = source.RomScanned;
+        CoverScanned = source.CoverScanned;
+        CoverLookupExhausted = source.CoverLookupExhausted;
+        ArcadeLockedPillarboxCropLeft = source.ArcadeLockedPillarboxCropLeft;
+        ArcadeLockedPillarboxCropRight = source.ArcadeLockedPillarboxCropRight;
+        ArcadeLockedPillarboxCropFrameWidth = source.ArcadeLockedPillarboxCropFrameWidth;
+    }
 }
 
 /// <summary>

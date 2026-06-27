@@ -44,7 +44,7 @@
                     BorderThickness="1"
                     CornerRadius="10"
                     Padding="12">
-                <Grid ColumnDefinitions="*,300" ColumnSpacing="14">
+                <Grid ColumnDefinitions="3*,2*" ColumnSpacing="18">
                     <Grid Grid.Column="0">
                         <controls:LoadingControl Width="72"
                                                  Height="72"
@@ -110,31 +110,73 @@
                             BorderBrush="#28FFFFFF"
                             BorderThickness="1"
                             CornerRadius="10"
-                            Padding="12"
-                            IsVisible="{Binding IsCoverImageSearchMode}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="{Binding CoverPreviewLayoutLabel}"
-                                       Foreground="White"
-                                       FontSize="18"
-                                       FontWeight="SemiBold"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding ImageSearchPreviewTitle, FallbackValue=Item title}"
-                                       Foreground="#B8B8B8"
-                                       FontSize="14"
-                                       TextTrimming="CharacterEllipsis"
-                                       MaxLines="2"
-                                       TextWrapping="Wrap" />
-                            <composition:CompositionCoverPreviewControl MinHeight="220"
-                                                                        MaxHeight="320"
-                                                                        ImageUrl="{Binding ImageSearchPreviewUrl}"
-                                                                        LayoutMode="{Binding CoverPreviewLayoutMode}"
-                                                                        Title="{Binding ImageSearchPreviewTitle}" />
-                            <TextBlock Text="Hover a result to preview how it will look on the item."
+                            Padding="16"
+                            MinWidth="420"
+                            IsVisible="{Binding IsImageSearchPreviewVisible}">
+                        <Grid RowDefinitions="Auto,*">
+                            <StackPanel Grid.Row="0" Spacing="12">
+                            <StackPanel Spacing="10"
+                                        IsVisible="{Binding IsCoverImageSearchMode}">
+                                <TextBlock Text="{Binding CoverPreviewLayoutLabel}"
+                                           Foreground="White"
+                                           FontSize="20"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ImageSearchPreviewTitle, FallbackValue=Item title}"
+                                           Foreground="#B8B8B8"
+                                           FontSize="15"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="2"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="10"
+                                        IsVisible="{Binding IsWallpaperBezelImageSearchMode}">
+                                <TextBlock Text="{Binding WallpaperBezelPreviewLayoutLabel}"
+                                           Foreground="White"
+                                           FontSize="22"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ImageSearchPreviewTitle, FallbackValue=Item title}"
+                                           Foreground="#B8B8B8"
+                                           FontSize="16"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="3"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding WallpaperBezelPreviewKindLabel}"
+                                           Foreground="#8FE3A1"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <TextBlock Text="Hover a result to preview how it will look."
                                        Foreground="#8A8A8A"
-                                       FontSize="13"
+                                       FontSize="14"
                                        TextWrapping="Wrap"
                                        IsVisible="{Binding ImageSearchPreviewUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
-                        </StackPanel>
+                            </StackPanel>
+
+                            <composition:CompositionCoverPreviewControl Grid.Row="1"
+                                                                            Margin="0,12,0,0"
+                                                                            MinHeight="280"
+                                                                            MaxHeight="520"
+                                                                            VerticalAlignment="Stretch"
+                                                                            HorizontalAlignment="Stretch"
+                                                                            IsVisible="{Binding IsCoverImageSearchMode}"
+                                                                            ImageUrl="{Binding ImageSearchPreviewUrl}"
+                                                                            LayoutMode="{Binding CoverPreviewLayoutMode}"
+                                                                            Title="{Binding ImageSearchPreviewTitle}" />
+
+                            <composition:CompositionWallpaperBezelPreviewControl Grid.Row="1"
+                                                                                 Margin="0,12,0,0"
+                                                                                 MinHeight="380"
+                                                                                 VerticalAlignment="Stretch"
+                                                                                 HorizontalAlignment="Stretch"
+                                                                                 IsVisible="{Binding IsWallpaperBezelImageSearchMode}"
+                                                                                 ImageUrl="{Binding ImageSearchPreviewUrl}"
+                                                                                 PreviewKind="{Binding ImageSearchPreviewWallpaperBezelKind}" />
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>

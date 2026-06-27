@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AES_Code.Models;
+using AES_Controls.Helpers;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
 using Avalonia.Media.Imaging;
@@ -23,32 +24,62 @@ public partial class EmulationViewModel
     public bool UseBackCoverLetterboxFill =>
         SettingsViewModel?.EmulationUseBackCoverLetterboxFill == true;
 
-    /// <summary>
-    /// Pillarbox crop runs only when letterbox fill is enabled and a back-cover image is loaded.
-    /// </summary>
-    public bool EnableLetterboxPillarboxCrop =>
-        UseBackCoverLetterboxFill && CaptureLetterboxBitmap != null;
+    public bool SupportsArcadePillarboxRemoval =>
+        EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(
+            CurrentEmulationSectionItem?.SectionKey,
+            CurrentEmulationSectionItem?.SectionTitle);
+
+    public bool RemoveArcadePillarboxBars
+    {
+        get => CurrentEmulationSectionItem?.LaunchSettings?.RemoveArcadePillarboxBars == true;
+        set
+        {
+            var section = CurrentEmulationSectionItem;
+            if (section == null || section.RemoveArcadePillarboxBars == value)
+                return;
+
+            section.RemoveArcadePillarboxBars = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
+            OnPropertyChanged(nameof(AggressivePillarboxCrop));
+            OnPropertyChanged(nameof(EnableLetterboxPillarboxCrop));
+            NotifyArcadePillarboxCropCommandsChanged();
+        }
+    }
+
+    public bool AggressivePillarboxCrop => RemoveArcadePillarboxBars;
+
+    public bool EnableLetterboxPillarboxCrop => EnableCapturePillarboxCrop;
 
     internal void SetActiveCaptureRomPath(string? romPath)
     {
         _activeCaptureRomPath = string.IsNullOrWhiteSpace(romPath) ? null : romPath.Trim();
+        OnPropertyChanged(nameof(ActiveCaptureRomPath));
+        ReloadArcadeLockedCropOnCaptureHost();
+        NotifyArcadePillarboxCropCommandsChanged();
         _ = RefreshCaptureLetterboxBitmapAsync();
     }
+
+    public string? ActiveCaptureRomPath => _activeCaptureRomPath;
 
     internal void ClearActiveCaptureRomPath()
     {
         _activeCaptureRomPath = null;
+        OnPropertyChanged(nameof(ActiveCaptureRomPath));
+        NotifyArcadePillarboxCropCommandsChanged();
         CaptureLetterboxBitmap = null;
     }
 
     partial void OnCaptureLetterboxBitmapChanged(Bitmap? value)
     {
+        OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
         OnPropertyChanged(nameof(EnableLetterboxPillarboxCrop));
     }
 
     private void OnEmulationUseBackCoverLetterboxFillChanged(bool enabled)
     {
         OnPropertyChanged(nameof(UseBackCoverLetterboxFill));
+        OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
         OnPropertyChanged(nameof(EnableLetterboxPillarboxCrop));
 
         if (!enabled)
@@ -82,6 +113,12 @@ public partial class EmulationViewModel
             return;
 
         _ = RefreshCaptureLetterboxBitmapAsync();
+
+        if (!string.IsNullOrWhiteSpace(_activeCaptureRomPath) &&
+            EmulationCoverCacheHelper.RomPathsShareCache(savedPath, _activeCaptureRomPath))
+        {
+            NotifyArcadePillarboxCropCommandsChanged();
+        }
     }
 
     private void MetadataImages_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -129,10 +166,13 @@ public partial class EmulationViewModel
         if (string.IsNullOrWhiteSpace(metadataPath))
             return false;
 
-        return string.Equals(
-            Path.GetFullPath(metadataPath.Trim()),
-            Path.GetFullPath(_activeCaptureRomPath.Trim()),
-            StringComparison.OrdinalIgnoreCase);
+        var activeCachePath = Path.GetFullPath(EmulationLetterboxHelper.GetMetadataCachePath(_activeCaptureRomPath));
+        var savedCachePath = Path.GetFullPath(
+            metadataPath.Trim().EndsWith(".meta", StringComparison.OrdinalIgnoreCase)
+                ? metadataPath.Trim()
+                : EmulationLetterboxHelper.GetMetadataCachePath(metadataPath.Trim()));
+
+        return string.Equals(activeCachePath, savedCachePath, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task RefreshCaptureLetterboxBitmapAsync()
