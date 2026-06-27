@@ -496,7 +496,8 @@
                                                  TargetProcessId="{Binding EmulatorTargetProcessId}"
                                                  TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                                  ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"
-                                                 EnablePillarboxCrop="{Binding EnableLetterboxPillarboxCrop}"
+                                                 EnablePillarboxCrop="{Binding EnableCapturePillarboxCrop}"
+                                                 AggressivePillarboxCrop="{Binding AggressivePillarboxCrop}"
                                                  ClientAreaCropLeftInset="{Binding ClientAreaCropLeftInset}"
                                                  ClientAreaCropTopInset="{Binding ClientAreaCropTopInset}"
                                                  ClientAreaCropRightInset="{Binding ClientAreaCropRightInset}"
@@ -515,7 +516,8 @@
                                                  RestoreTargetWindowOnStop="{Binding RestoreTargetWindowOnStop}"
                                                  CaptureMode="{Binding SelectedCaptureMode}"
                                                  UseBackCoverLetterboxFill="{Binding UseBackCoverLetterboxFill}"
-                                                 LetterboxBitmap="{Binding CaptureLetterboxBitmap}" />
+                                                 LetterboxBitmap="{Binding CaptureLetterboxBitmap}"
+                                                 CaptureRomPath="{Binding ActiveCaptureRomPath}" />
             </Border>
             <Grid x:Name="EmulatorCaptureOverlay"
                   ZIndex="100"
@@ -553,6 +555,14 @@
                             <MenuItem Header="32:9" CornerRadius="8" Command="{Binding SetCaptureAspectRatioCommand}" CommandParameter="32:9" />
                             <MenuItem Header="1:1" CornerRadius="8" Command="{Binding SetCaptureAspectRatioCommand}" CommandParameter="1:1" />
                         </MenuItem>
+                        <MenuItem Header="Use Current Crop Size"
+                                  CornerRadius="8"
+                                  Command="{Binding SaveCurrentArcadePillarboxCropCommand}"
+                                  IsVisible="{Binding RemoveArcadePillarboxBars}" />
+                        <MenuItem Header="Clear Saved Crop Size"
+                                  CornerRadius="8"
+                                  Command="{Binding ClearArcadeLockedPillarboxCropCommand}"
+                                  IsVisible="{Binding HasArcadeLockedPillarboxCrop}" />
                         <MenuItem Header="Reboot"
                                   CornerRadius="8"
                                   Command="{Binding RebootEmulatorCommand}"
@@ -705,6 +715,20 @@
                                                           ToolTip.Tip="Smaller WGC frame pool and presents on the capture thread. Restart capture (relaunch game) to apply."/>
                                         </StackPanel>
                                         <TextBlock Text="Reduces capture delay; turn off if you see a gray portal or other capture glitches."
+                                                   Foreground="#AAAAAA"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="560" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="8"
+                                                IsVisible="{Binding SupportsArcadePillarboxRemoval}">
+                                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                            <TextBlock Text="Remove side pillars" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
+                                            <ToggleSwitch IsChecked="{Binding RemoveArcadePillarboxBars, Mode=TwoWay}"
+                                                          ToolTip.Tip="Auto-crops uniform black side pillars from arcade-style captures."/>
+                                        </StackPanel>
+                                        <TextBlock Text="Useful for arcade and Final Burn Neo games with unusual aspect ratios."
                                                    Foreground="#AAAAAA"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"

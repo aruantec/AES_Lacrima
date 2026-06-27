@@ -199,7 +199,7 @@
                                            FontSize="16"
                                            FontWeight="SemiBold" />
                                 <Grid ColumnDefinitions="*,104,104"
-                                      RowDefinitions="Auto,Auto"
+                                      RowDefinitions="Auto,Auto,Auto"
                                       ColumnSpacing="8"
                                       RowSpacing="8">
                                     <TextBox Grid.Row="0"
@@ -237,6 +237,14 @@
                                             Grid.Column="2"
                                             Content="Use Title"
                                             Command="{Binding SearchImagesByTitleCommand}"
+                                            Padding="12,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Center" />
+                                    <Button Grid.Row="2"
+                                            Grid.Column="0"
+                                            Grid.ColumnSpan="3"
+                                            Content="Search Wallpaper &amp; Bezels"
+                                            Command="{Binding SearchWallpaperAndBezelsByTitleCommand}"
                                             Padding="12,6"
                                             HorizontalAlignment="Stretch"
                                             VerticalAlignment="Center" />

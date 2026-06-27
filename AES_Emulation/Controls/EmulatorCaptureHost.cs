@@ -9,6 +9,7 @@ using Avalonia.VisualTree;
 using AES_Controls;
 using AES_Emulation.Linux;
 using AES_Emulation.Mac;
+using AES_Emulation.Services;
 using AES_Emulation.Windows;
 using AES_Emulation.Windows.API;
 
@@ -91,6 +92,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<bool> EnablePillarboxCropProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(EnablePillarboxCrop), false);
 
+    public static readonly StyledProperty<bool> AggressivePillarboxCropProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(AggressivePillarboxCrop), false);
+
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
@@ -166,6 +170,9 @@ public class EmulatorCaptureHost : ContentControl
 
     public static readonly StyledProperty<Bitmap?> LetterboxBitmapProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, Bitmap?>(nameof(LetterboxBitmap));
+
+    public static readonly StyledProperty<string?> CaptureRomPathProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, string?>(nameof(CaptureRomPath));
 
     private Control _backend;
     private string _statusText = "Capture unavailable";
@@ -306,6 +313,12 @@ public class EmulatorCaptureHost : ContentControl
         set => SetValue(EnablePillarboxCropProperty, value);
     }
 
+    public bool AggressivePillarboxCrop
+    {
+        get => GetValue(AggressivePillarboxCropProperty);
+        set => SetValue(AggressivePillarboxCropProperty, value);
+    }
+
     public bool HideTargetWindowAfterCaptureStarts
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
@@ -371,6 +384,68 @@ public class EmulatorCaptureHost : ContentControl
         get => GetValue(LetterboxBitmapProperty);
         set => SetValue(LetterboxBitmapProperty, value);
     }
+
+    public string? CaptureRomPath
+    {
+        get => GetValue(CaptureRomPathProperty);
+        set => SetValue(CaptureRomPathProperty, value);
+    }
+
+    public bool TryGetPillarboxCrop(out int left, out int right, out int frameWidth)
+    {
+        if (OperatingSystem.IsWindows() && _backend is CompositionWgcCaptureControl compositionBackend)
+            return compositionBackend.TryGetPillarboxCrop(out left, out right, out frameWidth);
+
+        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            return linuxCompositionBackend.TryGetPillarboxCrop(out left, out right, out frameWidth);
+
+        left = right = frameWidth = 0;
+        return false;
+    }
+
+    public void ApplyArcadeLockedPillarboxCrop(int left, int right, int frameWidth, string? romPath = null)
+    {
+        var message = new ArcadePillarboxApplyLockMessage
+        {
+            RomPath = romPath ?? CaptureRomPath,
+            Left = left,
+            Right = right,
+            FrameWidth = frameWidth
+        };
+
+        if (OperatingSystem.IsWindows() && _backend is CompositionWgcCaptureControl compositionBackend)
+            compositionBackend.ApplyArcadeLockedPillarboxCrop(message);
+        else if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.ApplyArcadeLockedPillarboxCrop(message);
+    }
+
+    public void ReloadArcadeLockedPillarboxCropFromMetadata(string? romPath = null)
+    {
+        var message = new ArcadePillarboxApplyLockMessage
+        {
+            RomPath = romPath ?? CaptureRomPath
+        };
+
+        if (OperatingSystem.IsWindows() && _backend is CompositionWgcCaptureControl compositionBackend)
+            compositionBackend.ApplyArcadeLockedPillarboxCrop(message);
+        else if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.ApplyArcadeLockedPillarboxCrop(message);
+    }
+
+    public void UnlockArcadePillarboxCrop(string? romPath = null)
+    {
+        var message = new ArcadePillarboxUnlockMessage
+        {
+            RomPath = romPath ?? CaptureRomPath
+        };
+
+        if (OperatingSystem.IsWindows() && _backend is CompositionWgcCaptureControl compositionBackend)
+            compositionBackend.UnlockArcadePillarboxCrop(message);
+        else if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.UnlockArcadePillarboxCrop(message);
+    }
+
+    public void ReloadArcadeLockedPillarboxCrop() => ReloadArcadeLockedPillarboxCropFromMetadata();
 
     public string StatusText
     {
@@ -896,8 +971,8 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.DisableVSync = DisableVSync;
                     compositionBackend.RetroarchShaderFile = string.IsNullOrWhiteSpace(ShaderPath) && ClearShaderWhenPathEmpty ? null : ShaderPath;
                     compositionBackend.ForceUseTargetClientSize = ForceUseTargetClientArea;
-                    compositionBackend.EnableAutoCrop =
-                        UseBackCoverLetterboxFill && LetterboxBitmap != null;
+                    compositionBackend.EnableAutoCrop = EnablePillarboxCrop;
+                    compositionBackend.AggressivePillarboxCrop = AggressivePillarboxCrop;
                     compositionBackend.ClientAreaCropLeftInset = ClientAreaCropLeftInset;
                     compositionBackend.ClientAreaCropTopInset = ClientAreaCropTopInset;
                     compositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
@@ -911,6 +986,7 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.ShowDetailedGpuInfo = false;
                     compositionBackend.UseBackCoverLetterboxFill = UseBackCoverLetterboxFill;
                     compositionBackend.LetterboxBitmap = LetterboxBitmap;
+                    compositionBackend.CaptureRomPath = CaptureRomPath;
                     return;
                 case WgcCaptureControl wgcBackend:
                     SyncWgcProperties(wgcBackend);
@@ -1014,6 +1090,11 @@ public class EmulatorCaptureHost : ContentControl
                 linuxCompositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                 linuxCompositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                 linuxCompositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
+                linuxCompositionBackend.UseBackCoverLetterboxFill = UseBackCoverLetterboxFill;
+                linuxCompositionBackend.LetterboxBitmap = LetterboxBitmap;
+                linuxCompositionBackend.EnablePillarboxCrop = EnablePillarboxCrop;
+                linuxCompositionBackend.AggressivePillarboxCrop = AggressivePillarboxCrop;
+                linuxCompositionBackend.CaptureRomPath = CaptureRomPath;
                 break;
         }
     }

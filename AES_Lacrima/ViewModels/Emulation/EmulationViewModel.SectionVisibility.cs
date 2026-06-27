@@ -316,6 +316,11 @@ namespace AES_Lacrima.ViewModels
 
             OnPropertyChanged(nameof(CurrentEmulationSectionItem));
             OnPropertyChanged(nameof(CurrentSectionEmulatorHandler));
+            OnPropertyChanged(nameof(SupportsArcadePillarboxRemoval));
+            OnPropertyChanged(nameof(RemoveArcadePillarboxBars));
+            OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
+            OnPropertyChanged(nameof(AggressivePillarboxCrop));
+            OnPropertyChanged(nameof(EnableLetterboxPillarboxCrop));
             RefreshCurrentSectionRetroArchCoreBindings();
             OnPropertyChanged(nameof(ShowCurrentSectionRetroArchUpdateControls));
             OnPropertyChanged(nameof(ShowCurrentSectionEdenUpdateControls));

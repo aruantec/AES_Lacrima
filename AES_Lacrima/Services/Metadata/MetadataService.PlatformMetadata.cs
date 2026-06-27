@@ -176,6 +176,32 @@ namespace AES_Lacrima.Services
             return queries;
         }
 
+        private static List<string> BuildWallpaperBezelSearchQueries(MediaItem item, string? albumName)
+        {
+            var title = NormalizeRomSearchTitle(item.Title);
+            if (string.IsNullOrWhiteSpace(title))
+                title = NormalizeRomSearchTitle(ExtractFilenameForSearch(item.FileName));
+
+            return BuildWallpaperBezelSearchQueriesFromTitle(title, albumName ?? item.Album);
+        }
+
+        private static List<string> BuildWallpaperBezelSearchQueriesFromTitle(string? title, string? albumName = null)
+        {
+            var normalizedTitle = NormalizeSearchTitle(title);
+            var sectionLabel = NormalizeSearchTitle(EmulationConsoleCatalog.GetPreferredBoxArtSearchLabel(albumName));
+            var queries = new List<string>();
+
+            AddDistinctQuery(queries, normalizedTitle, "wallpaper", "wide", sectionLabel);
+
+            if (!string.IsNullOrWhiteSpace(sectionLabel))
+            {
+                AddDistinctQuery(queries, normalizedTitle, sectionLabel, "bezel");
+                AddDistinctQuery(queries, normalizedTitle, sectionLabel, "marquee");
+            }
+
+            return queries;
+        }
+
         private Task<IReadOnlyList<WebImageSearchResult>> FindImageResultsForAutoCoverAsync(string query, CancellationToken cancellationToken)
             => FindImageResultsForAutoCoverAsync(query, cancellationToken, AutoCoverLookupOptions.Default);
 

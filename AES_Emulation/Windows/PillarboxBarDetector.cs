@@ -6,6 +6,12 @@ namespace AES_Emulation.Windows;
 /// Detects uniform near-black letterbox/pillarbox borders in captured BGRA frames.
 /// Ignores sparse UI/text on black backgrounds by requiring large content area and pure bar regions.
 /// </summary>
+internal enum PillarboxDetectionProfile
+{
+    Standard,
+    AggressiveArcade
+}
+
 internal static class PillarboxBarDetector
 {
     private const int BorderLumaMax = 12;
@@ -13,10 +19,6 @@ internal static class PillarboxBarDetector
     private const double BarLineRatio = 0.94;
     private const int MaxContentLinesInBarColumn = 1;
     private const int MinBarPixels = 8;
-    private const double MinContentWidthRatio = 0.68;
-    private const double MinContentHeightRatio = 0.68;
-    private const double MaxCropWidthRatioPerSide = 0.22;
-    private const double MaxCropHeightRatioPerSide = 0.22;
 
     public static void DetectInsets(
         ReadOnlySpan<byte> bgra,
@@ -26,30 +28,44 @@ internal static class PillarboxBarDetector
         out int left,
         out int right,
         out int top,
-        out int bottom)
+        out int bottom,
+        PillarboxDetectionProfile profile = PillarboxDetectionProfile.Standard)
     {
         left = right = top = bottom = 0;
         if (width < 80 || height < 80 || bgra.Length < stride * height)
             return;
+
+        var limits = GetProfileLimits(profile);
 
         Span<int> rows = stackalloc int[17];
         BuildSampleLines(height, rows);
         Span<int> cols = stackalloc int[17];
         BuildSampleLines(width, cols);
 
-        if (!HasSubstantialCentralContent(bgra, width, height, stride, rows, cols))
+        if (!HasSubstantialCentralContent(bgra, width, height, stride, rows, cols, limits.MinContentWidthRatio, limits.MinContentHeightRatio))
             return;
 
-        var maxScanX = Math.Max(24, (int)(width * MaxCropWidthRatioPerSide));
-        var maxScanY = Math.Max(24, (int)(height * MaxCropHeightRatioPerSide));
+        var maxScanX = Math.Max(24, (int)(width * limits.MaxCropWidthRatioPerSide));
+        var maxScanY = Math.Max(24, (int)(height * limits.MaxCropHeightRatioPerSide));
 
         left = ScanUniformBarFromLeft(bgra, width, height, stride, rows, maxScanX);
         right = ScanUniformBarFromRight(bgra, width, height, stride, rows, maxScanX);
         top = ScanUniformBarFromTop(bgra, width, height, stride, cols, maxScanY);
         bottom = ScanUniformBarFromBottom(bgra, width, height, stride, cols, maxScanY);
 
-        ValidateAndClampInsets(bgra, width, height, stride, ref left, ref right, ref top, ref bottom);
+        ValidateAndClampInsets(bgra, width, height, stride, ref left, ref right, ref top, ref bottom, limits);
     }
+
+    private readonly record struct ProfileLimits(
+        double MinContentWidthRatio,
+        double MinContentHeightRatio,
+        double MaxCropWidthRatioPerSide,
+        double MaxCropHeightRatioPerSide);
+
+    private static ProfileLimits GetProfileLimits(PillarboxDetectionProfile profile) =>
+        profile == PillarboxDetectionProfile.AggressiveArcade
+            ? new ProfileLimits(0.24, 0.55, 0.40, 0.22)
+            : new ProfileLimits(0.68, 0.68, 0.22, 0.22);
 
     private static void BuildSampleLines(int extent, Span<int> lines)
     {
@@ -79,8 +95,12 @@ internal static class PillarboxBarDetector
         int height,
         int stride,
         ReadOnlySpan<int> rows,
-        ReadOnlySpan<int> cols)
+        ReadOnlySpan<int> cols,
+        double minContentWidthRatio,
+        double minContentHeightRatio)
     {
+        _ = minContentWidthRatio;
+        _ = minContentHeightRatio;
         var innerLeft = width / 5;
         var innerRight = width * 4 / 5;
         var innerTop = height / 5;
@@ -245,15 +265,16 @@ internal static class PillarboxBarDetector
         ref int left,
         ref int right,
         ref int top,
-        ref int bottom)
+        ref int bottom,
+        ProfileLimits limits)
     {
         if (left < MinBarPixels) left = 0;
         if (right < MinBarPixels) right = 0;
         if (top < MinBarPixels) top = 0;
         if (bottom < MinBarPixels) bottom = 0;
 
-        var maxCropX = Math.Max(MinBarPixels, (int)(width * MaxCropWidthRatioPerSide));
-        var maxCropY = Math.Max(MinBarPixels, (int)(height * MaxCropHeightRatioPerSide));
+        var maxCropX = Math.Max(MinBarPixels, (int)(width * limits.MaxCropWidthRatioPerSide));
+        var maxCropY = Math.Max(MinBarPixels, (int)(height * limits.MaxCropHeightRatioPerSide));
         left = Math.Min(left, maxCropX);
         right = Math.Min(right, maxCropX);
         top = Math.Min(top, maxCropY);
@@ -262,7 +283,7 @@ internal static class PillarboxBarDetector
         var contentW = width - left - right;
         var contentH = height - top - bottom;
 
-        if (contentW < width * MinContentWidthRatio || contentH < height * MinContentHeightRatio)
+        if (contentW < width * limits.MinContentWidthRatio || contentH < height * limits.MinContentHeightRatio)
         {
             left = right = top = bottom = 0;
             return;
@@ -279,7 +300,7 @@ internal static class PillarboxBarDetector
 
         contentW = width - left - right;
         contentH = height - top - bottom;
-        if (contentW < width * MinContentWidthRatio || contentH < height * MinContentHeightRatio)
+        if (contentW < width * limits.MinContentWidthRatio || contentH < height * limits.MinContentHeightRatio)
         {
             left = right = top = bottom = 0;
         }

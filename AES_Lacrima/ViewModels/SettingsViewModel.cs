@@ -466,6 +466,20 @@ public partial class EmulationSectionItem : ObservableObject
 
     public bool HasHandlers => Handlers.Count > 0;
 
+    public bool RemoveArcadePillarboxBars
+    {
+        get => LaunchSettings?.RemoveArcadePillarboxBars == true;
+        set
+        {
+            LaunchSettings ??= new EmulationSectionLaunchSettings();
+            if (LaunchSettings.RemoveArcadePillarboxBars == value)
+                return;
+
+            LaunchSettings.RemoveArcadePillarboxBars = value;
+            OnPropertyChanged();
+        }
+    }
+
     partial void OnHandlersChanged(AvaloniaList<EmulationHandlerAppItem> value)
     {
         value.CollectionChanged += Handlers_CollectionChanged;
@@ -550,6 +564,11 @@ public sealed class EmulationSectionLaunchSettings
 
     public bool IncludeDuckStationPrereleases { get; set; }
 
+    /// <summary>
+    /// When enabled on arcade sections, auto-crops uniform black side pillars from capture.
+    /// </summary>
+    public bool RemoveArcadePillarboxBars { get; set; }
+
     public EmulationSectionLaunchSettings Clone() =>
         new()
         {
@@ -580,7 +599,8 @@ public sealed class EmulationSectionLaunchSettings
             SelectedFlycastVersion = SelectedFlycastVersion,
             IncludeFlycastNightlies = IncludeFlycastNightlies,
             SelectedDuckStationVersion = SelectedDuckStationVersion,
-            IncludeDuckStationPrereleases = IncludeDuckStationPrereleases
+            IncludeDuckStationPrereleases = IncludeDuckStationPrereleases,
+            RemoveArcadePillarboxBars = RemoveArcadePillarboxBars
         };
 }
 
@@ -3452,7 +3472,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             return;
 
         if (string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedRetroArchCore), StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedHandlerId), StringComparison.OrdinalIgnoreCase))
+            string.Equals(e.PropertyName, nameof(EmulationSectionItem.SelectedHandlerId), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.PropertyName, nameof(EmulationSectionItem.RemoveArcadePillarboxBars), StringComparison.OrdinalIgnoreCase))
         {
             SaveSettings();
         }
@@ -4672,6 +4693,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedXeniaVersion) ||
                !string.IsNullOrWhiteSpace(item.LaunchSettings?.SelectedXemuVersion) ||
                item.LaunchSettings?.IncludeXemuPrereleases == true ||
+               item.LaunchSettings?.RemoveArcadePillarboxBars == true ||
                !string.IsNullOrWhiteSpace(item.SelectedHandlerId);
     }
 
@@ -4708,7 +4730,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             SelectedPcsx2Version = persisted.SelectedPcsx2Version ?? defaults.SelectedPcsx2Version,
             IncludePcsx2Prereleases = persisted.IncludePcsx2Prereleases || defaults.IncludePcsx2Prereleases,
             SelectedDuckStationVersion = persisted.SelectedDuckStationVersion ?? defaults.SelectedDuckStationVersion,
-            IncludeDuckStationPrereleases = persisted.IncludeDuckStationPrereleases || defaults.IncludeDuckStationPrereleases
+            IncludeDuckStationPrereleases = persisted.IncludeDuckStationPrereleases || defaults.IncludeDuckStationPrereleases,
+            RemoveArcadePillarboxBars = persisted.RemoveArcadePillarboxBars || defaults.RemoveArcadePillarboxBars
         };
     }
 

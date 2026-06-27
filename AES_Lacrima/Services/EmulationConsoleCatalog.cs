@@ -307,6 +307,28 @@ namespace AES_Lacrima.Services
             return string.Equals(definition.Key, "ARCADE", StringComparison.OrdinalIgnoreCase);
         }
 
+        public static bool SupportsArcadePillarboxRemoval(string? sectionKey, string? sectionTitle = null)
+        {
+            if (TryGetDefinition(sectionKey, out var byKey) &&
+                IsArcadePillarboxConsoleKey(byKey.Key))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(sectionTitle) &&
+                TryGetDefinition(sectionTitle, out var byTitle) &&
+                IsArcadePillarboxConsoleKey(byTitle.Key))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsArcadePillarboxConsoleKey(string key) =>
+            string.Equals(key, "ARCADE", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(key, "FBN", StringComparison.OrdinalIgnoreCase);
+
         internal static bool TryGetDefinition(string? consoleName, out EmulationConsoleDefinition definition)
         {
             definition = default!;

@@ -192,9 +192,7 @@ namespace AES_Lacrima.Services
 
                 if (existingCache != null)
                 {
-                    customMetadata.CoverScanned = existingCache.CoverScanned;
-                    customMetadata.CoverLookupExhausted = existingCache.CoverLookupExhausted;
-                    customMetadata.RomScanned = existingCache.RomScanned;
+                    customMetadata.CopyPreservedCacheFieldsFrom(existingCache);
                     if (string.IsNullOrWhiteSpace(customMetadata.Ps3TitleId))
                         customMetadata.Ps3TitleId = existingCache.Ps3TitleId;
                     if (string.IsNullOrWhiteSpace(customMetadata.Ps3Version))

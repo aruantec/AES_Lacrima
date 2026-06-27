@@ -1178,7 +1178,10 @@ private bool _isShadPs4PatchesOverlayOpen;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
 
-        public bool EnableCapturePillarboxCrop => CurrentEmulatorHandler?.EnableCapturePillarboxCrop == true;
+        public bool EnableCapturePillarboxCrop =>
+            RemoveArcadePillarboxBars ||
+            (UseBackCoverLetterboxFill && CaptureLetterboxBitmap != null) ||
+            CurrentEmulatorHandler?.EnableCapturePillarboxCrop == true;
         public bool HideTargetWindowAfterCaptureStarts =>
             OperatingSystem.IsLinux() ? false : CurrentEmulatorHandler?.HideUntilCaptured != false;
         public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
