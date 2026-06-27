@@ -103,13 +103,16 @@ internal static class LinuxWindowHelper
 
         try
         {
-            return GetWindowTitleInternal(display, hwnd);
+            return GetWindowTitleForDisplay(display, hwnd);
         }
         finally
         {
             X11Interop.XCloseDisplay(display);
         }
     }
+
+    public static string GetWindowTitleForDisplay(IntPtr display, IntPtr hwnd) =>
+        GetWindowTitleInternal(display, hwnd);
 
     private static string GetWindowTitleInternal(IntPtr display, IntPtr hwnd)
     {
@@ -151,13 +154,16 @@ internal static class LinuxWindowHelper
 
         try
         {
-            return GetWindowClassNameInternal(display, hwnd);
+            return GetWindowClassNameForDisplay(display, hwnd);
         }
         finally
         {
             X11Interop.XCloseDisplay(display);
         }
     }
+
+    public static string GetWindowClassNameForDisplay(IntPtr display, IntPtr hwnd) =>
+        GetWindowClassNameInternal(display, hwnd);
 
     private static string GetWindowClassNameInternal(IntPtr display, IntPtr hwnd)
     {

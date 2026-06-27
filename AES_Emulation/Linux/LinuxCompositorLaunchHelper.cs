@@ -264,6 +264,9 @@ public static class LinuxCompositorLaunchHelper
         startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
         startInfo.Environment["GDK_BACKEND"] = "x11";
         startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+        // Steam/Proton and many SDL titles pause simulation when X11 focus is lost.
+        startInfo.Environment["SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS"] = "0";
+        startInfo.Environment["SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS"] = "0";
 
         // Never forward the host session display into gamescope children. If DISPLAY=:0 leaks in,
         // Vulkan/SDL clients render to the desktop instead of gamescope's XWayland surface and

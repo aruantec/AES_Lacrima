@@ -167,6 +167,7 @@ public sealed class LinuxGamescopeInputTunnel : IDisposable
         if (_display == IntPtr.Zero || _targetWindow == IntPtr.Zero)
             return;
 
+        X11Interop.XRaiseWindow(_display, _targetWindow);
         LinuxX11WindowHelper.TrySetInputFocus(_display, _targetWindow);
         X11Interop.XSync(_display, false);
     }
@@ -194,26 +195,49 @@ public sealed class LinuxGamescopeInputTunnel : IDisposable
         if (root == IntPtr.Zero)
             return IntPtr.Zero;
 
-        var bestWindow = IntPtr.Zero;
-        var bestArea = 0L;
+        IntPtr bestWindow = IntPtr.Zero;
+        var bestScore = int.MinValue;
         foreach (var window in LinuxX11WindowHelper.EnumerateMappedWindows(display, root))
         {
             if (!LinuxX11WindowHelper.TryGetWindowGeometry(display, window, out var width, out var height))
                 continue;
 
-            if (width < 64 || height < 64)
+            if (width < 320 || height < 240)
                 continue;
 
             var area = (long)width * height;
-            if (area <= bestArea)
+            var score = (int)Math.Min(int.MaxValue, area);
+
+            var className = LinuxWindowHelper.GetWindowClassNameForDisplay(display, window);
+            var title = LinuxWindowHelper.GetWindowTitleForDisplay(display, window);
+            if (ContainsIgnoreCase(className, "wine") ||
+                ContainsIgnoreCase(className, "steam") ||
+                ContainsIgnoreCase(className, "SDL") ||
+                ContainsIgnoreCase(title, "Steam") ||
+                ContainsIgnoreCase(title, "Proton"))
+            {
+                score += 1_000_000_000;
+            }
+
+            if (string.Equals(className, "gamescope", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(title))
+            {
+                score -= 500_000_000;
+            }
+
+            if (score <= bestScore)
                 continue;
 
-            bestArea = area;
+            bestScore = score;
             bestWindow = window;
         }
 
         return bestWindow != IntPtr.Zero ? bestWindow : root;
     }
+
+    private static bool ContainsIgnoreCase(string value, string token) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Contains(token, StringComparison.OrdinalIgnoreCase);
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {

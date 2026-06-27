@@ -378,6 +378,9 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
             LinuxCaptureBridge.aes_linux_capture_forward_focus(_capture);
     }
 
+    public void SetUiBlocksShaderHotCompile(bool blocked) =>
+        _handler?.SetUiBlocksShaderHotCompile(blocked);
+
     public void ConfigureGameplayRecording(
         Action<byte[], int, int>? frameHandler,
         int targetFps,

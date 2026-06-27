@@ -154,6 +154,8 @@ public static class SteamLinuxLaunchHelper
         yield return "SDL_VIDEODRIVER=x11";
         yield return "GDK_BACKEND=x11";
         yield return "QT_QPA_PLATFORM=xcb";
+        yield return "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0";
+        yield return "SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0";
 
         var launchHome = TryResolveSnapLaunchHome();
         yield return launchHome != null

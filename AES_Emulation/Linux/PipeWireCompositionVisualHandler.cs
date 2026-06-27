@@ -105,6 +105,9 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
             _recordingFrameWorker.Stop();
     }
 
+    internal void SetUiBlocksShaderHotCompile(bool blocked) =>
+        _shaderRenderer?.SetUiBlocksHotCompile(blocked);
+
     public void SetOwner(LinuxCompositionCaptureControl owner) => _ownerRef = new WeakReference<LinuxCompositionCaptureControl>(owner);
 
     public void SuspendRendering()
@@ -194,9 +197,10 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
                     EnforceLockedArcadeCrop();
                 if (!string.Equals(_shaderPath, settings.ShaderPath, StringComparison.OrdinalIgnoreCase))
                 {
+                    // Only update the path here. Reload happens on the render thread via
+                    // LinuxCompositionShaderRenderer.SetShaderPath so we never delete GL
+                    // textures while Skia may still be drawing from them.
                     _shaderPath = settings.ShaderPath;
-                    _shaderRenderer?.Dispose();
-                    _shaderRenderer = null;
                 }
                 _rectDirty = true;
                 lock (_renderLock)
@@ -437,8 +441,16 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
         {
             _shaderRenderer ??= new LinuxCompositionShaderRenderer();
             _shaderRenderer.SetShaderPath(_gl, _shaderPath);
-            if (_shaderRenderer.TryDraw(canvas, grContext, _gl, frame, destRect, _brightness, _saturation, _tint, cropLeft, cropRight))
-                return;
+            try
+            {
+                if (_shaderRenderer.TryDraw(canvas, grContext, _gl, frame, destRect, _brightness, _saturation, _tint, cropLeft, cropRight))
+                    return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Linux composition shader draw failed; falling back to unshaded frame.", ex);
+                try { grContext.ResetContext(); } catch { /* ignored */ }
+            }
         }
         else if (!string.IsNullOrWhiteSpace(_shaderPath) && _gl == null && !_loggedMissingGl)
         {

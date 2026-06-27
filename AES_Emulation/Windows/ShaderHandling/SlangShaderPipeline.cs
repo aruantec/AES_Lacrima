@@ -79,7 +79,7 @@ public class SlangShaderPipeline : IDisposable
 
     public bool UsedPassthroughFallback { get; private set; }
 
-    public void LoadShaderPreset(string path)
+    public void LoadShaderPreset(string path, bool allowSourceCompile = true)
     {
         LastError = null;
         UsedPassthroughFallback = false;
@@ -108,12 +108,12 @@ public class SlangShaderPipeline : IDisposable
                 }
                 foreach (var sPath in shaderPaths)
                 {
-                    LoadShaderFile(sPath);
+                    LoadShaderFile(sPath, allowSourceCompile);
                 }
             }
             else if (ext == ".glsl" || ext == ".slang")
             {
-                LoadShaderFile(path);
+                LoadShaderFile(path, allowSourceCompile);
             }
             else
             {
@@ -173,7 +173,7 @@ public class SlangShaderPipeline : IDisposable
         return shaderPaths;
     }
 
-    private void LoadShaderFile(string path)
+    private void LoadShaderFile(string path, bool allowSourceCompile = true)
     {
         try
         {
@@ -270,6 +270,12 @@ public class SlangShaderPipeline : IDisposable
                 _passes.Add(new ShaderPass { ProgramId = cachedProgram });
                 Debug.WriteLine($"[Pipeline] Shader loaded from cache: {path}");
                 LastError = null;
+                return;
+            }
+
+            if (!allowSourceCompile)
+            {
+                LastError = "Shader binary cache miss";
                 return;
             }
 
