@@ -51,18 +51,13 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             normalized.Contains("gba", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("genesis", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("mega drive", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("saturn", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        // Handle Final Burn Neo specifically
-        if (normalized.Contains("final burn neo", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("saturn", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("final burn neo", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("finalburn neo", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("fbneo", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("fbn", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return false;
         }
 
         return normalized.Contains("arcade", StringComparison.OrdinalIgnoreCase) ||
@@ -1499,6 +1494,26 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
             return "Other (Mednafen)";
 
         return "Other";
+    }
+
+    public static bool IsArcadeRetroArchCore(string? coreFileName)
+    {
+        if (string.IsNullOrWhiteSpace(coreFileName))
+            return false;
+
+        return string.Equals(ClassifyRetroArchCore(coreFileName), "Arcade", StringComparison.Ordinal);
+    }
+
+    public static IReadOnlyList<string> FilterArcadeRetroArchCores(IEnumerable<string> coreFileNames)
+    {
+        if (coreFileNames == null)
+            return Array.Empty<string>();
+
+        return coreFileNames
+            .Where(IsArcadeRetroArchCore)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public static IReadOnlyList<RetroArchCoreItem> GetGroupedRetroArchCores(IReadOnlyList<string> coreFileNames)

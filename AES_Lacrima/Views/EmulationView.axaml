@@ -163,6 +163,22 @@
                             </Viewbox>
                         </MenuItem.Icon>
                     </MenuItem>
+                    <MenuItem x:Name="ArcadeRetroArchCoreMenuItem"
+                              Header="Arcade Core"
+                              CornerRadius="8"
+                              IsVisible="{Binding ShowArcadeRetroArchCoreMenuItem}">
+                        <MenuItem.Icon>
+                            <Viewbox Width="32" Height="32" Stretch="Uniform">
+                                <Canvas Width="100" Height="100">
+                                    <Rectangle Canvas.Left="18" Canvas.Top="18" Width="64" Height="64" RadiusX="10" RadiusY="10" Stroke="#CCFFFFFF" StrokeThickness="6" Fill="Transparent" />
+                                    <Path Data="M34,50 H66 M50,34 V66"
+                                          Stroke="#CCFFFFFF"
+                                          StrokeThickness="6"
+                                          StrokeLineCap="Round" />
+                                </Canvas>
+                            </Viewbox>
+                        </MenuItem.Icon>
+                    </MenuItem>
                     <MenuItem Header="Clear Album"
                               CornerRadius="8"
                               Command="{Binding ClearAlbumCommand}"
@@ -385,6 +401,7 @@
             </composition:CompositionCoverControl.ContextMenu>
             <Interaction.Behaviors>
                 <behaviors:SteamProtonContextMenuBehavior/>
+                <behaviors:ArcadeRetroArchCoreContextMenuBehavior/>
             </Interaction.Behaviors>
             </composition:CompositionCoverControl>
 

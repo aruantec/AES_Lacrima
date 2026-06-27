@@ -1424,8 +1424,19 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnSelectedCurrentSectionRetroArchCoreItemChanged(RetroArchCoreItem? value)
         {
+            if (_isSyncingCurrentSectionCoreSelection)
+                return;
+
             if (value is { IsGroupHeader: true })
                 return;
+
+            // ComboBox list rebuilds push null through TwoWay binding; ignore those resets.
+            if (value == null)
+            {
+                var handlerId = CurrentSectionEmulatorHandler?.HandlerId;
+                if (!string.IsNullOrWhiteSpace(CurrentEmulationSectionItem?.GetSelectedRetroArchCoreForHandler(handlerId)))
+                    return;
+            }
 
             var newCore = value?.FileName;
             if (!string.Equals(_selectedCurrentSectionRetroArchCore, newCore, StringComparison.OrdinalIgnoreCase))
@@ -1477,8 +1488,11 @@ namespace AES_Lacrima.ViewModels
                 if (!string.Equals(SelectedCurrentSectionRetroArchCore, coreName, StringComparison.OrdinalIgnoreCase))
                     SelectedCurrentSectionRetroArchCore = coreName;
 
-                if (!string.Equals(SelectedCurrentSectionRetroArchCoreItem?.FileName, match?.FileName, StringComparison.OrdinalIgnoreCase))
-                    SelectedCurrentSectionRetroArchCoreItem = match;
+                if (match != null || string.IsNullOrWhiteSpace(coreName))
+                {
+                    if (!string.Equals(SelectedCurrentSectionRetroArchCoreItem?.FileName, match?.FileName, StringComparison.OrdinalIgnoreCase))
+                        SelectedCurrentSectionRetroArchCoreItem = match;
+                }
             }
             finally
             {

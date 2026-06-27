@@ -160,6 +160,35 @@ public sealed class BinaryMetadataHelperTests : IDisposable
     }
 
     [Fact]
+    public void SaveMetadata_ThenLoadMetadata_RoundTripsArcadeRetroArchCore()
+    {
+        var cachePath = Path.Combine(_tempDirectory, "arcade-core.json");
+        var metadata = new CustomMetadata
+        {
+            Title = "1941",
+            ArcadeRetroArchCore = "mame2010_libretro.dll"
+        };
+
+        BinaryMetadataHelper.SaveMetadata(cachePath, metadata);
+        var loaded = BinaryMetadataHelper.LoadMetadata(cachePath);
+
+        Assert.NotNull(loaded);
+        Assert.Equal("mame2010_libretro.dll", loaded.ArcadeRetroArchCore);
+    }
+
+    [Fact]
+    public void CopyPreservedCacheFieldsFrom_KeepsArcadeRetroArchCore()
+    {
+        var source = new CustomMetadata { ArcadeRetroArchCore = "fbneo_libretro.dll" };
+        var target = new CustomMetadata { Title = "Edited title" };
+
+        target.CopyPreservedCacheFieldsFrom(source);
+
+        Assert.Equal("fbneo_libretro.dll", target.ArcadeRetroArchCore);
+        Assert.Equal("Edited title", target.Title);
+    }
+
+    [Fact]
     public void SaveMetadata_ThenLoadMetadata_RoundTripsUserEditedFlag()
     {
         var cachePath = Path.Combine(_tempDirectory, "user-edited.json");
