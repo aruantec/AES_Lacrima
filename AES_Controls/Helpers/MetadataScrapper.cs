@@ -446,6 +446,7 @@ namespace AES_Controls.Helpers
             {
                 if (pic != null)
                 {
+                    pic = NormalizeCoverBytes(pic, mi.FileName);
                     var bmp = await Task.Run(() => {
                         using var ms = new MemoryStream(pic);
                         // Downscale local image if parameter is set
@@ -482,7 +483,9 @@ namespace AES_Controls.Helpers
 
                 var bmp = await Task.Run(() =>
                 {
-                    using var fs = File.OpenRead(artworkPath);
+                    var bytes = File.ReadAllBytes(artworkPath);
+                    bytes = NormalizeCoverBytes(bytes, artworkPath);
+                    using var fs = new MemoryStream(bytes);
                     return _maxThumbnailWidth.HasValue
                         ? Bitmap.DecodeToWidth(fs, _maxThumbnailWidth.Value)
                         : new Bitmap(fs);
@@ -493,9 +496,13 @@ namespace AES_Controls.Helpers
                 byte[]? cacheableBytes = null;
                 try
                 {
-                    var info = new FileInfo(artworkPath);
-                    if (_maxEmbeddedImageBytes <= 0 || info.Length <= _maxEmbeddedImageBytes)
-                        cacheableBytes = await Task.Run(() => File.ReadAllBytes(artworkPath), token).ConfigureAwait(false);
+                    cacheableBytes = await Task.Run(() =>
+                    {
+                        var bytes = File.ReadAllBytes(artworkPath);
+                        return NormalizeCoverBytes(bytes, artworkPath);
+                    }, token).ConfigureAwait(false);
+                    if (_maxEmbeddedImageBytes > 0 && cacheableBytes.Length > _maxEmbeddedImageBytes)
+                        cacheableBytes = null;
                 }
                 catch (Exception ex)
                 {
@@ -600,6 +607,8 @@ namespace AES_Controls.Helpers
                     bytes = await Task.Run(() => File.ReadAllBytes(outputFile), token).ConfigureAwait(false);
                     if (bytes.Length == 0)
                         return null;
+
+                    bytes = NormalizeCoverBytes(bytes, key);
 
                     bmp = await Task.Run(() =>
                     {
@@ -719,9 +728,10 @@ namespace AES_Controls.Helpers
                 var cover = SelectPreferredCover(meta.Images);
                 if (cover != null)
                 {
+                    var coverBytes = NormalizeCoverBytes(cover.Data, key);
                     var bmp = await Task.Run(() =>
                     {
-                        using var ms = new MemoryStream(cover.Data);
+                        using var ms = new MemoryStream(coverBytes);
                         return _maxThumbnailWidth.HasValue
                             ? Bitmap.DecodeToWidth(ms, _maxThumbnailWidth.Value)
                             : new Bitmap(ms);
@@ -745,6 +755,9 @@ namespace AES_Controls.Helpers
 
         private bool IsWithinEmbeddedImageCap(byte[] data)
             => _maxEmbeddedImageBytes <= 0 || data.Length <= _maxEmbeddedImageBytes;
+
+        private static byte[] NormalizeCoverBytes(byte[] bytes, string? originalPath = null) =>
+            bytes.Length == 0 ? bytes : CoverImageBarCropHelper.TryCropBytes(bytes, originalPath);
 
         /// <summary>
         /// Static helper to select a cover and wallpaper from a list of TagLib pictures.
@@ -994,6 +1007,7 @@ namespace AES_Controls.Helpers
                         {
                             var imgData = await SharedHttpClient.GetByteArrayAsync(artUrl, token).ConfigureAwait(false);
                             if (!IsWithinEmbeddedImageCap(imgData)) return false;
+                            imgData = NormalizeCoverBytes(imgData, key);
                             var bmp = await Task.Run(() => {
                                 using var ms = new MemoryStream(imgData);
                                 return _maxThumbnailWidth.HasValue
@@ -1090,6 +1104,7 @@ namespace AES_Controls.Helpers
                         data = await SharedHttpClient.GetByteArrayAsync(thumbUrl).ConfigureAwait(false);
                         if (IsWithinEmbeddedImageCap(data))
                         {
+                            data = NormalizeCoverBytes(data, mi.FileName);
                             // Decode image off the UI thread to avoid blocking animations or UI responsiveness.
                             Bitmap? decoded = null;
                             try
@@ -1139,6 +1154,9 @@ namespace AES_Controls.Helpers
             try
             {
                 if (string.IsNullOrEmpty(mi.FileName)) return;
+
+                if (pic != null)
+                    pic = NormalizeCoverBytes(pic, mi.FileName);
 
                 string cacheId = BinaryMetadataHelper.GetCacheId(mi.FileName);
 

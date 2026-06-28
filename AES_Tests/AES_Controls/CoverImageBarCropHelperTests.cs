@@ -6,6 +6,18 @@ namespace AES_Controls.Tests;
 public sealed class CoverImageBarCropHelperTests
 {
     [Fact]
+    public void TryCrop_RemovesTopAndBottomBlackBarsOnWideCover()
+    {
+        using var source = CreateBarredImage(480, 270, 60, 60, 0, 0, SKColors.DarkRed);
+        using var cropped = CoverImageBarCropHelper.TryCrop(source, out bool didCrop);
+
+        Assert.True(didCrop);
+        Assert.NotNull(cropped);
+        Assert.Equal(480, cropped!.Width);
+        Assert.Equal(150, cropped.Height);
+    }
+
+    [Fact]
     public void TryCrop_RemovesTopAndBottomBlackBars()
     {
         using var source = CreateBarredImage(240, 320, 48, 48, 0, 0, SKColors.Coral);

@@ -91,6 +91,8 @@ internal static class CompositionMetadataCoverHelper
         if (bytes.Length == 0)
             return null;
 
+        bytes = CoverImageBarCropHelper.TryCropBytes(bytes);
+
         using var bitmap = SKBitmap.Decode(bytes);
         if (bitmap == null || bitmap.Width <= 0 || bitmap.Height <= 0)
             return null;

@@ -297,6 +297,24 @@ namespace AES_Lacrima.ViewModels
             return item.CoverBitmap == DefaultFolderCover;
         }
 
+        private const int CarouselCoverLoadingRadius = 16;
+
+        private bool ShouldExposeCarouselCoverLoading(MediaItem child, IReadOnlyList<MediaItem> snapshot)
+        {
+            if (!NeedsVisibleCoverLoad(child))
+                return false;
+
+            if (!ReferenceEquals(LoadedAlbum?.Children, snapshot))
+                return true;
+
+            int index = LoadedAlbum!.Children.IndexOf(child);
+            if (index < 0)
+                return true;
+
+            int center = Math.Clamp(GetRoundedSelectedIndex(SelectedIndex), 0, Math.Max(0, snapshot.Count - 1));
+            return Math.Abs(index - center) <= CarouselCoverLoadingRadius;
+        }
+
         private List<MediaItem> GetAlbumCoverLoadBatch(IReadOnlyList<MediaItem> items, int maxItemsToLoad)
         {
             var candidates = items.Where(NeedsCoverLoad).ToList();
@@ -318,10 +336,15 @@ namespace AES_Lacrima.ViewModels
                 DefaultFolderCover ??= GenerateDefaultFolderCover();
                 foreach (var child in itemsToLoad)
                 {
-                    if (NeedsVisibleCoverLoad(child))
+                    if (ShouldExposeCarouselCoverLoading(child, folder.Children))
                     {
                         child.CoverBitmap ??= DefaultFolderCover;
                         child.IsLoadingCover = true;
+                    }
+                    else if (NeedsVisibleCoverLoad(child))
+                    {
+                        child.CoverBitmap ??= DefaultFolderCover;
+                        child.IsLoadingCover = false;
                     }
                     else
                     {
@@ -329,7 +352,7 @@ namespace AES_Lacrima.ViewModels
                     }
                 }
 
-                folder.IsLoadingCover = itemsToLoad.Any(NeedsVisibleCoverLoad);
+                folder.IsLoadingCover = itemsToLoad.Any(item => ShouldExposeCarouselCoverLoading(item, folder.Children));
             });
 
             var fastThumbCandidates = itemsToLoad
@@ -445,11 +468,17 @@ namespace AES_Lacrima.ViewModels
                 DefaultFolderCover ??= GenerateDefaultFolderCover();
                 foreach (var child in priorityItems)
                 {
-                    if (NeedsVisibleCoverLoad(child))
+                    if (ShouldExposeCarouselCoverLoading(child, folder.Children))
                     {
                         if (child.CoverBitmap == null)
                             child.CoverBitmap = DefaultFolderCover;
                         child.IsLoadingCover = true;
+                    }
+                    else if (NeedsVisibleCoverLoad(child))
+                    {
+                        if (child.CoverBitmap == null)
+                            child.CoverBitmap = DefaultFolderCover;
+                        child.IsLoadingCover = false;
                     }
                     else
                     {
@@ -457,7 +486,7 @@ namespace AES_Lacrima.ViewModels
                     }
                 }
 
-                folder.IsLoadingCover = priorityItems.Any(NeedsVisibleCoverLoad);
+                folder.IsLoadingCover = priorityItems.Any(item => ShouldExposeCarouselCoverLoading(item, folder.Children));
             });
 
             var orderedItems = new AvaloniaList<MediaItem>(priorityItems);

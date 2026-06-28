@@ -2818,9 +2818,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (request.BitmapValue != null &&
             !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(request.BitmapValue, request.SectionPlaceholder))
         {
-            return await Dispatcher.UIThread.InvokeAsync(
-                () => CompositionBitmapHelper.ToSkImage(request.BitmapValue, CachedCardImageSize),
-                DispatcherPriority.Background);
+            return await CompositionBitmapHelper.ToCoverSkImageAsync(
+                request.BitmapValue,
+                CachedCardImageSize,
+                cancellationToken: CancellationToken.None);
         }
 
         if (!string.IsNullOrWhiteSpace(request.FileName))
@@ -2856,39 +2857,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         }
     }
 
-    private static SKImage? CreateCardImageStatic(SKBitmap source)
-    {
-        SKBitmap? cropped = null;
-        var working = source;
-        try
-        {
-            if (working.Width != working.Height)
-            {
-                int size = Math.Min(working.Width, working.Height);
-                int x = (working.Width - size) / 2;
-                int y = (working.Height - size) / 2;
-                cropped = new SKBitmap(size, size);
-                working.ExtractSubset(cropped, new SKRectI(x, y, x + size, y + size));
-                working = cropped;
-            }
-
-            if (Math.Max(working.Width, working.Height) > CachedCardImageSize)
-            {
-                float scale = CachedCardImageSize / (float)Math.Max(working.Width, working.Height);
-                int tw = Math.Max(1, (int)(working.Width * scale));
-                int th = Math.Max(1, (int)(working.Height * scale));
-                using var resized = working.Resize(new SKImageInfo(tw, th), SKFilterQuality.Medium);
-                return resized == null ? SKImage.FromBitmap(working) : SKImage.FromBitmap(resized);
-            }
-
-            return SKImage.FromBitmap(working);
-        }
-        finally
-        {
-            if (cropped != null && !ReferenceEquals(cropped, source))
-                cropped.Dispose();
-        }
-    }
+    private static SKImage? CreateCardImageStatic(SKBitmap source) =>
+        CompositionBitmapHelper.CreateCoverSkImage(source, CachedCardImageSize);
 
     private void ScheduleIdleAlbumCoverPrefetch()
     {
@@ -5227,9 +5197,10 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         if (bitmapValue != null &&
             !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder))
         {
-            var fromBitmap = await Dispatcher.UIThread.InvokeAsync(
-                () => CompositionBitmapHelper.ToSkImage(bitmapValue, CachedCardImageSize),
-                DispatcherPriority.Background);
+            var fromBitmap = await CompositionBitmapHelper.ToCoverSkImageAsync(
+                bitmapValue,
+                CachedCardImageSize,
+                cancellationToken: ct).ConfigureAwait(false);
             if (fromBitmap != null)
                 return fromBitmap;
         }
@@ -5251,35 +5222,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         return null;
     }
 
-    private SKImage? CreateCardImage(SKBitmap source)
-    {
-        SKBitmap? cropped = null;
-        var working = source;
-        try
-        {
-            cropped = CoverImageBarCropHelper.TryCrop(source, out _);
-            if (cropped != null)
-                working = cropped;
-
-            int targetW = CachedCardImageSize;
-            int targetH = CachedCardImageSize;
-            if (working.Width > working.Height)
-                targetH = (int)(CachedCardImageSize * (double)working.Height / working.Width);
-            else
-                targetW = (int)(CachedCardImageSize * (double)working.Width / working.Height);
-
-            if (working.Width <= CachedCardImageSize && working.Height <= CachedCardImageSize)
-                return SKImage.FromBitmap(working);
-
-            using var resized = working.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
-            return resized != null ? SKImage.FromBitmap(resized) : SKImage.FromBitmap(working);
-        }
-        finally
-        {
-            if (cropped != null && !ReferenceEquals(cropped, source))
-                cropped.Dispose();
-        }
-    }
+    private SKImage? CreateCardImage(SKBitmap source) =>
+        CompositionBitmapHelper.CreateCoverSkImage(source, CachedCardImageSize);
 
     private SKImage? LoadAndResize(string file, MediaItem? owner = null)
     {

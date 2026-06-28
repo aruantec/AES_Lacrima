@@ -93,6 +93,7 @@ namespace AES_Controls.Composition
         private const int CoverImageReloadDebounceMs = 220;
         private const int ScrollDeferCoverRadius = 5;
         private const int DefaultVirtualizationLoadWindow = 20;
+        private const int ViewportMaintenanceRadius = 24;
         private const int FullAlbumEagerLoadCount = 64;
         private static readonly SemaphoreSlim CoverDecodeConcurrency = CompositionCoverDecodeConcurrency.Gate;
         private const double SelectedIndexCoalesceDelta = 0.035;
@@ -147,6 +148,7 @@ namespace AES_Controls.Composition
         private readonly object _deferredCoverLoadLock = new();
         private bool _viewportMotionTracked;
         private bool _physicsMotionTracked;
+        private bool _pausedSpinnersForViewportMotion;
         private DispatcherTimer? _uiSyncTimer;
         private DispatcherTimer? _settleCommitTimer;
         private DispatcherTimer? _wheelScrollSettleTimer;
@@ -502,7 +504,7 @@ namespace AES_Controls.Composition
                     _uiVelocity = _animationSync.Velocity;
                 }
 
-                if (_isWheelScrolling || IsCarouselPhysicsInMotion() || _animationSync.IsAnimating)
+                if (IsCarouselInteractionActive())
                     SyncViewportPreviewFromAnimation();
 
                 bool physicsInMotion = IsCarouselPhysicsInMotion();
@@ -515,7 +517,7 @@ namespace AES_Controls.Composition
 
                 _physicsMotionTracked = physicsInMotion;
 
-                bool settling = _isPressed || _isPointerScrolling || _isDragging || _isWheelScrolling || _animationSync.IsAnimating;
+                bool settling = IsCarouselInteractionActive();
                 if (!settling)
                 {
                     _uiSyncTimer?.Stop();
@@ -1515,12 +1517,36 @@ namespace AES_Controls.Composition
         /// Carousel slots use a shared placeholder SKImage, so a populated cache alone does not
         /// mean the compositor is showing the cover until AssignItemImage runs.
         /// </summary>
-        private void SyncDisplaySlotsFromCache()
+        private (int Start, int End) GetViewportMaintenanceRange(bool fullScan = false)
+        {
+            int count = _itemsSnapshot.Length;
+            if (count == 0)
+                return (0, -1);
+
+            if (fullScan || count <= FullAlbumEagerLoadCount)
+                return (0, count - 1);
+
+            int center = (int)Math.Clamp(Math.Round(_uiCurrentIndex), 0, count - 1);
+            return (
+                Math.Max(0, center - ViewportMaintenanceRadius),
+                Math.Min(count - 1, center + ViewportMaintenanceRadius));
+        }
+
+        private bool IsCarouselInteractionActive() =>
+            _isPressed ||
+            _isPointerScrolling ||
+            _isDragging ||
+            _isWheelScrolling ||
+            IsCarouselPhysicsInMotion() ||
+            _animationSync.IsAnimating;
+
+        private void SyncDisplaySlotsFromCache(bool fullScan = false)
         {
             if (_itemsSnapshot.Length == 0)
                 return;
 
-            for (int i = 0; i < _itemsSnapshot.Length; i++)
+            var (start, end) = GetViewportMaintenanceRange(fullScan);
+            for (int i = start; i <= end; i++)
             {
                 var item = _itemsSnapshot[i];
                 if (item == null)
@@ -1554,7 +1580,7 @@ namespace AES_Controls.Composition
             if (_visual == null || !_coverLoadingActive)
                 return;
 
-            SyncDisplaySlotsFromCache();
+            SyncDisplaySlotsFromCache(forceFullResync);
 
             int count = _images.Count;
             if (count == 0)
@@ -1577,7 +1603,8 @@ namespace AES_Controls.Composition
                 _lastSyncedVisualSlotCount = count;
             }
 
-            for (int i = 0; i < count; i++)
+            var (start, end) = GetViewportMaintenanceRange(forceFullResync);
+            for (int i = start; i <= end; i++)
             {
                 var img = _images[i];
                 if (img != null && !IsPlaceholderImage(img))
@@ -2343,17 +2370,36 @@ namespace AES_Controls.Composition
             if (inMotion)
             {
                 CompositionViewportState.EnterMotion();
-                try { _loadCts?.Cancel(); _loadCts?.Dispose(); } catch (Exception ex) { Log.Warn("Error canceling load on scroll start", ex); }
-                _loadCts = null;
+                UpdateSpinnerPauseForViewportMotion(true);
                 return;
             }
 
             CompositionViewportState.ExitMotion();
+            UpdateSpinnerPauseForViewportMotion(false);
             ClearProjectionCache();
             SyncVisualImageSlots();
             SyncCoverLoadingIndicators();
             FlushDeferredCoverLoads();
             ProcessPendingCoverImageReloads();
+        }
+
+        private void UpdateSpinnerPauseForViewportMotion(bool inMotion)
+        {
+            if (inMotion)
+            {
+                if (_pausedSpinnersForViewportMotion || PauseLoadingSpinnerAnimation)
+                    return;
+
+                _pausedSpinnersForViewportMotion = true;
+                _visual?.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(true));
+                return;
+            }
+
+            if (!_pausedSpinnersForViewportMotion)
+                return;
+
+            _pausedSpinnersForViewportMotion = false;
+            _visual?.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(PauseLoadingSpinnerAnimation));
         }
 
         private bool IsIndexNearViewport(int index)
@@ -2857,7 +2903,8 @@ namespace AES_Controls.Composition
 
         private void SyncCoverLoadingIndicators()
         {
-            for (int i = 0; i < _itemsSnapshot.Length; i++)
+            var (start, end) = GetViewportMaintenanceRange();
+            for (int i = start; i <= end; i++)
                 SetLoading(i, ShouldShowLoadingSpinner(i));
         }
 
@@ -2874,9 +2921,10 @@ namespace AES_Controls.Composition
             if (request.BitmapValue != null &&
                 !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(request.BitmapValue, request.SectionPlaceholder))
             {
-                return await Dispatcher.UIThread.InvokeAsync(
-                    () => CompositionBitmapHelper.ToSkImage(request.BitmapValue, CachedCarouselImageSize),
-                    DispatcherPriority.Background);
+                return await CompositionBitmapHelper.ToCoverSkImageAsync(
+                    request.BitmapValue,
+                    CachedCarouselImageSize,
+                    cancellationToken: CancellationToken.None);
             }
 
             if (!string.IsNullOrWhiteSpace(request.FileName))
@@ -2915,35 +2963,8 @@ namespace AES_Controls.Composition
             }
         }
 
-        private static SKImage? CreateCarouselImageStatic(SKBitmap source, string? persistImagePath, string? ownerFileName, MediaItem? owner)
-        {
-            SKBitmap? cropped = null;
-            var working = source;
-            try
-            {
-                cropped = CoverImageBarCropHelper.TryCrop(source, out _);
-                if (cropped != null)
-                    working = cropped;
-
-                int targetW = CachedCarouselImageSize;
-                int targetH = CachedCarouselImageSize;
-                if (working.Width > working.Height)
-                    targetH = (int)(CachedCarouselImageSize * (double)working.Height / working.Width);
-                else
-                    targetW = (int)(CachedCarouselImageSize * (double)working.Width / working.Height);
-
-                if (working.Width <= CachedCarouselImageSize && working.Height <= CachedCarouselImageSize)
-                    return SKImage.FromBitmap(working);
-
-                using var resized = working.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
-                return resized != null ? SKImage.FromBitmap(resized) : SKImage.FromBitmap(working);
-            }
-            finally
-            {
-                if (cropped != null && !ReferenceEquals(cropped, source))
-                    cropped.Dispose();
-            }
-        }
+        private static SKImage? CreateCarouselImageStatic(SKBitmap source, string? persistImagePath, string? ownerFileName, MediaItem? owner) =>
+            CompositionBitmapHelper.CreateCoverSkImage(source, CachedCarouselImageSize);
 
         private void SyncItemLoadingStates()
         {
@@ -3265,7 +3286,16 @@ namespace AES_Controls.Composition
                 if (ct.IsCancellationRequested)
                     return true;
 
-                realImage = await LoadImageAsync(bitmapValue, fileName, item as MediaItem, sectionPlaceholder, ct);
+                await CoverDecodeConcurrency.WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    realImage = await LoadImageAsync(bitmapValue, fileName, item as MediaItem, sectionPlaceholder, ct)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    CoverDecodeConcurrency.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -3519,8 +3549,12 @@ namespace AES_Controls.Composition
             bool success = false;
             try
             {
-                // Copy pixels must happen on UI thread for some Avalonia bitmap implementations
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                // Copy pixels must happen on UI thread for some Avalonia bitmap implementations.
+                var copyPriority = CompositionViewportState.IsInMotion
+                    ? DispatcherPriority.Background
+                    : DispatcherPriority.Normal;
+
+                if (Dispatcher.UIThread.CheckAccess())
                 {
                     try
                     {
@@ -3531,13 +3565,37 @@ namespace AES_Controls.Composition
                                 bitmap.CopyPixels(new PixelRect(bitmap.PixelSize), (IntPtr)p, bufferSize, stride);
                             }
                         }
+
                         success = true;
                     }
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"ToSKImage: CopyPixels failed: {ex.Message}");
                     }
-                });
+                }
+                else
+                {
+                    success = await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            unsafe
+                            {
+                                fixed (byte* p = buffer)
+                                {
+                                    bitmap.CopyPixels(new PixelRect(bitmap.PixelSize), (IntPtr)p, bufferSize, stride);
+                                }
+                            }
+
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"ToSKImage: CopyPixels failed: {ex.Message}");
+                            return false;
+                        }
+                    }, copyPriority);
+                }
 
                 if (!success) return null;
 
@@ -3598,9 +3656,7 @@ namespace AES_Controls.Composition
             if (bitmapValue != null &&
                 !CompositionCoverImageHelper.IsSectionPlaceholderBitmap(bitmapValue, sectionPlaceholder))
             {
-                var fromBitmap = await Dispatcher.UIThread.InvokeAsync(
-                    () => CompositionBitmapHelper.ToSkImage(bitmapValue, CachedCarouselImageSize),
-                    DispatcherPriority.Background);
+                var fromBitmap = await ToSkImageAsync(bitmapValue, owner, fileName).ConfigureAwait(false);
                 if (fromBitmap != null)
                     return fromBitmap;
             }
@@ -3622,39 +3678,11 @@ namespace AES_Controls.Composition
             return null;
         }
 
-        private SKImage? CreateCarouselImage(SKBitmap source, string? persistImagePath, string? ownerFileName, MediaItem? owner)
-        {
-            SKBitmap? cropped = null;
-            var working = source;
-            try
-            {
-                cropped = CoverImageBarCropHelper.TryCrop(source, out bool didCrop);
-                if (cropped != null)
-                {
-                    working = cropped;
-                    if (didCrop)
-                        QueuePersistCroppedCover(cropped, persistImagePath, ownerFileName, owner);
-                }
-
-                int targetW = CachedCarouselImageSize;
-                int targetH = CachedCarouselImageSize;
-                if (working.Width > working.Height)
-                    targetH = (int)(CachedCarouselImageSize * (double)working.Height / working.Width);
-                else
-                    targetW = (int)(CachedCarouselImageSize * (double)working.Width / working.Height);
-
-                if (working.Width <= CachedCarouselImageSize && working.Height <= CachedCarouselImageSize)
-                    return SKImage.FromBitmap(working);
-
-                using var resized = working.Resize(new SKImageInfo(targetW, targetH), SKFilterQuality.Medium);
-                return resized != null ? SKImage.FromBitmap(resized) : SKImage.FromBitmap(working);
-            }
-            finally
-            {
-                if (cropped != null && !ReferenceEquals(cropped, source))
-                    cropped.Dispose();
-            }
-        }
+        private SKImage? CreateCarouselImage(SKBitmap source, string? persistImagePath, string? ownerFileName, MediaItem? owner) =>
+            CompositionBitmapHelper.CreateCoverSkImage(
+                source,
+                CachedCarouselImageSize,
+                cropped => QueuePersistCroppedCover(cropped, persistImagePath, ownerFileName, owner));
 
         private void QueuePersistCroppedCover(SKBitmap cropped, string? imagePath, string? ownerFileName, MediaItem? owner)
         {
@@ -3668,10 +3696,6 @@ namespace AES_Controls.Composition
                 {
                     if (!CoverImageBarCropHelper.TryPersistCroppedCover(clone, imagePath, ownerFileName))
                         return;
-
-                    var bytes = CoverImageBarCropHelper.Encode(clone, imagePath ?? ownerFileName);
-                    if (bytes != null && owner != null)
-                        RefreshOwnerCoverBitmap(owner, bytes);
                 }
                 catch (Exception ex)
                 {
@@ -3680,22 +3704,6 @@ namespace AES_Controls.Composition
                 finally
                 {
                     clone.Dispose();
-                }
-            });
-        }
-
-        private void RefreshOwnerCoverBitmap(MediaItem owner, byte[] bytes)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                try
-                {
-                    using var stream = new MemoryStream(bytes);
-                    owner.CoverBitmap = Bitmap.DecodeToWidth(stream, CachedCarouselImageSize);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("Failed to refresh in-memory cover after bar crop", ex);
                 }
             });
         }
