@@ -156,6 +156,8 @@ namespace AES_Lacrima.ViewModels
                             var bytes = await response.Content.ReadAsByteArrayAsync();
                             if (bytes.Length == 0) continue;
 
+                            bytes = CoverImageBarCropHelper.TryCropBytes(bytes, item.FileName);
+
                             using var stream = new MemoryStream(bytes);
                             var bitmap = Bitmap.DecodeToWidth(stream, FastThumbnailDecodeWidth);
                             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>

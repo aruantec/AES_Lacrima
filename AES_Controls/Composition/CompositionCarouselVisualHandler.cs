@@ -451,7 +451,9 @@ namespace AES_Controls.Composition
                 _animationSync.CurrentIndex = _currentIndex;
                 _animationSync.TargetIndex = _targetIndex;
                 _animationSync.Velocity = _currentVelocity;
-                _animationSync.IsAnimating = isAnimating || animateLoadingSpinners || animatePlayingBorder;
+                // Spinner-only frames must not keep the UI sync timer alive; that caused
+                // full-list cover maintenance every 16 ms while album covers were loading.
+                _animationSync.IsAnimating = isAnimating || animatePlayingBorder;
             }
         }
 
