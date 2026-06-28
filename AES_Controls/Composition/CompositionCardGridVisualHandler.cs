@@ -1643,6 +1643,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         var coverRect = new SKRect(rect.Left, rect.Top, rect.Right, rect.Top + (metrics.CardHeight - titleH));
         var src = UniformToFillSrc(_gameplayPreviewFrame.Width, _gameplayPreviewFrame.Height, coverRect);
+        _cardPaint.FilterQuality = SKFilterQuality.High;
         canvas.DrawImage(_gameplayPreviewFrame, src, coverRect, _cardPaint);
 
         if (cardImage != null && IsBakedCardImage(cardImage))
@@ -1664,8 +1665,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             _cardPaint.Style = SKPaintStyle.Fill;
             _cardPaint.Shader = null;
             _cardPaint.ImageFilter = null;
-            _cardPaint.IsAntialias = false;
-            _cardPaint.FilterQuality = SKFilterQuality.Low;
+            _cardPaint.IsAntialias = true;
+            _cardPaint.FilterQuality = SKFilterQuality.High;
             _cardPaint.Color = SKColors.White;
             float titleH = metrics.CardHeight * TitleAreaRatio;
             DrawGameplayPreviewCover(canvas, rect, metrics, titleH, img);

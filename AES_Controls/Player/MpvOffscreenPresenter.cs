@@ -316,12 +316,43 @@ internal sealed class MpvOffscreenPresenter : IDisposable
         }
         gl.BindFramebuffer(GlFramebuffer, 0);
 
-        var flipped = new byte[pixels.Length];
+        // mpv renders into the FBO with OpenGL coordinates; row 0 from glReadPixels is already
+        // the bottom scanline, so flip once to match Skia's top-left origin.
+        var oriented = new byte[pixels.Length];
         for (int y = 0; y < _renderHeight; y++)
-            Buffer.BlockCopy(pixels, y * rowBytes, flipped, (_renderHeight - 1 - y) * rowBytes, rowBytes);
+            Buffer.BlockCopy(pixels, y * rowBytes, oriented, (_renderHeight - 1 - y) * rowBytes, rowBytes);
 
         var info = new SKImageInfo(_renderWidth, _renderHeight, SKColorType.Rgba8888, SKAlphaType.Unpremul);
-        return SKImage.FromPixelCopy(info, flipped);
+        return SKImage.FromPixelCopy(info, oriented);
+    }
+
+    public SKImage? TryCaptureRgbaFrameForComposition(GlInterface gl)
+    {
+        if (!_initialized || _renderWidth <= 0 || _renderHeight <= 0)
+            return null;
+
+        var readPtr = gl.GetProcAddress("glReadPixels");
+        if (readPtr == IntPtr.Zero)
+            return null;
+
+        var readPixels = Marshal.GetDelegateForFunctionPointer<GlReadPixelsDelegate>(readPtr);
+        var pixels = new byte[_renderWidth * _renderHeight * 4];
+
+        gl.BindFramebuffer(GlFramebuffer, _fbo);
+        var finishPtr = gl.GetProcAddress("glFinish");
+        if (finishPtr != IntPtr.Zero)
+            Marshal.GetDelegateForFunctionPointer<Action>(finishPtr).Invoke();
+
+        unsafe
+        {
+            fixed (byte* p = pixels)
+                readPixels(0, 0, _renderWidth, _renderHeight, GlRgba, GlUnsignedByte, (nint)p);
+        }
+        gl.BindFramebuffer(GlFramebuffer, 0);
+
+        // Match the orientation produced by BlitToTarget (same as a visible VideoViewControl).
+        var info = new SKImageInfo(_renderWidth, _renderHeight, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+        return SKImage.FromPixelCopy(info, pixels);
     }
 
     private void UpdateQuad(GlInterface gl, int x, int y, int width, int height, int viewWidth, int viewHeight)

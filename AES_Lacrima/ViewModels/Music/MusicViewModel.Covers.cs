@@ -98,6 +98,9 @@ namespace AES_Lacrima.ViewModels
                             NeedsVisibleCoverLoad(child) && child.IsLoadingCover);
 
                         folder.RebuildPreviewItems(useFirstItemCover: true, rebuildStructure: false);
+
+                        if (ReferenceEquals(folder, LoadedAlbum))
+                            NotifyCoverDisplayRefresh();
                     });
 
                     EndAlbumCoverLoad(folder);

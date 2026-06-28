@@ -211,7 +211,18 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnHighlightedItemChanged(MediaItem value)
         {
-            QueueGameplayPreview(value);
+            ApplyGameplayPreviewSelectionVisuals(value);
+
+            var item = value;
+            var immediate = ShouldStartGameplayPreviewImmediately(item);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!ReferenceEquals(HighlightedItem, item))
+                    return;
+
+                StartGameplayPreviewLoad(item, immediate);
+                NotifyGameplayPreviewRecordingAvailabilityChanged();
+            }, DispatcherPriority.Background);
         }
 
         private void ScheduleHighlightedItemUpdate(int roundedIndex)
@@ -262,7 +273,7 @@ namespace AES_Lacrima.ViewModels
             if (!ReferenceEquals(HighlightedItem, item))
                 HighlightedItem = item;
             else
-                QueueGameplayPreview(item);
+                QueueGameplayPreview(item, ShouldStartGameplayPreviewImmediately(item));
         }
 
         [RelayCommand]

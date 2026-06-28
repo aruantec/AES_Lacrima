@@ -13,6 +13,7 @@ public partial class MusicListView : UserControl
     private TextBox? _renameTextBox;
     private ViewModels.MusicViewModel? _viewModel;
     private FolderMediaItem? _renamingAlbum;
+    private int _renameOverlayLayoutRetries;
 
     public MusicListView()
     {
@@ -48,7 +49,10 @@ public partial class MusicListView : UserControl
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
 
         if (_albumList != null)
+        {
             _albumList.LayoutUpdated += OnAlbumListLayoutUpdated;
+            _albumList.RenameOverlayLayoutRequested += OnAlbumListRenameOverlayLayoutRequested;
+        }
 
         RefreshAlbumTileCovers();
     }
@@ -58,7 +62,10 @@ public partial class MusicListView : UserControl
         base.OnDetachedFromVisualTree(e);
         UnsubscribeViewModel();
         if (_albumList != null)
+        {
             _albumList.LayoutUpdated -= OnAlbumListLayoutUpdated;
+            _albumList.RenameOverlayLayoutRequested -= OnAlbumListRenameOverlayLayoutRequested;
+        }
         SubscribeRenamingAlbum(null);
         _albumList = null;
         _renameTextBox = null;
@@ -99,11 +106,17 @@ public partial class MusicListView : UserControl
 
     private void OnRenamingAlbumPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(FolderMediaItem.IsRenaming))
-            UpdateRenameOverlay();
+        if (e.PropertyName != nameof(FolderMediaItem.IsRenaming))
+            return;
+
+        _renameOverlayLayoutRetries = 0;
+        Avalonia.Threading.Dispatcher.UIThread.Post(UpdateRenameOverlay, Avalonia.Threading.DispatcherPriority.Loaded);
+        Avalonia.Threading.Dispatcher.UIThread.Post(UpdateRenameOverlay, Avalonia.Threading.DispatcherPriority.Render);
     }
 
     private void OnAlbumListLayoutUpdated(object? sender, EventArgs e) => UpdateRenameOverlay();
+
+    private void OnAlbumListRenameOverlayLayoutRequested(object? sender, EventArgs e) => UpdateRenameOverlay();
 
     private void UpdateRenameOverlay()
     {
@@ -111,22 +124,57 @@ public partial class MusicListView : UserControl
             return;
 
         bool renaming = _viewModel?.SelectedAlbum?.IsRenaming == true && _viewModel.SelectedAlbumIndex >= 0;
-        _renameTextBox.IsVisible = renaming;
         _renameTextBox.IsHitTestVisible = renaming;
 
         if (_albumList != null)
             _albumList.RenamingIndex = renaming ? _viewModel!.SelectedAlbumIndex : -1;
 
         if (!renaming || _albumList == null || _viewModel == null)
+        {
+            _renameOverlayLayoutRetries = 0;
+            _renameTextBox.IsVisible = false;
             return;
+        }
 
-        var titleBar = _albumList.GetTileTitleBarBounds(_viewModel.SelectedAlbumIndex);
+        int renameIndex = _viewModel.SelectedAlbumIndex;
+        var titleBar = _albumList.GetTileTitleBarBounds(renameIndex);
+        if (titleBar.Width <= 0 ||
+            titleBar.Right < 1 ||
+            titleBar.X > _albumList.Bounds.Width - 1)
+        {
+            if (_renameOverlayLayoutRetries < 4)
+            {
+                _renameOverlayLayoutRetries++;
+                _albumList.EnsureSelectedItemVisible(animate: false);
+                Avalonia.Threading.Dispatcher.UIThread.Post(
+                    UpdateRenameOverlay,
+                    Avalonia.Threading.DispatcherPriority.Loaded);
+            }
+
+            _renameTextBox.IsVisible = false;
+            return;
+        }
+
+        _renameOverlayLayoutRetries = 0;
+
         const double inputHeight = 34;
         double inputTop = titleBar.Y + Math.Max(0, (titleBar.Height - inputHeight) * 0.5);
         var topLeft = _albumList.TranslatePoint(new Point(titleBar.X, inputTop), this);
         if (topLeft == null)
-            return;
+        {
+            if (_renameOverlayLayoutRetries < 4)
+            {
+                _renameOverlayLayoutRetries++;
+                Avalonia.Threading.Dispatcher.UIThread.Post(
+                    UpdateRenameOverlay,
+                    Avalonia.Threading.DispatcherPriority.Loaded);
+            }
 
+            _renameTextBox.IsVisible = false;
+            return;
+        }
+
+        _renameTextBox.IsVisible = true;
         _renameTextBox.Margin = new Thickness(topLeft.Value.X, topLeft.Value.Y, 0, 0);
         _renameTextBox.Width = titleBar.Width;
         _renameTextBox.Height = Math.Min(inputHeight, titleBar.Height);

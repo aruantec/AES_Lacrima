@@ -1196,7 +1196,7 @@ public partial class LinuxGameplayRecorderService : IGameplayRecorder
             includeAudio));
     }
 
-    private void WaitForPendingFinalize()
+    public void WaitForPendingFinalize()
     {
         var task = _finalizeTask;
         if (task == null || task.IsCompleted)

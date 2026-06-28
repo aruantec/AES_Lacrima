@@ -3129,6 +3129,7 @@ namespace AES_Lacrima.ViewModels
 
             if (isNewAlbumSource)
             {
+                StopGameplayPreview();
                 CarouselSliderPreview = null;
                 PointedIndex = -1;
                 SelectedIndex = 0;
@@ -3180,7 +3181,7 @@ namespace AES_Lacrima.ViewModels
             HighlightedItem = CoverItems[nextIndex];
             IsNoAlbumLoadedVisible = false;
             RefreshActiveAlbumState();
-            RefreshGameplayPreviewForCurrentSelection();
+            RefreshGameplayPreviewForCurrentSelection(immediate: true);
         }
 
         private void ApplyEmptyBrowseAlbumPresentation(FolderMediaItem? album)

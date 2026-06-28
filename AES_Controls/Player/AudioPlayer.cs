@@ -52,6 +52,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     private CancellationTokenSource? _waveformCts;
     private Task? _waveformTask;
     private string? _waveformInProgressFile;
+    private volatile bool _currentLoadEnablesMediaAnalysis = true;
     private readonly TaskCompletionSource _initTcs = new();
     // Dedicated MPV thread queue and worker to ensure all libmpv interop
     // runs on a single thread that owns the mpv handle.
@@ -415,6 +416,51 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
     {
         if (string.IsNullOrEmpty(s)) return s;
         return s.Replace("dB", "", StringComparison.OrdinalIgnoreCase).Trim();
+    }
+
+    /// <summary>
+    /// Immediately silences and pauses preview playback without blocking the UI thread.
+    /// Used when switching carousel items so selection stays responsive.
+    /// </summary>
+    public void SuppressActivePreviewPlayback()
+    {
+        if (_disposed)
+            return;
+
+        CancelPendingPlaybackLoad();
+        PostToMpvThread(() =>
+        {
+            try
+            {
+                SetProperty("mute", "yes");
+                SetProperty("pause", "yes");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to suppress active preview playback.", ex);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Updates preview mute state on the mpv worker thread without blocking callers.
+    /// </summary>
+    public void SetPreviewMuted(bool muted)
+    {
+        if (_disposed)
+            return;
+
+        PostToMpvThread(() =>
+        {
+            try
+            {
+                SetProperty("mute", muted ? "yes" : "no");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to update preview mute state.", ex);
+            }
+        });
     }
 
     private void InvokeOnMpvThread(Action action)
@@ -1383,6 +1429,9 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
 
     private void CheckAndStartFfmpegTasks()
     {
+        if (!_currentLoadEnablesMediaAnalysis)
+            return;
+
         if (string.IsNullOrEmpty(_loadedFile)) return;
 
         // Start spectrum if playing and enabled
@@ -1625,10 +1674,13 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         }
     }
 
-    /// <summary>
-    /// Loads and starts playback of the specified file path.
-    /// </summary>
-    public async Task PlayFile(MediaItem item, bool video = false)
+    public Task PlayFile(MediaItem item, bool video = false)
+        => PlayFile(item, video, enableMediaAnalysis: true);
+
+    public Task PlayFile(MediaItem item, bool video, bool enableMediaAnalysis)
+        => PlayFileCore(item, video, enableMediaAnalysis);
+
+    private async Task PlayFileCore(MediaItem item, bool video, bool enableMediaAnalysis)
     {
         await _initTcs.Task;
         if (_disposed) return;
@@ -1677,6 +1729,7 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         _loadedFile = fileToPlay;
         _waveformCacheKey = GetWaveformCacheKey(item, fileToPlay);
         var mpvLoadTarget = ToMpvLoadTarget(fileToPlay);
+        _currentLoadEnablesMediaAnalysis = enableMediaAnalysis;
 
         // Reset per-file gain synchronously to ensure the initial UpdateAf call doesn't use stale metadata
         _replayGainAdjustmentDb = 0.0;
@@ -1691,14 +1744,17 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
         }
 
         // Compute and apply replaygain/preamp adjustments before starting playback
-        _ = Task.Run(async () =>
+        if (enableMediaAnalysis)
         {
-            try
+            _ = Task.Run(async () =>
             {
-                await ApplyReplayGainForFileAsync(fileToPlay, item).ConfigureAwait(false);
-            }
-            catch (Exception ex) { Log.Warn("ApplyReplayGainForFile failed", ex); }
-        });
+                try
+                {
+                    await ApplyReplayGainForFileAsync(fileToPlay, item).ConfigureAwait(false);
+                }
+                catch (Exception ex) { Log.Warn("ApplyReplayGainForFile failed", ex); }
+            });
+        }
         _waveformLoadedFile = null;
 
         // Ensure analyzer is fully stopped and path is updated before loading new file
@@ -1785,7 +1841,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
                     item.MuxedStreamFallbackUrl,
                     usedMuxFallback,
                     externalAudioActive);
-                StartSpectrumAnalysis(spectrumPath);
+                if (enableMediaAnalysis)
+                    StartSpectrumAnalysis(spectrumPath);
             }
             catch (OperationCanceledException logEx) { Log.Warn("Exception caught", logEx); }
             catch (Exception ex)

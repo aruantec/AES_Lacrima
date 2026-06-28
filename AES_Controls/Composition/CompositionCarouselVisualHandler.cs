@@ -474,7 +474,13 @@ namespace AES_Controls.Composition
                 _isDropping;
             bool animateLoadingSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
             bool animatePlayingBorder = _playingItemIndex >= 0;
-            bool animateGameplayPreview = _gameplayPreviewVisible && _gameplayPreviewIndex >= 0 && _gameplayPreviewFrame != null;
+            bool carouselIsMoving = _draggingIndex != -1 ||
+                _isDropping ||
+                Math.Abs(_currentVelocity) > 0.01 ||
+                Math.Abs(distance) > 0.01;
+            bool animateGameplayPreview = _gameplayPreviewVisible &&
+                _gameplayPreviewIndex >= 0 &&
+                _gameplayPreviewFrame != null;
             if (isAnimating || animateLoadingSpinners || animatePlayingBorder || animateGameplayPreview)
             {
                 RegisterForNextAnimationFrameUpdate();
@@ -882,9 +888,11 @@ namespace AES_Controls.Composition
             if (!TryGetImageDimensions(image, out var dims)) return;
 
             _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
-            _quadPaint.FilterQuality = (isReflection || UseReducedMotionQuality)
-                ? SKFilterQuality.Low
-                : SKFilterQuality.Medium;
+            _quadPaint.FilterQuality = ReferenceEquals(image, _gameplayPreviewFrame)
+                ? SKFilterQuality.High
+                : (isReflection || UseReducedMotionQuality)
+                    ? SKFilterQuality.Low
+                    : SKFilterQuality.Medium;
             if (!TryAcquireShader(image, out var shader)) return;
 
             _quadPaint.Shader = shader;

@@ -21,10 +21,11 @@
         <vm:MusicViewModel/>
     </Design.DataContext>
 	<!-- Music navigation content -->
-	<Grid Background="Black" ClipToBounds="False">
+	<Grid Background="Black" ClipToBounds="True">
 		<composition:CompositionAlbumRowControl x:Name="AlbumList"
 												ItemsSource="{Binding FilteredAlbumList}"
 												SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
+												ItemSelectedCommand="{Binding OpenSelectedFolderCommand}"
 												ItemDoubleClickedCommand="{Binding OpenSelectedFolderCommand}"
 												DropCommand="{Binding DropCommand}"
 												Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"

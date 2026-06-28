@@ -295,6 +295,17 @@ namespace AES_Controls.Composition
         public bool IsWheelScrolling => _isWheelScrolling;
 
         /// <summary>
+        /// True while the carousel is being dragged, scrolled, or settling.
+        /// </summary>
+        public bool IsCarouselInteractionActive =>
+            _isPressed ||
+            _isPointerScrolling ||
+            _isDragging ||
+            _isWheelScrolling ||
+            IsCarouselPhysicsInMotion() ||
+            _animationSync.IsAnimating;
+
+        /// <summary>
         /// Multiplier that controls horizontal spacing between items.
         /// </summary>
         public double ItemSpacing
@@ -513,7 +524,7 @@ namespace AES_Controls.Composition
                     _uiVelocity = _animationSync.Velocity;
                 }
 
-                if (IsCarouselInteractionActive())
+                if (IsCarouselInteractionActive)
                     SyncViewportPreviewFromAnimation();
 
                 bool physicsInMotion = IsCarouselPhysicsInMotion();
@@ -526,7 +537,7 @@ namespace AES_Controls.Composition
 
                 _physicsMotionTracked = physicsInMotion;
 
-                bool settling = IsCarouselInteractionActive();
+                bool settling = IsCarouselInteractionActive;
                 if (!settling)
                 {
                     _uiSyncTimer?.Stop();
@@ -1540,14 +1551,6 @@ namespace AES_Controls.Composition
                 Math.Max(0, center - ViewportMaintenanceRadius),
                 Math.Min(count - 1, center + ViewportMaintenanceRadius));
         }
-
-        private bool IsCarouselInteractionActive() =>
-            _isPressed ||
-            _isPointerScrolling ||
-            _isDragging ||
-            _isWheelScrolling ||
-            IsCarouselPhysicsInMotion() ||
-            _animationSync.IsAnimating;
 
         private void SyncDisplaySlotsFromCache(bool fullScan = false)
         {

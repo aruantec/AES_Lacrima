@@ -24,4 +24,6 @@ public interface IGameplayRecorder : IDisposable
         int compositorLaunchPid = 0);
 
     void Stop();
+
+    void WaitForPendingFinalize();
 }

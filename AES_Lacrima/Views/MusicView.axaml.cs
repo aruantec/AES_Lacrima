@@ -62,10 +62,11 @@ public partial class MusicView : UserControl
 
         if (e.PropertyName == nameof(MusicViewModel.IsAlbumlistOpen))
             StartAlbumListTransitionMask();
-        else if (e.PropertyName == nameof(MusicViewModel.LoadedAlbum))
+        else if (e.PropertyName is nameof(MusicViewModel.LoadedAlbum) or nameof(MusicViewModel.CoverDisplayRevision))
         {
             ApplyCoverLayoutMode();
             this.FindControl<Navigation.MusicListView>("AlbumListView")?.RefreshAlbumTileCovers();
+            CoverControl.ReloadCoverImages();
         }
         else if (e.PropertyName == nameof(MusicViewModel.IsActive) && _viewModel.IsActive)
             this.FindControl<Navigation.MusicListView>("AlbumListView")?.RefreshAlbumTileCovers();

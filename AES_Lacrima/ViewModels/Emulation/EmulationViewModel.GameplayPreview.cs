@@ -56,7 +56,24 @@ namespace AES_Lacrima.ViewModels
             if (index < 0 || index >= CoverItems.Count)
                 index = PointedIndex >= 0 && PointedIndex < CoverItems.Count ? PointedIndex : 0;
 
+            if (immediate && _isGameplayPreviewActive)
+                StopGameplayPreview();
+
             QueueGameplayPreview(CoverItems[index], immediate);
+        }
+
+        private bool CanPlayGameplayPreviewFor(MediaItem? item) =>
+            IsGameplayAutoplayEnabled &&
+            !IsEmulatorRunning &&
+            (IsYtDlpInstalled || EmulationPreviewCacheHelper.HasPreview(item?.FileName));
+
+        private static string? ResolvePreferredGameplayPreviewUrl(MediaItem item)
+        {
+            var localPreview = EmulationPreviewCacheHelper.TryGetPreviewPath(item.FileName);
+            if (!string.IsNullOrWhiteSpace(localPreview))
+                return localPreview;
+
+            return string.IsNullOrWhiteSpace(item.VideoUrl) ? null : item.VideoUrl;
         }
 
         private void SyncGameplayPreviewItemIndex()
@@ -82,9 +99,52 @@ namespace AES_Lacrima.ViewModels
                 GameplayPreviewItemIndex = index;
         }
 
+        private bool ShouldStartGameplayPreviewImmediately(MediaItem? item)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.FileName))
+                return false;
+
+            if (EmulationPreviewCacheHelper.HasPreview(item.FileName))
+                return true;
+
+            int index = CoverItems.IndexOf(item);
+            return index >= 0 && index == GetRoundedSelectedIndex(SelectedIndex);
+        }
+
         private void QueueGameplayPreview(MediaItem? item, bool immediate = false)
         {
-            if (!IsGameplayPreviewAvailable || item == null || string.IsNullOrWhiteSpace(item.FileName))
+            ApplyGameplayPreviewSelectionVisuals(item);
+            StartGameplayPreviewLoad(item, immediate);
+        }
+
+        private void ApplyGameplayPreviewSelectionVisuals(MediaItem? item)
+        {
+            if (!CanPlayGameplayPreviewFor(item) || item == null || string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            if (HighlightedItem == null ||
+                !string.Equals(item.FileName, HighlightedItem.FileName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var previewIndex = ResolveGameplayPreviewItemIndex(item);
+            if (previewIndex >= 0)
+                GameplayPreviewItemIndex = previewIndex;
+
+            if (_isGameplayPreviewActive &&
+                !string.Equals(_activeGameplayPreviewItemPath, item.FileName, StringComparison.OrdinalIgnoreCase))
+            {
+                IsGameplayVideoVisible = false;
+                _isGameplayPreviewActive = false;
+                _activeGameplayPreviewItemPath = null;
+                AudioPlayer?.SuppressActivePreviewPlayback();
+            }
+        }
+
+        private void StartGameplayPreviewLoad(MediaItem? item, bool immediate = false)
+        {
+            if (!CanPlayGameplayPreviewFor(item) || item == null || string.IsNullOrWhiteSpace(item.FileName))
             {
                 if (_isGameplayPreviewActive ||
                     !string.IsNullOrWhiteSpace(_pendingGameplayPreviewItemPath) ||
@@ -95,7 +155,13 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            MetadataService?.StopGameplayVideoSearchPreview();
+            if (HighlightedItem == null ||
+                !string.Equals(item.FileName, HighlightedItem.FileName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            Dispatcher.UIThread.Post(() => MetadataService?.StopGameplayVideoSearchPreview(), DispatcherPriority.Background);
 
             var requestedPath = item.FileName;
             if (string.Equals(_pendingGameplayPreviewItemPath, requestedPath, StringComparison.OrdinalIgnoreCase))
@@ -105,11 +171,11 @@ namespace AES_Lacrima.ViewModels
                 string.Equals(_activeGameplayPreviewItemPath, requestedPath, StringComparison.OrdinalIgnoreCase))
             {
                 var currentPlaybackUrl = AudioPlayer?.CurrentMediaItem?.FileName;
-                var requestedVideoUrl = item.VideoUrl;
-                if (!string.IsNullOrWhiteSpace(requestedVideoUrl) &&
-                    !string.Equals(currentPlaybackUrl, requestedVideoUrl, StringComparison.OrdinalIgnoreCase))
+                var requestedPlaybackUrl = ResolvePreferredGameplayPreviewUrl(item);
+                if (!string.IsNullOrWhiteSpace(requestedPlaybackUrl) &&
+                    !string.Equals(currentPlaybackUrl, requestedPlaybackUrl, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Same selected item but gameplay URL changed -> force restart with new URL.
+                    // Same selected item but playback source changed -> force restart with new URL.
                 }
                 else
                 {
@@ -120,7 +186,7 @@ namespace AES_Lacrima.ViewModels
                 }
             }
 
-            // Queue the next preview without stopping the current one — it keeps playing on its tile until the new video starts.
+            // Cancel any in-flight load and start the next preview on the selected tile.
             CancelPendingGameplayPreview();
             _pendingGameplayPreviewItemPath = requestedPath;
             long requestVersion = Interlocked.Increment(ref _gameplayPreviewRequestVersion);
@@ -155,7 +221,10 @@ namespace AES_Lacrima.ViewModels
                     return;
                 }
 
-                EnsureGameplayAudioPlayer();
+                await Dispatcher.UIThread.InvokeAsync(EnsureGameplayAudioPlayer, DispatcherPriority.Background);
+                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                    return;
+
                 var player = AudioPlayer;
                 if (player == null)
                 {
@@ -163,8 +232,10 @@ namespace AES_Lacrima.ViewModels
                     return;
                 }
 
-                await player.PlayFile(previewSource.PreviewItem, video: true);
+                await player.PlayFile(previewSource.PreviewItem, video: true, enableMediaAnalysis: false).ConfigureAwait(false);
+                player.SetPreviewMuted(false);
 
+                await WaitForPreviewPlaybackReadyAsync(player, cancellationToken).ConfigureAwait(false);
                 if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                 {
                     try
@@ -230,6 +301,7 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
+                AudioPlayer?.SetProperty("mute", false);
                 AudioPlayer?.Stop();
             }
             catch (Exception ex)
@@ -372,6 +444,7 @@ namespace AES_Lacrima.ViewModels
 
             try
             {
+                AudioPlayer?.SetProperty("mute", false);
                 AudioPlayer?.Stop();
             }
             catch (Exception ex)
@@ -390,17 +463,23 @@ namespace AES_Lacrima.ViewModels
 
         private async Task<string?> ResolveGameplayVideoUrlAsync(MediaItem item, CancellationToken cancellationToken)
         {
+            var localPreview = EmulationPreviewCacheHelper.TryGetPreviewPath(item.FileName);
+            if (!string.IsNullOrWhiteSpace(localPreview))
+                return localPreview;
+
             if (!string.IsNullOrWhiteSpace(item.VideoUrl))
                 return item.VideoUrl;
 
             var cachePath = GetMetadataCachePath(item.FileName);
             var metadata = await Task.Run(() => BinaryMetadataHelper.LoadMetadata(cachePath), cancellationToken).ConfigureAwait(false);
             var cachedVideoUrl = metadata?.VideoUrl;
-            if (string.IsNullOrWhiteSpace(cachedVideoUrl))
-                return null;
+            if (!string.IsNullOrWhiteSpace(cachedVideoUrl))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => item.VideoUrl = cachedVideoUrl, DispatcherPriority.Background);
+                return cachedVideoUrl;
+            }
 
-            await Dispatcher.UIThread.InvokeAsync(() => item.VideoUrl = cachedVideoUrl, DispatcherPriority.Background);
-            return cachedVideoUrl;
+            return EmulationPreviewCacheHelper.TryGetPreviewPath(item.FileName);
         }
 
         private async Task<GameplayPreviewSource?> ResolveGameplayPreviewSourceAsync(MediaItem item, CancellationToken cancellationToken)
@@ -432,6 +511,20 @@ namespace AES_Lacrima.ViewModels
             }
 
             return new GameplayPreviewSource(previewItem);
+        }
+
+        private static async Task WaitForPreviewPlaybackReadyAsync(AudioPlayer player, CancellationToken cancellationToken)
+        {
+            const int timeoutMs = 20_000;
+            var deadline = Environment.TickCount64 + timeoutMs;
+            while (Environment.TickCount64 < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!player.IsLoadingMedia && (player.Duration > 0 || player.Position > 0.05))
+                    return;
+
+                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         private void EnsureGameplayAudioPlayer()
