@@ -139,7 +139,9 @@ namespace AES_Lacrima.ViewModels
         private const int AlbumRowPreviewCoverRadius = 3;
         private CancellationTokenSource? _gameplayPreviewCts;
         private bool _isGameplayPreviewActive;
-        private bool _suppressSelectionStopForGameplayPreview;
+        private bool _gameplayPreviewPausedForCapture;
+        private string? _gameplayPreviewPausedItemPath;
+        private int _gameplayPreviewPausedItemIndex = -1;
         private bool _isSyncingCurrentSectionCoreSelection;
         private bool _isSyncingCurrentSectionFlatpakSelection;
         private bool _isSyncingCurrentSectionRetroArchVersionSelection;
@@ -286,16 +288,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         private IntPtr _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
         private static readonly TimeSpan AppTopmostRestoreTimeout = TimeSpan.FromSeconds(10);
         private const int GameplayPreviewHoverDelayMs = 2000;
-        private const int GameplayPreviewResizeAnimationMs = 800;
-        private const int GameplayPreviewPostAnimationDelayMs = 200;
-        private const int GameplayPreviewResizeDelayMs = GameplayPreviewResizeAnimationMs + GameplayPreviewPostAnimationDelayMs;
 
         private sealed record PersistedEmulationState(
             bool IsAlbumListCollapsed,
             AvaloniaList<string> AlbumOrder,
             Dictionary<string, List<MediaItem>> AlbumRoms);
 
-        private sealed record GameplayPreviewSource(MediaItem PreviewItem, double? AspectRatio);
+        private sealed record GameplayPreviewSource(MediaItem PreviewItem);
         private sealed record PendingEmulatorLaunchRequest(
             string AlbumTitle,
             string ItemTitle,
@@ -359,8 +358,6 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(AlbumListToggleText))]
         [NotifyPropertyChangedFor(nameof(IsEmulationFolderAnimationPaused))]
-        [NotifyPropertyChangedFor(nameof(IsGameplayPreviewPublishBoundsActive))]
-        [NotifyPropertyChangedFor(nameof(IsGameplayPreviewViewportVisible))]
         private bool _isAlbumListCollapsed;
 
         [ObservableProperty]
@@ -536,7 +533,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _isGameplayPreviewHostVisible;
 
         [ObservableProperty]
-        private double _gameplayPreviewTargetAspectRatio;
+        private int _gameplayPreviewItemIndex = -1;
 
         public string AlbumListToggleText => IsAlbumListCollapsed ? "Show Albums" : "Hide Albums";
 
@@ -1162,19 +1159,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             IsCompositionCaptureVisible || !IsAlbumListCollapsed || IsAlbumListLoading || _activeAlbumCoverScans > 0;
         public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
         public bool IsSearchBoxVisible => IsCarouselVisible && !(MetadataService?.IsMetadataLoaded == true);
-        /// <summary>
-        /// Gameplay preview tracks the selected cover via <see cref="CompositionCarouselControl.PublishSelectedItemBounds"/>.
-        /// Disable while the album strip is expanded so ROM scrolling is not competing with
-        /// video decode and per-frame layout on the preview overlay (music has no equivalent).
-        /// </summary>
-        public bool IsGameplayPreviewPublishBoundsActive =>
-            IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible && IsAlbumListCollapsed;
-
-        public bool IsRomCarouselSelectedItemBoundsActive =>
-            IsGameplayPreviewPublishBoundsActive;
-
-        public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewPublishBoundsActive;
-
+        public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
         public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
 
@@ -1375,7 +1360,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
         private void OnCoverItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-            => NotifyCarouselSliderProperties();
+        {
+            NotifyCarouselSliderProperties();
+            if (e.Action == NotifyCollectionChangedAction.Remove)
+                return;
+
+            SyncGameplayPreviewItemIndex();
+        }
 
         private void NotifyCarouselSliderProperties()
         {
@@ -1649,6 +1640,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                 or nameof(SettingsViewModel.IsCoverCarouselMode))
             {
                 OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
+                RefreshGameplayPreviewForCurrentSelection();
             }
         }
 
@@ -1694,7 +1686,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (value)
             {
                 IsEmulatorViewportDismissed = false;
-                StopGameplayPreview();
+                PauseGameplayPreviewForCapture();
                 OpenMetadataCommand.NotifyCanExecuteChanged();
                 RefreshCoverAndTitleCommand.NotifyCanExecuteChanged();
                 RebootEmulatorCommand.NotifyCanExecuteChanged();
@@ -1715,7 +1707,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             SyncCurrentSectionEmulatorContext();
 
             if (IsActive && IsGameplayPreviewAvailable)
-                QueueGameplayPreview(HighlightedItem, immediate: true);
+                ResumeGameplayPreviewAfterCapture();
 
             if (_watchedSteamAlbum != null)
                 _ = SyncSteamLibraryAsync(_watchedSteamAlbum, forcePresentation: true, forceRefresh: true);
@@ -1805,14 +1797,21 @@ private bool _isShadPs4PatchesOverlayOpen;
                 OnPropertyChanged(nameof(IsSearchBoxVisible));
             }
 
-            if (e.PropertyName == nameof(MetadataService.VideoUrl) &&
-                MetadataService != null &&
-                !string.IsNullOrWhiteSpace(MetadataService.VideoUrl))
+            if (e.PropertyName == nameof(MetadataService.VideoUrl) && MetadataService != null)
             {
                 var target = ResolveMetadataTargetItem();
-                if (target != null)
+                if (string.IsNullOrWhiteSpace(MetadataService.VideoUrl))
+                {
+                    if (target != null)
+                        target.VideoUrl = null;
+
+                    StopGameplayPreview();
+                }
+                else if (target != null)
                 {
                     target.VideoUrl = MetadataService.VideoUrl;
+                    if (IsGameplayPreviewAvailable)
+                        QueueGameplayPreview(target, immediate: true);
                 }
             }
         }
@@ -1926,18 +1925,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         }
 
 
-        partial void OnIsAlbumListCollapsedChanged(bool value)
-        {
-            AutoSave();
-            if (!value)
-            {
-                StopGameplayPreview();
-                return;
-            }
-
-            if (IsActive && IsGameplayPreviewAvailable)
-                QueueGameplayPreview(HighlightedItem, immediate: true);
-        }
+        partial void OnIsAlbumListCollapsedChanged(bool value) => AutoSave();
 
         partial void OnShowStatisticsOverlayChanged(bool value) => AutoSave();
 

@@ -256,6 +256,9 @@ namespace AES_Controls.Composition
         public static readonly StyledProperty<bool> PublishSelectedItemBoundsProperty =
             AvaloniaProperty.Register<CompositionCarouselControl, bool>(nameof(PublishSelectedItemBounds), false);
 
+        public static readonly StyledProperty<int> GameplayPreviewItemIndexProperty =
+            AvaloniaProperty.Register<CompositionCarouselControl, int>(nameof(GameplayPreviewItemIndex), -1);
+
         /// <summary>
         /// When true, cover loading spinners are drawn but do not keep the compositor animation loop running.
         /// </summary>
@@ -364,6 +367,12 @@ namespace AES_Controls.Composition
         {
             get => GetValue(PublishSelectedItemBoundsProperty);
             set => SetValue(PublishSelectedItemBoundsProperty, value);
+        }
+
+        public int GameplayPreviewItemIndex
+        {
+            get => GetValue(GameplayPreviewItemIndexProperty);
+            set => SetValue(GameplayPreviewItemIndexProperty, value);
         }
 
         public bool PauseLoadingSpinnerAnimation
@@ -1790,6 +1799,25 @@ namespace AES_Controls.Composition
                 _lastPublishedSelectedItemBounds = default;
                 SelectedItemBounds = default;
             }
+        }
+
+        internal void RefreshSelectedItemBounds()
+        {
+            if (!PublishSelectedItemBounds)
+                return;
+
+            ClearProjectionCache();
+            UpdateSelectedItemBounds();
+        }
+
+        internal void PostGameplayPreviewVisualState(int index, bool visible)
+        {
+            _visual?.SendHandlerMessage(new GameplayPreviewVisualMessage(index, visible));
+        }
+
+        internal void PostGameplayPreviewFrame(SKImage? frame)
+        {
+            _visual?.SendHandlerMessage(new GameplayPreviewFrameMessage(frame));
         }
 
         private void OpenItemContextMenu(int pointedIndex)

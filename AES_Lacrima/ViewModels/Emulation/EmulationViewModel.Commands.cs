@@ -204,12 +204,6 @@ namespace AES_Lacrima.ViewModels
             if (roundedIndex < 0 || roundedIndex >= CoverItems.Count)
                 return;
 
-            if (!_suppressSelectionStopForGameplayPreview &&
-                roundedIndex != _lastRoundedSelectedIndexForPreview)
-            {
-                StopGameplayPreview();
-            }
-
             _lastRoundedSelectedIndexForPreview = roundedIndex;
             _lastSelectedIndexForPreview = value;
             ScheduleHighlightedItemUpdate(roundedIndex);
@@ -217,9 +211,6 @@ namespace AES_Lacrima.ViewModels
 
         partial void OnHighlightedItemChanged(MediaItem value)
         {
-            if (!IsAlbumListCollapsed)
-                return;
-
             QueueGameplayPreview(value);
         }
 
@@ -259,6 +250,19 @@ namespace AES_Lacrima.ViewModels
         {
             CarouselSliderPreview = null;
             SelectedIndex = index;
+        }
+
+        [RelayCommand]
+        private void CoverItemSelected(int index)
+        {
+            if (index < 0 || index >= CoverItems.Count)
+                return;
+
+            var item = CoverItems[index];
+            if (!ReferenceEquals(HighlightedItem, item))
+                HighlightedItem = item;
+            else
+                QueueGameplayPreview(item);
         }
 
         [RelayCommand]

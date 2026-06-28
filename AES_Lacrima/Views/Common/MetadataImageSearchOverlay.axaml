@@ -3,6 +3,7 @@
              xmlns:services="using:AES_Lacrima.Services"
              xmlns:controls="using:AES_Controls"
              xmlns:composition="using:AES_Controls.Composition"
+             xmlns:player="using:AES_Controls.Player"
              xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
              x:Class="AES_Lacrima.MetadataImageSearchOverlay"
              x:Name="ImageSearchOverlayRoot"
@@ -150,6 +151,28 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
 
+                            <StackPanel Spacing="10"
+                                        IsVisible="{Binding IsGameplayVideoSearchMode}">
+                                <TextBlock Text="Gameplay video preview"
+                                           Foreground="White"
+                                           FontSize="20"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ImageSearchPreviewTitle, FallbackValue=Hover a result}"
+                                           Foreground="#B8B8B8"
+                                           FontSize="15"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="3"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ImageSearchPreviewUrl}"
+                                           Foreground="#8A8A8A"
+                                           FontSize="13"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="2"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding ImageSearchPreviewUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+
                             <TextBlock Text="Hover a result to preview how it will look."
                                        Foreground="#8A8A8A"
                                        FontSize="14"
@@ -176,6 +199,34 @@
                                                                                  IsVisible="{Binding IsWallpaperBezelImageSearchMode}"
                                                                                  ImageUrl="{Binding ImageSearchPreviewUrl}"
                                                                                  PreviewKind="{Binding ImageSearchPreviewWallpaperBezelKind}" />
+
+                            <Grid Grid.Row="1"
+                                  Margin="0,12,0,0"
+                                  MinHeight="280"
+                                  MaxHeight="520"
+                                  IsVisible="{Binding IsGameplayVideoSearchMode}">
+                                <Border CornerRadius="8"
+                                        ClipToBounds="True"
+                                        Background="#FF000000"
+                                        BorderBrush="#33FFFFFF"
+                                        BorderThickness="1"
+                                        IsVisible="{Binding IsGameplayVideoPreviewLoading}">
+                                    <Grid>
+                                        <Image Stretch="UniformToFill"
+                                               Opacity="0.55"
+                                               asyncImageLoader:ImageLoader.Source="{Binding ImageSearchPreviewThumbnailUrl}" />
+                                        <controls:LoadingControl Width="56"
+                                                                 Height="56"
+                                                                 Foreground="#FFFFFFFF"
+                                                                 HorizontalAlignment="Center"
+                                                                 VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
+                                <player:VideoViewControl Stretch="Uniform"
+                                                         Player="{Binding GameplayVideoPreviewPlayer}"
+                                                         IsRenderingPaused="{Binding IsGameplayVideoPreviewLoading}" />
+                            </Grid>
                         </Grid>
                     </Border>
                 </Grid>

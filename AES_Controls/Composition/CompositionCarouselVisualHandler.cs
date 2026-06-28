@@ -123,6 +123,9 @@ namespace AES_Controls.Composition
         private readonly SKMaskFilter _selectionOuterGlowBlur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 8.4f);
         private float _selectionPulsePhase;
         private int _playingItemIndex = -1;
+        private int _gameplayPreviewIndex = -1;
+        private bool _gameplayPreviewVisible;
+        private SKImage? _gameplayPreviewFrame;
 
         private bool UseReducedMotionQuality =>
             _draggingIndex != -1 ||
@@ -335,6 +338,41 @@ namespace AES_Controls.Composition
                     RegisterForNextAnimationFrameUpdate();
                 Invalidate();
             }
+            else if (message is GameplayPreviewVisualMessage previewVisual)
+            {
+                _gameplayPreviewIndex = previewVisual.Index;
+                _gameplayPreviewVisible = previewVisual.Visible;
+                if (!previewVisual.Visible)
+                    SetGameplayPreviewFrame(null);
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+                Invalidate();
+            }
+            else if (message is GameplayPreviewFrameMessage previewFrame)
+            {
+                SetGameplayPreviewFrame(previewFrame.Frame);
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+                Invalidate();
+            }
+        }
+
+        private void SetGameplayPreviewFrame(SKImage? frame)
+        {
+            if (ReferenceEquals(_gameplayPreviewFrame, frame))
+                return;
+
+            if (_gameplayPreviewFrame != null)
+            {
+                DisposeShaderOnly(_gameplayPreviewFrame);
+                DisposeNativeImage(_gameplayPreviewFrame);
+            }
+
+            _gameplayPreviewFrame = frame;
+            if (frame != null)
+                CacheImageDimensions(frame);
         }
 
         public override void OnAnimationFrameUpdate()
@@ -436,7 +474,8 @@ namespace AES_Controls.Composition
                 _isDropping;
             bool animateLoadingSpinners = !_pauseLoadingSpinnerAnimation && _loadingIndices.Count > 0;
             bool animatePlayingBorder = _playingItemIndex >= 0;
-            if (isAnimating || animateLoadingSpinners || animatePlayingBorder)
+            bool animateGameplayPreview = _gameplayPreviewVisible && _gameplayPreviewIndex >= 0 && _gameplayPreviewFrame != null;
+            if (isAnimating || animateLoadingSpinners || animatePlayingBorder || animateGameplayPreview)
             {
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
@@ -677,7 +716,11 @@ namespace AES_Controls.Composition
             var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             
             float baseOpacity = (float)(1.0 - (i == _draggingIndex ? 0 : absDiff) * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
-            DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center, Math.Abs(rotationY));
+            SKImage? drawImage = img;
+            if (_gameplayPreviewVisible && i == _gameplayPreviewIndex && _gameplayPreviewFrame != null)
+                drawImage = _gameplayPreviewFrame;
+
+            DrawQuad(canvas, itemW, itemH, matrix, drawImage, baseOpacity, center, Math.Abs(rotationY));
 
             if (showCoverFound)
                 DrawCoverFoundOverlay(canvas, i, matrix, center, itemW, itemH);
@@ -693,7 +736,7 @@ namespace AES_Controls.Composition
                 DrawProjectedSelectionBorder(canvas, itemW, itemH, matrix, center, baseOpacity);
 
             if (_draggingIndex == -1)
-                DrawItemReflection(canvas, itemW, itemH, matrix, img, baseOpacity, center, absDiff);
+                DrawItemReflection(canvas, itemW, itemH, matrix, drawImage, baseOpacity, center, absDiff);
         }
 
         private void DrawItemReflection(SKCanvas canvas, float itemW, float itemH, Matrix4x4 matrix, SKImage? img, float baseOpacity, Vector2 center, float absDiff)
@@ -732,6 +775,9 @@ namespace AES_Controls.Composition
         {
             if (image == null)
                 return false;
+
+            if (ReferenceEquals(image, _gameplayPreviewFrame))
+                return true;
 
             for (int i = 0; i < _images.Count; i++)
             {

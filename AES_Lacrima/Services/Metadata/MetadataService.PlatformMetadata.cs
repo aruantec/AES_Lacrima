@@ -91,6 +91,8 @@ namespace AES_Lacrima.Services
                 return results;
 
             var html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var titleMatches = YouTubeSearchTitleRegex.Matches(html);
+            int titleIndex = 0;
             foreach (Match match in YouTubeVideoIdRegex.Matches(html))
             {
                 var id = match.Groups["id"].Value;
@@ -101,11 +103,21 @@ namespace AES_Lacrima.Services
                 if (!seen.Add(videoUrl))
                     continue;
 
+                string title = string.Empty;
+                while (titleIndex < titleMatches.Count && string.IsNullOrWhiteSpace(title))
+                {
+                    var titleMatch = titleMatches[titleIndex++];
+                    title = titleMatch.Groups["simple"].Value;
+                    if (string.IsNullOrWhiteSpace(title))
+                        title = titleMatch.Groups["run"].Value;
+                    title = WebUtility.HtmlDecode(title.Replace("\\\"", "\"", StringComparison.Ordinal));
+                }
+
                 results.Add(new WebImageSearchResult
                 {
                     FullImageUrl = videoUrl,
                     ThumbnailUrl = $"https://i.ytimg.com/vi/{id}/hqdefault.jpg",
-                    Title = string.Empty,
+                    Title = title,
                     Artist = "YouTube"
                 });
 

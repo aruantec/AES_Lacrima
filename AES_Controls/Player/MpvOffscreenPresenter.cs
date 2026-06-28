@@ -5,6 +5,7 @@ using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.OpenGL;
+using SkiaSharp;
 
 namespace AES_Controls.Player;
 
@@ -287,6 +288,41 @@ internal sealed class MpvOffscreenPresenter : IDisposable
     }
 
     private delegate int GlCheckFramebufferStatusDelegate(int target);
+
+    private delegate void GlReadPixelsDelegate(int x, int y, int width, int height, int format, int type, nint data);
+
+    public SKImage? TryCaptureRgbaFrame(GlInterface gl)
+    {
+        if (!_initialized || _renderWidth <= 0 || _renderHeight <= 0)
+            return null;
+
+        var readPtr = gl.GetProcAddress("glReadPixels");
+        if (readPtr == IntPtr.Zero)
+            return null;
+
+        var readPixels = Marshal.GetDelegateForFunctionPointer<GlReadPixelsDelegate>(readPtr);
+        var pixels = new byte[_renderWidth * _renderHeight * 4];
+        int rowBytes = _renderWidth * 4;
+
+        gl.BindFramebuffer(GlFramebuffer, _fbo);
+        var finishPtr = gl.GetProcAddress("glFinish");
+        if (finishPtr != IntPtr.Zero)
+            Marshal.GetDelegateForFunctionPointer<Action>(finishPtr).Invoke();
+
+        unsafe
+        {
+            fixed (byte* p = pixels)
+                readPixels(0, 0, _renderWidth, _renderHeight, GlRgba, GlUnsignedByte, (nint)p);
+        }
+        gl.BindFramebuffer(GlFramebuffer, 0);
+
+        var flipped = new byte[pixels.Length];
+        for (int y = 0; y < _renderHeight; y++)
+            Buffer.BlockCopy(pixels, y * rowBytes, flipped, (_renderHeight - 1 - y) * rowBytes, rowBytes);
+
+        var info = new SKImageInfo(_renderWidth, _renderHeight, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+        return SKImage.FromPixelCopy(info, flipped);
+    }
 
     private void UpdateQuad(GlInterface gl, int x, int y, int width, int height, int viewWidth, int viewHeight)
     {

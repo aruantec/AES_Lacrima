@@ -7,6 +7,7 @@ using AES_Controls;
 using AES_Mpv.Player;
 using System.Diagnostics;
 using System.Globalization;
+using SkiaSharp;
 
 namespace AES_Controls.Player;
 
@@ -122,6 +123,17 @@ public class VideoViewControl : OpenGlControlBase
 
     public static readonly StyledProperty<double> ReferenceViewportHeightProperty =
         AvaloniaProperty.Register<VideoViewControl, double>(nameof(ReferenceViewportHeight));
+
+    public static readonly StyledProperty<bool> ExportFramesForCompositionProperty =
+        AvaloniaProperty.Register<VideoViewControl, bool>(nameof(ExportFramesForComposition));
+
+    public bool ExportFramesForComposition
+    {
+        get => GetValue(ExportFramesForCompositionProperty);
+        set => SetValue(ExportFramesForCompositionProperty, value);
+    }
+
+    public event Action<SKImage>? FrameCaptured;
 
     public double ReferenceViewportHeight
     {
@@ -381,13 +393,20 @@ public class VideoViewControl : OpenGlControlBase
         _presenter.RenderMpvToOffscreen(gl, (renderWidth, renderHeight, offscreenFb, internalFormat) =>
             Player.RenderToOpenGl(renderWidth, renderHeight, offscreenFb, internalFormat, flipY: 0));
 
+        if (ExportFramesForComposition && !IsRenderingPaused)
+        {
+            var captured = _presenter.TryCaptureRgbaFrame(gl);
+            if (captured != null)
+                FrameCaptured?.Invoke(captured);
+        }
+
         _presenter.BlitToTarget(gl, fb, viewWidth, viewHeight, Stretch);
         RefreshVideoAspectRatio();
         UpdateExpandedViewportWidth();
 
         if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
 
-        if (!IsRenderingPaused && IsVisible)
+        if (!IsRenderingPaused && (IsVisible || ExportFramesForComposition))
             RequestNextFrameRendering();
     }
 
@@ -462,6 +481,18 @@ public class VideoViewControl : OpenGlControlBase
             if (IsVisible && (!IsRenderingPaused || !_hasRenderedOnceSincePause))
                 RequestNextFrameRendering();
         }
+        else if (change.Property == ExportFramesForCompositionProperty)
+        {
+            if (change.GetNewValue<bool>())
+            {
+                _hasRenderedOnceSincePause = false;
+                _renderSizeLocked = false;
+                ResetViewportSizing();
+                HoldViewportExpansion();
+            }
+
+            RequestNextFrameRendering();
+        }
         else if (change.Property == UseCustomHeartbeatProperty || change.Property == PlayerProperty)
         {
             _initialized = false;
@@ -477,6 +508,15 @@ public class VideoViewControl : OpenGlControlBase
             if (UseCustomHeartbeat)
                 Player?.SetProperty("override-display-fps", heartbeatFps.ToString(CultureInfo.InvariantCulture));
         }
+    }
+
+    public void KickRender()
+    {
+        _hasRenderedOnceSincePause = false;
+        _renderSizeLocked = false;
+        ResetViewportSizing();
+        HoldViewportExpansion();
+        RequestNextFrameRendering();
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)

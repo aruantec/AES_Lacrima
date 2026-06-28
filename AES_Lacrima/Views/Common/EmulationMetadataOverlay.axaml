@@ -104,6 +104,19 @@
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="Gameplay URL" Foreground="#D8D8D8" FontSize="14" />
                                     <TextBox Text="{Binding VideoUrl, Mode=TwoWay}" FontSize="14" TextWrapping="Wrap" />
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                        <Button Grid.Column="0"
+                                                Content="Add Gameplay"
+                                                Command="{Binding AddGameplayCommand}"
+                                                HorizontalAlignment="Stretch"
+                                                Padding="12,8" />
+                                        <Button Grid.Column="1"
+                                                Content="Remove Gameplay"
+                                                Command="{Binding ClearGameplayVideoCommand}"
+                                                IsEnabled="{Binding HasGameplayVideo}"
+                                                HorizontalAlignment="Stretch"
+                                                Padding="12,8" />
+                                    </Grid>
                                 </StackPanel>
 
                                 <StackPanel Spacing="4" IsVisible="{Binding IsXbox360Metadata}">
@@ -159,11 +172,6 @@
                                     <TextBox Text="{Binding PspTitleId, Mode=OneWay}" IsReadOnly="True" FontSize="14" />
                                 </StackPanel>
 
-                                <Button Content="Add Gameplay"
-                                        Command="{Binding AddGameplayCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        Padding="12,8"
-                                        Margin="0,4,0,0" />
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>

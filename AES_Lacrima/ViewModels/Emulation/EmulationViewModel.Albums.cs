@@ -3180,6 +3180,7 @@ namespace AES_Lacrima.ViewModels
             HighlightedItem = CoverItems[nextIndex];
             IsNoAlbumLoadedVisible = false;
             RefreshActiveAlbumState();
+            RefreshGameplayPreviewForCurrentSelection();
         }
 
         private void ApplyEmptyBrowseAlbumPresentation(FolderMediaItem? album)
