@@ -974,7 +974,8 @@ public partial class EmulationView : UserControl
                 RestorePresentationAfterAbortedCaptureTransition();
             }
         }
-        else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayRecording))
+        else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayRecording) ||
+                 e.PropertyName == nameof(EmulationViewModel.IsGameplayPreviewRecording))
         {
             EnsureInlineCaptureHost();
             vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);

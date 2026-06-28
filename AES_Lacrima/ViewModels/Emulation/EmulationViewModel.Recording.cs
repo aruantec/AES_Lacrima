@@ -35,9 +35,10 @@ public partial class EmulationViewModel
     public bool CanShowGameplayRecording =>
         IsEmulatorRunning &&
         IsCompositionCaptureVisible &&
-        (OperatingSystem.IsWindows() || OperatingSystem.IsLinux());
+        (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) &&
+        !IsGameplayPreviewRecording;
 
-    public bool CanToggleGameplayRecording => CanShowGameplayRecording && !IsEmulatorLaunchInProgress;
+    public bool CanToggleGameplayRecording => CanShowGameplayRecording && !IsEmulatorLaunchInProgress && !IsGameplayPreviewRecording;
 
     private DispatcherTimer? _recordingElapsedTimer;
     private DispatcherTimer? _recordingPulseTimer;
@@ -47,6 +48,7 @@ public partial class EmulationViewModel
     {
         OnPropertyChanged(nameof(CanShowGameplayRecording));
         OnPropertyChanged(nameof(CanToggleGameplayRecording));
+        NotifyGameplayPreviewRecordingAvailabilityChanged();
     }
 
     public double CaptureChromeRightInset => 0;
@@ -94,9 +96,8 @@ public partial class EmulationViewModel
 
     private void StartGameplayRecording()
     {
-        var recorder = ResolveGameplayRecorder();
         var settings = SettingsViewModel ?? DiLocator.ResolveViewModel<SettingsViewModel>();
-        if (recorder == null || settings == null)
+        if (settings == null)
         {
             GameplayRecordingStatus = "Recording services are not available.";
             return;
@@ -106,27 +107,8 @@ public partial class EmulationViewModel
         if (string.IsNullOrWhiteSpace(outputDir))
             outputDir = GameplayRecorderService.GetDefaultOutputDirectory();
 
-        recorder.RecordingStateChanged -= OnGameplayRecordingStateChanged;
-        recorder.RecordingFailed -= OnGameplayRecordingFailed;
-        recorder.RecordingStateChanged += OnGameplayRecordingStateChanged;
-        recorder.RecordingFailed += OnGameplayRecordingFailed;
-
-        settings.SuspendGameplayRecordingAudioLevelMonitor();
-
-        if (!recorder.TryStart(
-                outputDir,
-                settings.GameplayRecordingContainer,
-                settings.GameplayRecordingVideoCodec,
-                settings.GameplayRecordingFps,
-                settings.GameplayRecordingBitrateKbps,
-                ResolveGameplayRecordingProcessId(),
-                OperatingSystem.IsLinux() ? _linuxCompositorPid : 0))
-        {
-            settings.ResumeGameplayRecordingAudioLevelMonitor();
+        if (!TryBeginGameplayRecordingSession(outputDir, settings, previewSession: false))
             return;
-        }
-
-        ConfigureCaptureGameplayRecording(_activeCaptureHost);
 
         var audioHint = settings.GameplayRecordingAudioSource switch
         {
@@ -141,6 +123,61 @@ public partial class EmulationViewModel
         Dispatcher.UIThread.Post(settings.SaveSettings, DispatcherPriority.Background);
     }
 
+    private bool TryBeginGameplayRecordingSession(
+        string outputDirectory,
+        SettingsViewModel settings,
+        bool previewSession)
+    {
+        var recorder = ResolveGameplayRecorder();
+        if (recorder == null)
+        {
+            if (previewSession)
+                GameplayPreviewRecordingStatus = "Recording services are not available.";
+            else
+                GameplayRecordingStatus = "Recording services are not available.";
+            return false;
+        }
+
+        recorder.RecordingStateChanged -= OnGameplayRecordingStateChanged;
+        recorder.RecordingFailed -= OnGameplayRecordingFailed;
+        recorder.RecordingStateChanged += OnGameplayRecordingStateChanged;
+        recorder.RecordingFailed += OnGameplayRecordingFailed;
+
+        _isGameplayPreviewRecordingSession = previewSession;
+        if (previewSession)
+        {
+            IsGameplayRecording = false;
+            StopRecordingTimers();
+        }
+
+        settings.SuspendGameplayRecordingAudioLevelMonitor();
+
+        if (!recorder.TryStart(
+                outputDirectory,
+                settings.GameplayRecordingContainer,
+                settings.GameplayRecordingVideoCodec,
+                settings.GameplayRecordingFps,
+                settings.GameplayRecordingBitrateKbps,
+                ResolveGameplayRecordingProcessId(),
+                OperatingSystem.IsLinux() ? _linuxCompositorPid : 0))
+        {
+            _isGameplayPreviewRecordingSession = false;
+            settings.ResumeGameplayRecordingAudioLevelMonitor();
+            recorder.RecordingStateChanged -= OnGameplayRecordingStateChanged;
+            recorder.RecordingFailed -= OnGameplayRecordingFailed;
+
+            if (previewSession)
+                CleanupGameplayPreviewRecordingSession("Could not start gameplay preview recording.");
+            else
+                GameplayRecordingStatus = "Could not start gameplay recording.";
+
+            return false;
+        }
+
+        ConfigureCaptureGameplayRecording(_activeCaptureHost);
+        return true;
+    }
+
     private void StopGameplayRecording()
     {
         ResolveGameplayRecorder()?.Stop();
@@ -148,6 +185,12 @@ public partial class EmulationViewModel
 
     private void OnGameplayRecordingStateChanged(bool isRecording)
     {
+        if (_isGameplayPreviewRecordingSession)
+        {
+            HandleGameplayPreviewRecordingStateChanged(isRecording);
+            return;
+        }
+
         IsGameplayRecording = isRecording;
         if (!isRecording)
         {
@@ -167,6 +210,12 @@ public partial class EmulationViewModel
 
     private void OnGameplayRecordingFailed(string message)
     {
+        if (_isGameplayPreviewRecordingSession)
+        {
+            HandleGameplayPreviewRecordingFailed(message);
+            return;
+        }
+
         StopRecordingTimers();
         GameplayRecordingStatus = message;
         IsGameplayRecording = false;

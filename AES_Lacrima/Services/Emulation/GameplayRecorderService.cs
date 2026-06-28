@@ -811,6 +811,10 @@ public partial class GameplayRecorderService : IGameplayRecorder
         }
     }
 
+    public void WaitForPendingFinalize()
+    {
+    }
+
     public void Dispose() => Stop();
 
     public static string GetDefaultOutputDirectory()

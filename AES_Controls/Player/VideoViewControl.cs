@@ -22,6 +22,7 @@ public enum VideoFlip
 public class VideoViewControl : OpenGlControlBase
 {
     private const double DefaultHeartbeatFps = 60.0;
+    private const double CompositionExportMaxFps = 30.0;
     private static readonly TimeSpan ViewportExpansionDelay = TimeSpan.FromSeconds(2);
 
     private bool _initialized;
@@ -34,6 +35,8 @@ public class VideoViewControl : OpenGlControlBase
     private double _videoAspectRatio;
     private double _expandedViewportWidth;
     private long _viewportExpansionHoldUntilTicks;
+    private long _lastCompositionCaptureTicks;
+    private long _lastIdleRenderRequestTicks;
 
     public static readonly StyledProperty<AesMpvPlayer?> PlayerProperty =
         AvaloniaProperty.Register<VideoViewControl, AesMpvPlayer?>(nameof(Player));
@@ -393,21 +396,43 @@ public class VideoViewControl : OpenGlControlBase
         _presenter.RenderMpvToOffscreen(gl, (renderWidth, renderHeight, offscreenFb, internalFormat) =>
             Player.RenderToOpenGl(renderWidth, renderHeight, offscreenFb, internalFormat, flipY: 0));
 
-        if (ExportFramesForComposition && !IsRenderingPaused)
+        if (ExportFramesForComposition && !IsRenderingPaused && _videoAspectRatio > 0)
         {
-            var captured = _presenter.TryCaptureRgbaFrame(gl);
-            if (captured != null)
-                FrameCaptured?.Invoke(captured);
+            var now = Stopwatch.GetTimestamp();
+            var intervalTicks = (long)(Stopwatch.Frequency / CompositionExportMaxFps);
+            if (now - _lastCompositionCaptureTicks >= intervalTicks)
+            {
+                _lastCompositionCaptureTicks = now;
+                var captured = _presenter.TryCaptureRgbaFrameForComposition(gl);
+                if (captured != null)
+                    FrameCaptured?.Invoke(captured);
+            }
         }
 
-        _presenter.BlitToTarget(gl, fb, viewWidth, viewHeight, Stretch);
+        if (Opacity > 0)
+            _presenter.BlitToTarget(gl, fb, viewWidth, viewHeight, Stretch);
         RefreshVideoAspectRatio();
         UpdateExpandedViewportWidth();
 
         if (IsRenderingPaused) _hasRenderedOnceSincePause = true;
 
         if (!IsRenderingPaused && (IsVisible || ExportFramesForComposition))
-            RequestNextFrameRendering();
+        {
+            if (ExportFramesForComposition && _videoAspectRatio <= 0)
+            {
+                var now = Stopwatch.GetTimestamp();
+                var idleIntervalTicks = (long)(Stopwatch.Frequency / 8.0);
+                if (now - _lastIdleRenderRequestTicks >= idleIntervalTicks)
+                {
+                    _lastIdleRenderRequestTicks = now;
+                    RequestNextFrameRendering();
+                }
+            }
+            else
+            {
+                RequestNextFrameRendering();
+            }
+        }
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -490,6 +515,9 @@ public class VideoViewControl : OpenGlControlBase
                 ResetViewportSizing();
                 HoldViewportExpansion();
             }
+
+            if (_initialized && Player != null)
+                Player.SetProperty("video-sync", UseCustomHeartbeat ? "display-resample" : "audio");
 
             RequestNextFrameRendering();
         }

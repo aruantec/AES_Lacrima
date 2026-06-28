@@ -376,6 +376,19 @@
                                    Stretch="Uniform" />
                          </MenuItem.Icon>
                      </MenuItem>
+                     <MenuItem Header="Clear Gameplay Preview"
+                               CornerRadius="8"
+                               Command="{Binding ClearGameplayPreviewForItemCommand}"
+                               CommandParameter="{Binding PointedIndex}"
+                               IsVisible="{Binding ShowClearGameplayPreviewMenuItem}">
+                        <MenuItem.Icon>
+                            <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19V4M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                                  Fill="#CCFFFFFF"
+                                  Width="32"
+                                  Height="32"
+                                  Stretch="Uniform"/>
+                        </MenuItem.Icon>
+                     </MenuItem>
                      <MenuItem Header="Delete Item"
                                CornerRadius="8"
                                Command="{Binding DeleteItemCommand}"
@@ -536,6 +549,42 @@
                                   IsVisible="{Binding IsEmulatorRunning}">
                             <MenuItem.Icon>
                                 <Path Data="M50,32 L33,49 C30.8,51.2 32.4,55 35.5,55 H44 V70 C44,73.3 46.7,76 50,76 C53.3,76 56,73.3 56,70 V55 H64.5 C67.6,55 69.2,51.2 67,49 L50,32 Z"
+                                      Fill="#CCFFFFFF"
+                                      Width="32"
+                                      Height="32"
+                                      Stretch="Uniform" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="{Binding GameplayPreviewRecordingMenuHeader}"
+                                  CornerRadius="8"
+                                  Command="{Binding RecordGameplayPreviewCommand}"
+                                  IsVisible="{Binding CanRecordGameplayPreview}">
+                            <MenuItem.Icon>
+                                <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M10,8L16,12L10,16V8Z"
+                                      Fill="#CCFFFFFF"
+                                      Width="32"
+                                      Height="32"
+                                      Stretch="Uniform" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Stop Gameplay Preview Recording"
+                                  CornerRadius="8"
+                                  Command="{Binding StopGameplayPreviewRecordingMenuCommand}"
+                                  IsVisible="{Binding CanStopGameplayPreviewRecording}">
+                            <MenuItem.Icon>
+                                <Path Data="M6,6H18V18H6V6Z"
+                                      Fill="#CCFFFFFF"
+                                      Width="32"
+                                      Height="32"
+                                      Stretch="Uniform" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Clear Gameplay Preview"
+                                  CornerRadius="8"
+                                  Command="{Binding ClearGameplayPreviewCommand}"
+                                  IsVisible="{Binding CanClearGameplayPreview}">
+                            <MenuItem.Icon>
+                                <Path Data="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"
                                       Fill="#CCFFFFFF"
                                       Width="32"
                                       Height="32"
@@ -1900,6 +1949,11 @@
                                                Foreground="#C8C8C8"
                                                FontSize="14"
                                                TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding GameplayPreviewRecordingStatus}"
+                                               Foreground="#C8C8C8"
+                                               FontSize="14"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding GameplayPreviewRecordingStatus, Converter={StaticResource StringNotEmptyToBoolConverter}}" />
                                     <TextBlock Text="Recording FPS is independent of your monitor refresh (120 Hz display is fine). Cap output resolution like OBS (e.g. 1080p). Hardware encoders (AMD/NVIDIA) are used when available."
                                                Foreground="#AAAAAA"
                                                FontSize="13"
@@ -2058,6 +2112,11 @@
                                                    Width="70"
                                                    FontSize="16"/>
                                     </StackPanel>
+                                    <TextBlock Text="Gameplay previews use the same recorder as full gameplay recording, then are compressed to a .prev sidecar. Stop manually or after 5 minutes."
+                                               Foreground="#AAAAAA"
+                                               FontSize="13"
+                                               TextWrapping="Wrap"
+                                               MaxWidth="560" />
                                     <Grid ColumnDefinitions="220,*" ColumnSpacing="12" VerticalAlignment="Center">
                                         <TextBlock Grid.Column="0" Text="Output folder" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
                                         <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">

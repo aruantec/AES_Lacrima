@@ -29,6 +29,7 @@ public static class GameplayRecordingResolution
     public static string GetDisplayLabel(GameplayRecordingResolutionCap cap) => cap switch
     {
         GameplayRecordingResolutionCap.Native => "Native (no cap)",
+        GameplayRecordingResolutionCap.P384 => "384p",
         GameplayRecordingResolutionCap.P720 => "720p",
         GameplayRecordingResolutionCap.P1080 => "1080p",
         GameplayRecordingResolutionCap.P1440 => "1440p",

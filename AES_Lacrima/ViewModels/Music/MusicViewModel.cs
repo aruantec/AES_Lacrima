@@ -164,6 +164,7 @@ namespace AES_Lacrima.ViewModels
         private bool _isSyncingAlbumSelection;
         private bool _scanMissingStreamDurationsOnLoadedAlbum;
         private bool _isApplyingDeferredAlbumList;
+        private int _coverDisplayRevision;
         private bool _hasQueuedDeferredAlbumListRestore;
         private bool _isMusicViewVisible;
         private bool _hasDeferredLibraryMetadataWarmupStarted;
@@ -212,6 +213,13 @@ namespace AES_Lacrima.ViewModels
         public bool ShowEmptyAlbumListHint => !HasAlbums;
         public bool CanSortAlbums => AlbumList.Count > 1;
         public bool HasLoadedAlbumItems => LoadedAlbum?.Children.Count > 0;
+        public int CoverDisplayRevision => _coverDisplayRevision;
+
+        internal void NotifyCoverDisplayRefresh()
+        {
+            _coverDisplayRevision++;
+            OnPropertyChanged(nameof(CoverDisplayRevision));
+        }
         public bool ShowEmptyLoadedAlbumHint => LoadedAlbum != null && !HasLoadedAlbumItems;
         public bool HasCurrentMediaLoaded => AudioPlayer?.CurrentMediaItem != null;
         public string EmptyAlbumListMessage => "Right-click to open a folder, create an album or scan folders";

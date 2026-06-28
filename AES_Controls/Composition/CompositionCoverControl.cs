@@ -7,6 +7,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
+using AES_Controls.Helpers;
 using AES_Controls.Player;
 using AES_Mpv.Player;
 using SkiaSharp;
@@ -18,6 +19,8 @@ namespace AES_Controls.Composition;
 /// </summary>
 public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 {
+    private const int GameplayPreviewRenderDimension = 720;
+
     private static readonly TimeSpan LayoutTransitionDuration = TimeSpan.FromMilliseconds(280);
 
     private readonly CompositionCarouselControl _carousel;
@@ -31,6 +34,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     private bool _suppressLayoutTransition;
     private bool _syncingSelectedIndexFromCarousel;
     private readonly VideoViewControl _gameplayPreviewVideo;
+    private SKImage? _pendingGameplayPreviewFrame;
+    private bool _gameplayPreviewFramePostScheduled;
+    private DispatcherTimer? _gameplayPreviewRenderGuardTimer;
 
     public static readonly StyledProperty<CoverLayoutMode> LayoutModeProperty =
         AvaloniaProperty.Register<CompositionCoverControl, CoverLayoutMode>(
@@ -171,8 +177,12 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         PublishSelectedItemBoundsProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.ApplyPublishSelectedItemBounds());
 
-        GameplayPreviewItemIndexProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
-            control.ApplyPublishGameplayPreviewBounds());
+        GameplayPreviewItemIndexProperty.Changed.AddClassHandler<CompositionCoverControl>((control, e) =>
+        {
+            if (e.GetOldValue<int>() != e.GetNewValue<int>())
+                control.ClearGameplayPreviewDisplayedFrame();
+            control.ApplyPublishGameplayPreviewBounds();
+        });
 
         IsGameplayPreviewVisibleProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.ApplyPublishGameplayPreviewBounds());
@@ -181,7 +191,11 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             control.UpdateGameplayPreviewVideoVisibility(e.GetNewValue<bool>()));
 
         GameplayPreviewPlayerProperty.Changed.AddClassHandler<CompositionCoverControl>((control, e) =>
-            control._gameplayPreviewVideo.Player = e.NewValue as AesMpvPlayer);
+        {
+            control._gameplayPreviewVideo.Player = e.NewValue as AesMpvPlayer;
+            if (control.IsGameplayPreviewVideoVisible)
+                control._gameplayPreviewVideo.KickRender();
+        });
 
         PauseLoadingSpinnerAnimationProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.SyncSharedProperties());
@@ -249,14 +263,19 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         {
             Stretch = Stretch.UniformToFill,
             IsHitTestVisible = false,
-            IsVisible = false,
-            Width = 1,
-            Height = 1,
+            Opacity = 0,
+            IsVisible = true,
+            Width = GameplayPreviewRenderDimension,
+            Height = GameplayPreviewRenderDimension,
             ExportFramesForComposition = false,
-            ReferenceViewportWidth = 480,
-            ReferenceViewportHeight = 640,
+            ReferenceViewportWidth = GameplayPreviewRenderDimension,
+            ReferenceViewportHeight = GameplayPreviewRenderDimension,
+            UseCustomHeartbeat = false,
         };
         _gameplayPreviewVideo.FrameCaptured += OnGameplayPreviewFrameCaptured;
+
+        _gameplayPreviewRenderGuardTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        _gameplayPreviewRenderGuardTimer.Tick += OnGameplayPreviewRenderGuardTick;
 
         Children.Add(_gameplayPreviewVideo);
         Children.Add(_carousel);
@@ -484,14 +503,36 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         var bounds = new Rect(finalSize);
         Control active = _appliedLayoutMode == CoverLayoutMode.Carousel ? _carousel : _cardGrid;
         active.Arrange(bounds);
+
+        double previewSize = GameplayPreviewRenderDimension;
+        _gameplayPreviewVideo.Arrange(new Rect(0, 0, previewSize, previewSize));
+
         return finalSize;
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        _gameplayPreviewRenderGuardTimer?.Start();
         SyncAllProperties();
         ApplyLayoutModeImmediate(LayoutMode);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        _gameplayPreviewRenderGuardTimer?.Stop();
+        _pendingGameplayPreviewFrame?.Dispose();
+        _pendingGameplayPreviewFrame = null;
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnGameplayPreviewRenderGuardTick(object? sender, EventArgs e)
+    {
+        if (!IsGameplayPreviewVideoVisible)
+            return;
+
+        bool defer = _appliedLayoutMode == CoverLayoutMode.Carousel && _carousel.IsCarouselInteractionActive;
+        _gameplayPreviewVideo.IsRenderingPaused = defer;
     }
 
     private void OnLayoutModeChanged(AvaloniaPropertyChangedEventArgs e)
@@ -884,20 +925,36 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             return;
         }
 
-        var layoutMode = _appliedLayoutMode;
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!IsGameplayPreviewVideoVisible || GameplayPreviewItemIndex < 0)
-            {
-                frame.Dispose();
-                return;
-            }
+        _pendingGameplayPreviewFrame?.Dispose();
+        _pendingGameplayPreviewFrame = frame;
 
-            if (layoutMode == CoverLayoutMode.Carousel)
-                _carousel.PostGameplayPreviewFrame(frame);
-            else
-                _cardGrid.PostGameplayPreviewFrame(frame);
-        }, DispatcherPriority.Render);
+        if (_gameplayPreviewFramePostScheduled)
+            return;
+
+        _gameplayPreviewFramePostScheduled = true;
+        var layoutMode = _appliedLayoutMode;
+        Dispatcher.UIThread.Post(() => PublishPendingGameplayPreviewFrame(layoutMode), DispatcherPriority.Background);
+    }
+
+    private void PublishPendingGameplayPreviewFrame(CoverLayoutMode layoutMode)
+    {
+        _gameplayPreviewFramePostScheduled = false;
+        var frame = _pendingGameplayPreviewFrame;
+        _pendingGameplayPreviewFrame = null;
+
+        if (frame == null)
+            return;
+
+        if (!IsGameplayPreviewVideoVisible || GameplayPreviewItemIndex < 0)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        if (layoutMode == CoverLayoutMode.Carousel)
+            _carousel.PostGameplayPreviewFrame(frame);
+        else
+            _cardGrid.PostGameplayPreviewFrame(frame);
     }
 
     private void OnSelectedIndexChangedFromBinding()
@@ -997,9 +1054,34 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             : _cardGrid.SelectedItemBounds;
     }
 
+    private void ClearGameplayPreviewDisplayedFrame()
+    {
+        _pendingGameplayPreviewFrame?.Dispose();
+        _pendingGameplayPreviewFrame = null;
+        _gameplayPreviewFramePostScheduled = false;
+
+        if (_appliedLayoutMode == CoverLayoutMode.Carousel)
+            _carousel.PostGameplayPreviewFrame(null);
+        else
+            _cardGrid.PostGameplayPreviewFrame(null);
+    }
+
     private void UpdateGameplayPreviewVideoVisibility(bool visible)
     {
-        _gameplayPreviewVideo.IsRenderingPaused = !visible;
+        if (!visible)
+        {
+            _gameplayPreviewVideo.IsRenderingPaused = true;
+            _pendingGameplayPreviewFrame?.Dispose();
+            _pendingGameplayPreviewFrame = null;
+            _gameplayPreviewFramePostScheduled = false;
+        }
+        else
+        {
+            bool defer = _appliedLayoutMode == CoverLayoutMode.Carousel && _carousel.IsCarouselInteractionActive;
+            _gameplayPreviewVideo.IsRenderingPaused = defer;
+            _gameplayPreviewVideo.KickRender();
+        }
+
         ApplyPublishGameplayPreviewBounds();
     }
 

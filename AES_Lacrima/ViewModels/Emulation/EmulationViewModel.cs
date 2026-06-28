@@ -445,6 +445,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsItemPointed))]
         [NotifyPropertyChangedFor(nameof(ShowSteamProtonVersionMenuItem))]
+        [NotifyPropertyChangedFor(nameof(ShowClearGameplayPreviewMenuItem))]
         private int _pointedIndex = -1;
 
         public bool IsItemPointed => PointedIndex != -1 && PointedIndex < CoverItems.Count;
@@ -1136,7 +1137,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _isEmulatorViewportDismissed;
 
         public bool IsGameplayPreviewAvailable =>
-            IsGameplayAutoplayEnabled && IsYtDlpInstalled && !IsEmulatorRunning;
+            IsGameplayAutoplayEnabled &&
+            !IsEmulatorRunning &&
+            (IsYtDlpInstalled || HighlightedItemHasLocalGameplayPreview());
+
+        private bool HighlightedItemHasLocalGameplayPreview() =>
+            HighlightedItem != null &&
+            EmulationPreviewCacheHelper.HasPreview(HighlightedItem.FileName);
         public bool IsEmulatorViewportVisible =>
             EmulatorCapturePlatform.SupportsCompositionCapture &&
             IsEmulatorRunning &&
@@ -1428,6 +1435,8 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (e.PropertyName == nameof(IsActive) && !IsActive)
             {
                 StopGameplayPreview();
+                if (IsGameplayPreviewRecording || _isGameplayPreviewRecordingSession)
+                    StopGameplayPreviewRecording();
             }
 
             if (e.PropertyName == nameof(IsActive))
@@ -1662,8 +1671,13 @@ private bool _isShadPs4PatchesOverlayOpen;
         partial void OnIsEmulatorRunningChanged(bool value)
         {
             NotifyGameplayRecordingAvailabilityChanged();
-            if (!value && IsGameplayRecording)
-                StopGameplayRecording();
+            if (!value)
+            {
+                if (IsGameplayRecording)
+                    StopGameplayRecording();
+                if (IsGameplayPreviewRecording || _isGameplayPreviewRecordingSession)
+                    StopGameplayPreviewRecording();
+            }
 
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
@@ -1920,6 +1934,8 @@ private bool _isShadPs4PatchesOverlayOpen;
         {
             base.OnLeaveViewModel();
             StopGameplayPreview();
+            if (IsGameplayPreviewRecording || _isGameplayPreviewRecordingSession)
+                StopGameplayPreviewRecording();
             StopSteamLibraryWatcher();
             SaveSettings();
         }

@@ -214,10 +214,14 @@ namespace AES_Lacrima.ViewModels
                 Children = new AvaloniaList<MediaItem>(),
                 CoverBitmap = DefaultFolderCover
             };
+            newAlbum.RebuildPreviewItems(useFirstItemCover: true);
             AlbumList.Add(newAlbum);
             SelectedAlbum = newAlbum;
             OpenSelectedFolder();
-            RenameFolder(newAlbum);
+            var albumToRename = newAlbum;
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () => RenameFolder(albumToRename),
+                Avalonia.Threading.DispatcherPriority.Loaded);
         }
 
         [RelayCommand(CanExecute = nameof(CanSortAlbums))]

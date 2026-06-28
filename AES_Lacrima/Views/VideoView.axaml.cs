@@ -108,8 +108,11 @@ public partial class VideoView : UserControl
 
         if (e.PropertyName == nameof(MusicViewModel.IsAlbumlistOpen))
             StartAlbumListTransitionMask();
-        else if (e.PropertyName == nameof(MusicViewModel.LoadedAlbum))
+        else if (e.PropertyName is nameof(MusicViewModel.LoadedAlbum) or nameof(MusicViewModel.CoverDisplayRevision))
+        {
             ApplyCoverLayoutMode();
+            CoverControl.ReloadCoverImages();
+        }
         else if (e.PropertyName == nameof(MusicViewModel.IsVideoViewportDismissed) && _viewModel.IsVideoViewportDismissed)
             ExitVideoCaptureFullscreen();
         else if (e.PropertyName == nameof(MusicViewModel.IsActive) && !_viewModel.IsActive)

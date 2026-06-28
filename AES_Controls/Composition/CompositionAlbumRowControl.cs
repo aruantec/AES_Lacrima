@@ -177,6 +177,13 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         set => SetValue(RenamingIndexProperty, value);
     }
 
+    /// <summary>
+    /// Raised while an album title is being edited and the row scroll position changes.
+    /// </summary>
+    public event EventHandler? RenameOverlayLayoutRequested;
+
+    private double _lastRenameOverlayScrollX = double.NaN;
+
     public CompositionAlbumRowControl()
     {
         ScalableDecorator.SetExcludeFromScale(this, true);
@@ -189,10 +196,17 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         _uiSyncTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(AnimationHeartbeatMs), DispatcherPriority.Render, (_, _) =>
         {
             double syncScrollX = _animationSync.CurrentScrollX;
+            bool scrollChanged = Math.Abs(syncScrollX - _lastRenameOverlayScrollX) > 0.01;
             if (Math.Abs(syncScrollX - _knownScrollX) > 0.5)
             {
                 _knownScrollX = syncScrollX;
                 EnsureVisibleTileCoversLoadedIfNeeded();
+            }
+
+            if (RenamingIndex >= 0 && scrollChanged)
+            {
+                _lastRenameOverlayScrollX = syncScrollX;
+                RenameOverlayLayoutRequested?.Invoke(this, EventArgs.Empty);
             }
 
             if (_isWheelScrolling)
@@ -215,11 +229,19 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
     public Rect GetTileBounds(int index) =>
         AlbumRowLayoutHelper.GetTileBounds(
             index,
-            _knownScrollX,
+            GetLiveScrollX(),
             (float)Bounds.Width,
             (float)Bounds.Height,
             (float)TileScale,
             (float)TileSpacing);
+
+    private double GetLiveScrollX() => _animationSync.CurrentScrollX;
+
+    public void EnsureSelectedItemVisible(bool animate = false)
+    {
+        int index = (int)Math.Clamp(Math.Round(SelectedIndex), 0, Math.Max(0, _itemsSnapshot.Length - 1));
+        EnsureIndexVisible(index, animate);
+    }
 
     public Rect GetTileTitleBarBounds(int index)
     {
@@ -303,7 +325,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         {
             int idx = (int)Math.Round(change.GetNewValue<double>());
             _visual?.SendHandlerMessage(new AlbumRowSelectedIndexMessage(idx));
-            if (!_suppressSelectedIndexSideEffects)
+            if (!_suppressSelectedIndexSideEffects && idx < _itemsSnapshot.Length)
                 EnsureIndexVisible(idx, animate: true);
         }
         else if (change.Property == TileScaleProperty || change.Property == TileSpacingProperty)
@@ -322,7 +344,12 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             _visual?.SendHandlerMessage(new AlbumRowBackgroundColorMessage(GetSkColor(change.GetNewValue<IBrush?>())));
         }
         else if (change.Property == RenamingIndexProperty)
+        {
+            _lastRenameOverlayScrollX = double.NaN;
             _visual?.SendHandlerMessage(new AlbumRowRenamingIndexMessage(change.GetNewValue<int>()));
+            if (change.GetNewValue<int>() >= 0)
+                RenameOverlayLayoutRequested?.Invoke(this, EventArgs.Empty);
+        }
         else if (change.Property == OpacityProperty)
             _visual?.SendHandlerMessage(new GlobalOpacityMessage(change.GetNewValue<double>()));
         else if (change.Property == GlobalOpacityProperty)
@@ -720,14 +747,14 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         double offset = AlbumRowLayoutHelper.ScrollOffsetToRevealIndex(
             index,
-            _knownScrollX,
+            GetLiveScrollX(),
             (float)Bounds.Width,
             (float)Bounds.Height,
             _itemsSnapshot.Length,
             (float)TileScale,
             (float)TileSpacing);
 
-        if (Math.Abs(offset - _knownScrollX) < 0.5)
+        if (Math.Abs(offset - GetLiveScrollX()) < 0.5)
             return;
 
         if (!animate)
@@ -738,7 +765,6 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         }
 
         _targetScrollX = offset;
-        _knownScrollX = offset;
         _visual?.SendHandlerMessage(new AlbumRowScrollMessage(offset));
     }
 
@@ -1115,6 +1141,9 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
                     PushTileCovers(index);
                 }
 
+                int newIndex = e.NewStartingIndex + e.NewItems.Count - 1;
+                EnsureIndexVisible(newIndex, animate: false);
+                RenameOverlayLayoutRequested?.Invoke(this, EventArgs.Empty);
                 return;
             }
 
@@ -1488,6 +1517,9 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
         if (_itemsSnapshot[index] is not FolderMediaItem folder)
             return;
+
+        if (folder.PreviewItems.Count == 0)
+            folder.RebuildPreviewItems(useFirstItemCover: true);
 
         folder.SyncAlbumTileTopCoverFromChildren();
         var previewCovers = CapturePreviewCoverBitmaps(folder);
