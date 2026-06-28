@@ -231,6 +231,14 @@ namespace AES_Lacrima.Services
         }
 
         [RelayCommand]
+        private void ClearGameplayVideo()
+        {
+            VideoUrl = string.Empty;
+            if (_currentSelectedMedia != null)
+                _currentSelectedMedia.VideoUrl = null;
+        }
+
+        [RelayCommand]
         private async Task AddGameplayAsync()
         {
             if (_currentSelectedMedia == null)
@@ -284,6 +292,7 @@ namespace AES_Lacrima.Services
             OnPropertyChanged(nameof(ImageSearchOverlayHeader));
             OnPropertyChanged(nameof(IsCoverImageSearchMode));
             OnPropertyChanged(nameof(IsWallpaperBezelImageSearchMode));
+            OnPropertyChanged(nameof(IsGameplayVideoSearchMode));
             OnPropertyChanged(nameof(IsImageSearchPreviewVisible));
             OnPropertyChanged(nameof(CoverPreviewLayoutLabel));
             OnPropertyChanged(nameof(WallpaperBezelPreviewLayoutLabel));
@@ -293,6 +302,18 @@ namespace AES_Lacrima.Services
         internal void SetImageSearchPreview(WebImageSearchResult? result)
         {
             ImageSearchPreviewUrl = result?.FullImageUrl;
+
+            if (_searchMode == MetadataSearchMode.GameplayVideo)
+            {
+                ImageSearchPreviewTitle = !string.IsNullOrWhiteSpace(result?.Title)
+                    ? result!.Title
+                    : result?.FullImageUrl;
+                _ = StartGameplayVideoPreviewAsync(result);
+                return;
+            }
+
+            StopGameplayVideoPreview();
+
             if (_searchMode != MetadataSearchMode.WallpaperBezel)
                 return;
 
@@ -304,6 +325,7 @@ namespace AES_Lacrima.Services
         internal void ClearImageSearchPreview()
         {
             ImageSearchPreviewUrl = null;
+            StopGameplayVideoPreview();
         }
 
         private async Task SearchImagesCoreAsync(string activeQuery, IReadOnlyList<string> searchQueries, bool isRomSearch = false)

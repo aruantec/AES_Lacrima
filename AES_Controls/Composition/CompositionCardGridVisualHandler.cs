@@ -100,6 +100,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private float _dragCommitProgress;
     private Vector2 _dragCommitStartPosition;
     private SKImage? _draggedImage;
+    private int _gameplayPreviewIndex = -1;
+    private bool _gameplayPreviewVisible;
+    private SKImage? _gameplayPreviewFrame;
     private const float SwapAnimationSeconds = 0.2f;
     private const float DragCommitSeconds = 0.3f;
     private const float DragLiftScale = 1.04f;
@@ -478,7 +481,40 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 ClearDragVisualState();
                 Invalidate();
                 break;
+            case GameplayPreviewVisualMessage previewVisual:
+                _gameplayPreviewIndex = previewVisual.Index;
+                _gameplayPreviewVisible = previewVisual.Visible;
+                if (!previewVisual.Visible)
+                    SetGameplayPreviewFrame(null);
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+                Invalidate();
+                break;
+            case GameplayPreviewFrameMessage previewFrame:
+                SetGameplayPreviewFrame(previewFrame.Frame);
+                if (_lastTicks == 0)
+                    _lastTicks = Stopwatch.GetTimestamp();
+                RegisterForNextAnimationFrameUpdate();
+                Invalidate();
+                break;
         }
+    }
+
+    private void SetGameplayPreviewFrame(SKImage? frame)
+    {
+        if (ReferenceEquals(_gameplayPreviewFrame, frame))
+            return;
+
+        if (_gameplayPreviewFrame != null)
+        {
+            RemoveImageCaches(_gameplayPreviewFrame);
+            QueueNativeImageDisposal(_gameplayPreviewFrame);
+        }
+
+        _gameplayPreviewFrame = frame;
+        if (frame != null)
+            CacheImageDimensions(frame);
     }
 
     public override void OnAnimationFrameUpdate()
@@ -633,8 +669,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         bool animateSpinners = !_interactionSuspended &&
                                !_pauseLoadingSpinnerAnimation &&
                                (_loadingIndices.Count > 0 || (_isContentLoading && _images.Count == 0));
+        bool animateGameplayPreview = _gameplayPreviewIndex >= 0 && _gameplayPreviewFrame != null;
 
-        if (isAnimating || animateSpinners)
+        if (isAnimating || animateSpinners || animateGameplayPreview)
         {
             RegisterForNextAnimationFrameUpdate();
             Invalidate();
@@ -1112,7 +1149,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         if (_interactionSuspended)
         {
-            DrawScrollFrameCard(canvas, rect, img);
+            DrawScrollFrameCard(canvas, rect, img, index, metrics);
             return;
         }
 
@@ -1143,7 +1180,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
 
         bool isLoading = !_interactionSuspended && _loadingIndices.Contains(index);
         float titleH = metrics.CardHeight * TitleAreaRatio;
-        float reveal = GetImageRevealOpacity(index);
+        bool drawGameplayPreview = ShouldDrawGameplayPreviewOnCard(index);
+        float reveal = drawGameplayPreview ? 1f : GetImageRevealOpacity(index);
 
         if (reveal < 0.001f)
         {
@@ -1154,7 +1192,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         if (reveal < 0.999f)
             canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(reveal * 255)) });
 
-        if (img != null)
+        if (img != null || drawGameplayPreview)
         {
             _cardPaint.Style = SKPaintStyle.Fill;
             _cardPaint.Shader = null;
@@ -1163,11 +1201,15 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             _cardPaint.IsAntialias = true;
             _cardPaint.FilterQuality = _interactionSuspended ? SKFilterQuality.Low : SKFilterQuality.Medium;
 
-            if (IsBakedCardImage(img))
+            if (drawGameplayPreview)
+            {
+                DrawGameplayPreviewCover(canvas, rect, metrics, titleH, img);
+            }
+            else if (img != null && IsBakedCardImage(img))
             {
                 canvas.DrawImage(img, rect, _cardPaint);
             }
-            else
+            else if (img != null)
             {
                 var coverRect = new SKRect(rect.Left, rect.Top, rect.Right, rect.Top + (metrics.CardHeight - titleH));
                 var src = UniformToFillSrc(img.Width, img.Height, coverRect);
@@ -1584,8 +1626,52 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         canvas.DrawRect(x, y, w, h, _cardPaint);
     }
 
-    private void DrawScrollFrameCard(SKCanvas canvas, SKRect rect, SKImage? img)
+    private bool ShouldDrawGameplayPreviewOnCard(int index) =>
+        _gameplayPreviewIndex >= 0 &&
+        index == _gameplayPreviewIndex &&
+        _gameplayPreviewFrame != null;
+
+    private void DrawGameplayPreviewCover(
+        SKCanvas canvas,
+        SKRect rect,
+        GridMetrics metrics,
+        float titleH,
+        SKImage? cardImage)
     {
+        if (_gameplayPreviewFrame == null)
+            return;
+
+        var coverRect = new SKRect(rect.Left, rect.Top, rect.Right, rect.Top + (metrics.CardHeight - titleH));
+        var src = UniformToFillSrc(_gameplayPreviewFrame.Width, _gameplayPreviewFrame.Height, coverRect);
+        canvas.DrawImage(_gameplayPreviewFrame, src, coverRect, _cardPaint);
+
+        if (cardImage != null && IsBakedCardImage(cardImage))
+        {
+            var titleRect = new SKRect(rect.Left, coverRect.Bottom, rect.Right, rect.Bottom);
+            var titleSrc = new SKRect(
+                0f,
+                cardImage.Height * (1f - TitleAreaRatio),
+                cardImage.Width,
+                cardImage.Height);
+            canvas.DrawImage(cardImage, titleSrc, titleRect, _cardPaint);
+        }
+    }
+
+    private void DrawScrollFrameCard(SKCanvas canvas, SKRect rect, SKImage? img, int index, GridMetrics metrics)
+    {
+        if (ShouldDrawGameplayPreviewOnCard(index))
+        {
+            _cardPaint.Style = SKPaintStyle.Fill;
+            _cardPaint.Shader = null;
+            _cardPaint.ImageFilter = null;
+            _cardPaint.IsAntialias = false;
+            _cardPaint.FilterQuality = SKFilterQuality.Low;
+            _cardPaint.Color = SKColors.White;
+            float titleH = metrics.CardHeight * TitleAreaRatio;
+            DrawGameplayPreviewCover(canvas, rect, metrics, titleH, img);
+            return;
+        }
+
         if (img != null)
         {
             _cardPaint.Style = SKPaintStyle.Fill;
@@ -1809,6 +1895,9 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             return false;
 
         if (ReferenceEquals(_draggedImage, image))
+            return true;
+
+        if (ReferenceEquals(_gameplayPreviewFrame, image))
             return true;
 
         for (int i = 0; i < _images.Count; i++)

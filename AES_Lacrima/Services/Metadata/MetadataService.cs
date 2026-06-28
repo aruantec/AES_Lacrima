@@ -1,6 +1,7 @@
 using AES_Code.Models;
 using AES_Controls.Composition;
 using AES_Controls.Helpers;
+using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
@@ -84,6 +85,9 @@ namespace AES_Lacrima.Services
         private bool _coverRemovedInEditor;
         private MetadataSearchMode _searchMode = MetadataSearchMode.Images;
         private static readonly Regex YouTubeVideoIdRegex = new(@"""videoId"":""(?<id>[A-Za-z0-9_-]{11})""", RegexOptions.Compiled);
+        private static readonly Regex YouTubeSearchTitleRegex = new(
+            @"""title"":\{(?:""simpleText"":""(?<simple>(?:\\.|[^""\\])*)""|""runs"":\[\{""text"":""(?<run>(?:\\.|[^""\\])*)"")",
+            RegexOptions.Compiled);
 
         [ObservableProperty] private bool _isOnlineMedia;
         [ObservableProperty] private string? _filePath;
@@ -96,6 +100,10 @@ namespace AES_Lacrima.Services
         [ObservableProperty] private string? _comment;
         [ObservableProperty] private string? _lyrics;
         [ObservableProperty] private string? _videoUrl;
+
+        public bool HasGameplayVideo => !string.IsNullOrWhiteSpace(VideoUrl);
+
+        partial void OnVideoUrlChanged(string? value) => OnPropertyChanged(nameof(HasGameplayVideo));
         [ObservableProperty] private bool _isXbox360Metadata;
         [ObservableProperty] private string? _xbox360TitleId;
         [ObservableProperty] private string? _xbox360MediaId;
@@ -155,8 +163,10 @@ namespace AES_Lacrima.Services
 
         public bool IsWallpaperBezelImageSearchMode => _searchMode == MetadataSearchMode.WallpaperBezel;
 
+        public bool IsGameplayVideoSearchMode => _searchMode == MetadataSearchMode.GameplayVideo;
+
         public bool IsImageSearchPreviewVisible =>
-            IsCoverImageSearchMode || IsWallpaperBezelImageSearchMode;
+            IsCoverImageSearchMode || IsWallpaperBezelImageSearchMode || IsGameplayVideoSearchMode;
 
         public string CoverPreviewLayoutLabel => CoverPreviewLayoutMode switch
         {
@@ -171,7 +181,17 @@ namespace AES_Lacrima.Services
 
         [ObservableProperty] private string? _imageSearchPreviewTitle;
 
+        [ObservableProperty] private string? _imageSearchPreviewThumbnailUrl;
+
+        [ObservableProperty] private bool _isGameplayVideoPreviewLoading;
+
         [ObservableProperty] private TagImageKind _imageSearchPreviewWallpaperBezelKind = TagImageKind.BackCover;
+
+        private AudioPlayer? _gameplayVideoPreviewPlayer;
+        private CancellationTokenSource? _gameplayVideoPreviewCts;
+        private int _gameplayVideoPreviewGeneration;
+
+        public AudioPlayer? GameplayVideoPreviewPlayer => _gameplayVideoPreviewPlayer;
 
         public string WallpaperBezelPreviewLayoutLabel =>
             ImageSearchPreviewWallpaperBezelKind == TagImageKind.Wallpaper
@@ -197,6 +217,9 @@ namespace AES_Lacrima.Services
 
         [AutoResolve]
         private Xbox360MetadataService? _xbox360MetadataService;
+
+        [AutoResolve]
+        private MediaUrlService? _mediaUrlService;
 
         public IReadOnlyList<TagImageKind> MetadataImageKinds { get; } =
         [

@@ -62,13 +62,17 @@
                                                     ImageBitmapProperty="CoverBitmap"
                                                     ImageFileNameProperty="LocalCoverPath"
                                                     TitleProperty="Title"
-                                                    PublishSelectedItemBounds="{Binding IsRomCarouselSelectedItemBoundsActive}"
+                                                    GameplayPreviewItemIndex="{Binding GameplayPreviewItemIndex}"
+                                                    IsGameplayPreviewVisible="{Binding IsGameplayPreviewViewportVisible}"
+                                                    IsGameplayPreviewVideoVisible="{Binding IsGameplayVideoSurfaceVisible}"
+                                                    GameplayPreviewPlayer="{Binding AudioPlayer}"
                                                     PauseLoadingSpinnerAnimation="{Binding IsCompositionCaptureVisible}"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                                                     PlayingItemIndex="{Binding PlayingItemIndex, Mode=OneWay}"
                                                     ViewportPreviewIndex="{Binding CarouselSliderPreview, Mode=OneWayToSource}"
                                                     PointedItemIndex="{Binding PointedIndex, Mode=TwoWay}"
                                                     ItemDoubleClickedCommand="{Binding OpenSelectedItemCommand}"
+                                                    ItemSelectedCommand="{Binding CoverItemSelectedCommand}"
                                                     ShowCoverFoundOverlay="False"
                                                     ItemSpacing="{Binding SettingsViewModel.CarouselSpacing}"
                                                     ItemScale="{Binding SettingsViewModel.CarouselScale}"
@@ -427,60 +431,6 @@
                 </StackPanel>
             </Border>
         </Panel>
-
-        <Canvas Grid.Row="0" IsHitTestVisible="False">
-            <Border IsVisible="{Binding IsGameplayPreviewViewportVisible}"
-                    Canvas.Left="{Binding SelectedItemBounds.X, ElementName=RomCover}"
-                    Canvas.Top="{Binding SelectedItemBounds.Y, ElementName=RomCover}"
-                    Width="{Binding SelectedItemBounds.Width, ElementName=RomCover}"
-                    Height="{Binding SelectedItemBounds.Height, ElementName=RomCover}"
-                    Margin="-8,-6,0,0"
-                    ClipToBounds="False"
-                    Opacity="{Binding IsGameplayPreviewViewportVisible, Converter={StaticResource BoolToOpacityConverter}}"
-                    Background="Transparent">
-                <Border.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" />
-                    </Transitions>
-                </Border.Transitions>
-                <Border Height="{Binding SelectedItemBounds.Height, ElementName=RomCover}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Background="#FF000000"
-                        ClipToBounds="True"
-                        RenderTransformOrigin="0.5,0">
-                    <Border.Width>
-                        <MultiBinding Converter="{StaticResource GameplayPreviewWidthConverter}">
-                            <Binding Path="SelectedItemBounds.Width" ElementName="RomCover" />
-                            <Binding Path="SelectedItemBounds.Height" ElementName="RomCover" />
-                            <Binding Path="GameplayPreviewTargetAspectRatio" />
-                        </MultiBinding>
-                    </Border.Width>
-                    <Border.RenderTransform>
-                        <ScaleTransform ScaleX="1.03" ScaleY="1.03" />
-                    </Border.RenderTransform>
-                    <Border.Transitions>
-                        <Transitions>
-                            <DoubleTransition Property="Width" Duration="0:0:0.8" Easing="SineEaseInOut" />
-                        </Transitions>
-                    </Border.Transitions>
-                    <player:VideoViewControl x:Name="GameplayVideo"
-                                             Player="{Binding AudioPlayer}"
-                                             Stretch="Uniform"
-                                             ReferenceViewportWidth="{Binding SelectedItemBounds.Width, ElementName=RomCover}"
-                                             ReferenceViewportHeight="{Binding SelectedItemBounds.Height, ElementName=RomCover}"
-                                             IsRenderingPaused="{Binding !IsGameplayVideoSurfaceVisible}"
-                                             Opacity="{Binding IsGameplayVideoSurfaceVisible, Converter={StaticResource BoolToOpacityConverter}}">
-                        <player:VideoViewControl.Transitions>
-                            <Transitions>
-                                <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="SineEaseOut" />
-                            </Transitions>
-                        </player:VideoViewControl.Transitions>
-                    </player:VideoViewControl>
-                </Border>
-            </Border>
-
-        </Canvas>
 
         <Grid x:Name="EmulatorCaptureOverlayHost"
               Grid.Row="0"

@@ -264,6 +264,9 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     public static readonly StyledProperty<bool> PublishSelectedItemBoundsProperty =
         AvaloniaProperty.Register<CompositionCardGridControl, bool>(nameof(PublishSelectedItemBounds), false);
 
+    public static readonly StyledProperty<int> GameplayPreviewItemIndexProperty =
+        AvaloniaProperty.Register<CompositionCardGridControl, int>(nameof(GameplayPreviewItemIndex), -1);
+
     public static readonly StyledProperty<bool> PauseLoadingSpinnerAnimationProperty =
         AvaloniaProperty.Register<CompositionCardGridControl, bool>(nameof(PauseLoadingSpinnerAnimation), false);
 
@@ -360,6 +363,12 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
     {
         get => GetValue(PublishSelectedItemBoundsProperty);
         set => SetValue(PublishSelectedItemBoundsProperty, value);
+    }
+
+    public int GameplayPreviewItemIndex
+    {
+        get => GetValue(GameplayPreviewItemIndexProperty);
+        set => SetValue(GameplayPreviewItemIndexProperty, value);
     }
 
     public bool PauseLoadingSpinnerAnimation
@@ -992,6 +1001,8 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             _maxImageCacheEntries = Math.Max(1, change.GetNewValue<int>());
         else if (change.Property == PauseLoadingSpinnerAnimationProperty)
             _visual?.SendHandlerMessage(new PauseLoadingSpinnerAnimationMessage(change.GetNewValue<bool>()));
+        else if (change.Property == PublishSelectedItemBoundsProperty)
+            UpdateSelectedItemBounds();
         else if (change.Property == IsContentLoadingProperty)
             _visual?.SendHandlerMessage(new CardGridContentLoadingMessage(change.GetNewValue<bool>()));
         else if (change.Property == OpacityProperty)
@@ -2162,6 +2173,18 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
             (float)TopPadding,
             HorizontalScrollEnabled,
             _images.Count);
+    }
+
+    internal void RefreshSelectedItemBounds() => UpdateSelectedItemBounds();
+
+    internal void PostGameplayPreviewVisualState(int index, bool visible)
+    {
+        _visual?.SendHandlerMessage(new GameplayPreviewVisualMessage(index, visible));
+    }
+
+    internal void PostGameplayPreviewFrame(SKImage? frame)
+    {
+        _visual?.SendHandlerMessage(new GameplayPreviewFrameMessage(frame));
     }
 
     private void SendLayoutMessages() =>
