@@ -624,7 +624,7 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
             if (Math.Abs(_scrollVelocity) > 0.5)
             {
                 _targetScrollX += _scrollVelocity * dt;
-                _scrollVelocity *= Math.Exp(-2.2 * dt);
+                _scrollVelocity *= Math.Exp(-2.0 * dt);
             }
             else
             {
@@ -646,8 +646,8 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
             }
 
             double distance = _targetScrollX - _currentScrollX;
-            double stiffness = 560.0;
-            double damping = 2.0 * Math.Sqrt(stiffness) * 0.95;
+            double stiffness = 680.0;
+            double damping = 2.0 * Math.Sqrt(stiffness) * 0.90;
             _scrollSpringVelocity += (distance * stiffness - _scrollSpringVelocity * damping) * dt;
             _currentScrollX += _scrollSpringVelocity * dt;
 
