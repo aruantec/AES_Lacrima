@@ -89,6 +89,8 @@ internal static class PendingUpdateApplier
         File.WriteAllText(tempPath, json, Encoding.UTF8);
         File.Move(tempPath, ManifestPath, overwrite: true);
 
+        PendingUpdateManualApplyScripts.EnsureWritten();
+
         WriteDiagnosticLog(
             "Staged pending update for next launch",
             $"TargetKind={targetKind}",
@@ -148,6 +150,19 @@ internal static class PendingUpdateApplier
         if (!ValidateManifest(manifest))
             return false;
 
+        if (!IsManifestForCurrentInstallation(manifest))
+        {
+            WriteDiagnosticLog(
+                "Pending update targets a different installation; skipping apply at startup.",
+                $"CurrentBaseDirectory={AppContext.BaseDirectory}",
+                $"ManifestTargetPath={manifest.TargetPath}",
+                $"ManifestRestartPath={manifest.RestartPath}");
+            PendingUpdateManualApplyScripts.EnsureWritten();
+            return false;
+        }
+
+        PendingUpdateManualApplyScripts.EnsureWritten();
+
         if (TryScheduleExternalApply(manifest, Environment.ProcessId))
         {
             WriteDiagnosticLog(
@@ -180,6 +195,32 @@ internal static class PendingUpdateApplier
         }
 
         return true;
+    }
+
+    private static bool IsManifestForCurrentInstallation(PendingUpdateManifest manifest)
+    {
+        if (manifest.TargetKind == PendingUpdateTargetKind.DirectoryContents)
+        {
+            return string.Equals(
+                NormalizeDirectoryPath(AppContext.BaseDirectory),
+                NormalizeDirectoryPath(manifest.TargetPath),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        var processPath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(processPath) || string.IsNullOrWhiteSpace(manifest.RestartPath))
+            return false;
+
+        return string.Equals(
+            Path.GetFullPath(processPath),
+            Path.GetFullPath(manifest.RestartPath),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeDirectoryPath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static bool PathExists(string path, PendingUpdateTargetKind targetKind) =>

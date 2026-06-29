@@ -40,16 +40,25 @@ internal static class WindowsPendingUpdateHelper
             Write-UpdaterLog "Timed out waiting for process $ProcessId to exit; attempting apply anyway."
         }
 
+        function Normalize-RobocopyPath {
+            param([string]$Path)
+            if ([string]::IsNullOrWhiteSpace($Path)) { return $Path }
+            $full = [System.IO.Path]::GetFullPath($Path)
+            return $full.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        }
+
         function Copy-DirectoryContents {
             param([string]$Source, [string]$Destination)
-            New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+            $sourcePath = Normalize-RobocopyPath $Source
+            $destinationPath = Normalize-RobocopyPath $Destination
+            New-Item -ItemType Directory -Force -Path $destinationPath | Out-Null
             $robocopyArgs = @(
-                $Source, $Destination,
+                $sourcePath, $destinationPath,
                 '/E', '/IS', '/IT',
                 '/R:10', '/W:1',
                 '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP'
             )
-            & robocopy @robocopyArgs | Out-Null
+            & robocopy @robocopyArgs *> $null
             $code = $LASTEXITCODE
             if ($code -ge 8) {
                 throw "robocopy failed with exit code $code"
@@ -126,6 +135,8 @@ internal static class WindowsPendingUpdateHelper
         {
             Directory.CreateDirectory(ApplicationPaths.UpdatesDirectory);
             Directory.CreateDirectory(ApplicationPaths.LogsDirectory);
+
+            PendingUpdateManualApplyScripts.EnsureWritten();
 
             var scriptPath = Path.Combine(ApplicationPaths.UpdatesDirectory, ApplyScriptFileName);
             File.WriteAllText(scriptPath, ApplyScriptContent, Encoding.UTF8);
