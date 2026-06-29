@@ -183,9 +183,15 @@
                                         CornerRadius="8"
                                         Padding="10"
                                         IsVisible="{Binding AppUpdateService.HasPendingUpdate}">
-                                    <TextBlock Foreground="#C8E6C9"
-                                               TextWrapping="Wrap"
-                                               Text="{Binding AppUpdateService.PendingUpdateVersion, StringFormat='Version {0} is downloaded and waiting. Restart AES - Lacrima to apply it.', FallbackValue='An update is downloaded and waiting. Restart AES - Lacrima to apply it.'}"/>
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Foreground="#C8E6C9"
+                                                   TextWrapping="Wrap"
+                                                   Text="{Binding AppUpdateService.PendingUpdateVersion, StringFormat='Version {0} is downloaded and waiting. Restart AES - Lacrima to apply it.', FallbackValue='An update is downloaded and waiting. Restart AES - Lacrima to apply it.'}"/>
+                                        <TextBlock Foreground="#A5D6A7"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="12"
+                                                   Text="{Binding AppUpdateService.ManualPendingUpdateScriptPath, StringFormat='If restart does not apply it, close the app and run: {0}'}"/>
+                                    </StackPanel>
                                 </Border>
 
                                 <StackPanel Spacing="6"

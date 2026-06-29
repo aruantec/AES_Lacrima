@@ -154,6 +154,8 @@ public partial class AppUpdateService : ObservableObject
     [ObservableProperty]
     private string? _pendingUpdateVersion;
 
+    public string ManualPendingUpdateScriptPath => PendingUpdateManualApplyScripts.CmdScriptPath;
+
     [ObservableProperty]
     private string? _availableAssetName;
 
@@ -293,6 +295,9 @@ public partial class AppUpdateService : ObservableObject
         var manifest = PendingUpdateApplier.TryReadPendingManifest();
         HasPendingUpdate = manifest != null;
         PendingUpdateVersion = manifest?.ReleaseVersion;
+
+        if (manifest != null)
+            PendingUpdateManualApplyScripts.EnsureWritten();
 
         if (manifest == null || IsBusy)
             return;
