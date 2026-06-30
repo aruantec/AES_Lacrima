@@ -210,7 +210,16 @@ namespace AES_Lacrima.ViewModels
         }
 
         partial void OnCarouselSliderPreviewChanged(double? value)
-            => NotifyCarouselOverlayItemChanged();
+        {
+            NotifyCarouselOverlayItemChanged();
+
+            if (value != null)
+                return;
+
+            int index = GetRoundedSelectedIndex(SelectedIndex);
+            if (index >= 0 && index < CoverItems.Count)
+                ScheduleHighlightedItemUpdate(index);
+        }
 
         partial void OnSelectedIndexChanged(double value)
         {
@@ -233,8 +242,14 @@ namespace AES_Lacrima.ViewModels
         {
             ApplyGameplayPreviewSelectionVisuals(value);
 
+            if (_deferGameplayPreviewForAlbumLayout)
+                return;
+
             var item = value;
-            var immediate = ShouldStartGameplayPreviewImmediately(item);
+            bool immediate = _gameplayPreviewHighlightFromCarouselScroll
+                ? false
+                : ShouldStartGameplayPreviewImmediately(item);
+            _gameplayPreviewHighlightFromCarouselScroll = false;
             Dispatcher.UIThread.Post(() =>
             {
                 if (!ReferenceEquals(HighlightedItem, item))
@@ -270,7 +285,10 @@ namespace AES_Lacrima.ViewModels
 
             var item = CoverItems[index];
             if (!ReferenceEquals(HighlightedItem, item))
+            {
+                _gameplayPreviewHighlightFromCarouselScroll = true;
                 HighlightedItem = item;
+            }
         }
 
         [RelayCommand]
@@ -291,9 +309,12 @@ namespace AES_Lacrima.ViewModels
 
             var item = CoverItems[index];
             if (!ReferenceEquals(HighlightedItem, item))
+            {
+                _gameplayPreviewHighlightFromCarouselScroll = false;
                 HighlightedItem = item;
+            }
             else
-                QueueGameplayPreview(item, ShouldStartGameplayPreviewImmediately(item));
+                QueueGameplayPreview(item, immediate: true);
         }
 
         [RelayCommand]

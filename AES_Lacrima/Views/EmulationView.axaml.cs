@@ -743,6 +743,7 @@ public partial class EmulationView : UserControl
         if (DataContext is EmulationViewModel vm)
         {
             vm.PropertyChanged += OnViewModelPropertyChanged;
+            AttachGameplayPreviewPresentationRefresh(vm);
             AttachMetadataServiceForCapture(vm);
             UpdatePortalVisibility(vm);
             UpdateCapturePointerRouting(vm);
@@ -789,6 +790,7 @@ public partial class EmulationView : UserControl
         if (DataContext is EmulationViewModel vm)
         {
             vm.PropertyChanged -= OnViewModelPropertyChanged;
+            DetachGameplayPreviewPresentationRefresh(vm);
             DetachMetadataServiceForCapture();
         }
 
@@ -996,7 +998,18 @@ public partial class EmulationView : UserControl
             {
                 RomCover.ReloadCoverImages(vm.TryConsumeAlbumCoverFullRescan());
                 this.FindControl<EmulationListView>("AlbumListView")?.RefreshAlbumTileCovers();
+                if (vm.IsGameplayVideoSurfaceVisible)
+                    RomCover.RefreshGameplayPreviewPresentation();
             }, DispatcherPriority.Background);
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsGameplayVideoSurfaceVisible))
+        {
+            if (vm.IsGameplayVideoSurfaceVisible)
+            {
+                Dispatcher.UIThread.Post(
+                    RomCover.RefreshGameplayPreviewPresentation,
+                    DispatcherPriority.Loaded);
+            }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsFullscreen))
         {
@@ -1009,6 +1022,31 @@ public partial class EmulationView : UserControl
                 ExitCaptureFullscreen();
         }
     }
+
+    private EmulationViewModel? _subscribedGameplayPreviewPresentationVm;
+
+    private void AttachGameplayPreviewPresentationRefresh(EmulationViewModel vm)
+    {
+        if (ReferenceEquals(_subscribedGameplayPreviewPresentationVm, vm))
+            return;
+
+        DetachGameplayPreviewPresentationRefresh(_subscribedGameplayPreviewPresentationVm);
+        _subscribedGameplayPreviewPresentationVm = vm;
+        vm.GameplayPreviewPresentationRefreshRequested += OnGameplayPreviewPresentationRefreshRequested;
+    }
+
+    private void DetachGameplayPreviewPresentationRefresh(EmulationViewModel? vm)
+    {
+        if (vm == null)
+            return;
+
+        vm.GameplayPreviewPresentationRefreshRequested -= OnGameplayPreviewPresentationRefreshRequested;
+        if (ReferenceEquals(_subscribedGameplayPreviewPresentationVm, vm))
+            _subscribedGameplayPreviewPresentationVm = null;
+    }
+
+    private void OnGameplayPreviewPresentationRefreshRequested(object? sender, EventArgs e)
+        => RomCover.RefreshGameplayPreviewPresentation();
 
     private void AttachMetadataServiceForCapture(EmulationViewModel vm)
     {

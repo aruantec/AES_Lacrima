@@ -287,7 +287,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _appWasTopmostBeforeEmulatorLaunch;
         private IntPtr _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
         private static readonly TimeSpan AppTopmostRestoreTimeout = TimeSpan.FromSeconds(10);
-        private const int GameplayPreviewHoverDelayMs = 2000;
+        private const int GameplayPreviewHoverDelayMs = 1500;
+        private bool _deferGameplayPreviewForAlbumLayout;
+        private bool _gameplayPreviewHighlightFromCarouselScroll;
 
         private sealed record PersistedEmulationState(
             bool IsAlbumListCollapsed,
