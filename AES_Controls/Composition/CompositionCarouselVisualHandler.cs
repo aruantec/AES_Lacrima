@@ -125,6 +125,8 @@ namespace AES_Controls.Composition
         private int _playingItemIndex = -1;
         private int _gameplayPreviewIndex = -1;
         private bool _gameplayPreviewVisible;
+        private bool _gameplayPreviewOnCarouselBackground;
+        private float _gameplayPreviewBackgroundOpacity = 0.6f;
         private float _gameplayPreviewFade;
         private float _gameplayPreviewFadeTarget;
         private SKImage? _gameplayPreviewFrame;
@@ -351,6 +353,13 @@ namespace AES_Controls.Composition
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
             }
+            else if (message is GameplayPreviewPlacementMessage placement)
+            {
+                _gameplayPreviewOnCarouselBackground = placement.OnCarouselBackground;
+                _gameplayPreviewBackgroundOpacity = Math.Clamp(placement.BackgroundOpacity, 0f, 1f);
+                RegisterForNextAnimationFrameUpdate();
+                Invalidate();
+            }
             else if (message is GameplayPreviewFrameMessage previewFrame)
             {
                 SetGameplayPreviewFrame(previewFrame.Frame);
@@ -548,6 +557,7 @@ namespace AES_Controls.Composition
             var canvas = lease.SkCanvas;
 
             if (_backgroundColor.Alpha > 0) canvas.Clear(_backgroundColor);
+            DrawGameplayPreviewBackground(canvas);
             var center = new Vector2(_visualSize.X / 2.0f, (_visualSize.Y / 2.0f) + _verticalOffset);
             float baseW = _itemWidth * _itemScale;
             float baseH = _itemHeight * _itemScale;
@@ -760,7 +770,8 @@ namespace AES_Controls.Composition
             var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             
             float baseOpacity = (float)(1.0 - (i == _draggingIndex ? 0 : absDiff) * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
-            bool showPreviewLayer = i == _gameplayPreviewIndex &&
+            bool showPreviewLayer = !_gameplayPreviewOnCarouselBackground &&
+                                    i == _gameplayPreviewIndex &&
                                     _gameplayPreviewFrame != null &&
                                     _gameplayPreviewFade > 0.001f;
 
@@ -939,6 +950,49 @@ namespace AES_Controls.Composition
                 Log.Warn("Failed to create SKShader for carousel image", ex);
                 return false;
             }
+        }
+
+        private void DrawGameplayPreviewBackground(SKCanvas canvas)
+        {
+            if (!_gameplayPreviewOnCarouselBackground ||
+                _gameplayPreviewFrame == null ||
+                _gameplayPreviewFade <= 0.001f ||
+                _visualSize.X <= 0 ||
+                _visualSize.Y <= 0)
+            {
+                return;
+            }
+
+            float opacity = _gameplayPreviewBackgroundOpacity * _gameplayPreviewFade * _currentGlobalOpacity;
+            if (opacity < 0.01f)
+                return;
+
+            var viewRect = new SKRect(0, 0, _visualSize.X, _visualSize.Y);
+            float frameW = _gameplayPreviewFrame.Width;
+            float frameH = _gameplayPreviewFrame.Height;
+            var drawRect = CalculateUniformToFillRect(viewRect.Width, viewRect.Height, frameW, frameH);
+            var fullSrc = new SKRect(0, 0, frameW, frameH);
+
+            _quadPaint.Color = SKColors.White.WithAlpha((byte)(255 * opacity));
+            _quadPaint.FilterQuality = SKFilterQuality.High;
+            _quadPaint.Shader = null;
+
+            canvas.Save();
+            canvas.ClipRect(viewRect);
+            canvas.DrawImage(_gameplayPreviewFrame, fullSrc, drawRect, _quadPaint);
+            canvas.Restore();
+        }
+
+        private static SKRect CalculateUniformToFillRect(float viewW, float viewH, float imageW, float imageH)
+        {
+            float scale = Math.Max(viewW / imageW, viewH / imageH);
+            float drawW = imageW * scale;
+            float drawH = imageH * scale;
+            return SKRect.Create(
+                (viewW - drawW) * 0.5f,
+                (viewH - drawH) * 0.5f,
+                drawW,
+                drawH);
         }
 
         private void DrawQuad(SKCanvas canvas, float w, float h, Matrix4x4 model, SKImage? image, float opacity, Vector2 center, float rotationYAbs, bool isReflection = false, int? horizontalSegmentsOverride = null)

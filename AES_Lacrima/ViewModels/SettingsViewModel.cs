@@ -768,6 +768,29 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         EmulationUseBackCoverLetterboxFillChanged?.Invoke(value);
     }
 
+    /// <summary>
+    /// When true, carousel gameplay previews fill the backdrop instead of replacing the selected item cover.
+    /// </summary>
+    [ObservableProperty]
+    private bool _emulationGameplayPreviewOnCarouselBackground;
+
+    public event Action<bool>? EmulationGameplayPreviewOnCarouselBackgroundChanged;
+
+    partial void OnEmulationGameplayPreviewOnCarouselBackgroundChanged(bool value)
+    {
+        EmulationGameplayPreviewOnCarouselBackgroundChanged?.Invoke(value);
+    }
+
+    [ObservableProperty]
+    private double _emulationGameplayPreviewCarouselBackgroundOpacity = 0.6;
+
+    public event Action<double>? EmulationGameplayPreviewCarouselBackgroundOpacityChanged;
+
+    partial void OnEmulationGameplayPreviewCarouselBackgroundOpacityChanged(double value)
+    {
+        EmulationGameplayPreviewCarouselBackgroundOpacityChanged?.Invoke(value);
+    }
+
     [ObservableProperty]
     private string _gameplayRecordingOutputDirectory = GameplayRecorderService.GetDefaultOutputDirectory();
 
@@ -2352,6 +2375,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(AppMode),
         nameof(EmulationUseFirstItemCover),
         nameof(EmulationGameplayAutoplay),
+        nameof(EmulationGameplayPreviewOnCarouselBackground),
+        nameof(EmulationGameplayPreviewCarouselBackgroundOpacity),
         nameof(EmulationUseBackCoverLetterboxFill),
         nameof(GameplayRecordingOutputDirectory),
         nameof(GameplayRecordingContainer),
@@ -4380,6 +4405,14 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         AppMode = ReadIntSetting(section, nameof(AppMode), AppMode);
         EmulationUseFirstItemCover = ReadBoolSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         EmulationGameplayAutoplay = ReadBoolSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
+        EmulationGameplayPreviewOnCarouselBackground = ReadBoolSetting(
+            section,
+            nameof(EmulationGameplayPreviewOnCarouselBackground),
+            EmulationGameplayPreviewOnCarouselBackground);
+        EmulationGameplayPreviewCarouselBackgroundOpacity = ReadDoubleSetting(
+            section,
+            nameof(EmulationGameplayPreviewCarouselBackgroundOpacity),
+            EmulationGameplayPreviewCarouselBackgroundOpacity);
         EmulationUseBackCoverLetterboxFill = ReadBoolSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
         GameplayRecordingOutputDirectory = ReadStringSetting(
             section,
@@ -4588,6 +4621,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(AppMode), AppMode);
         WriteSetting(section, nameof(EmulationUseFirstItemCover), EmulationUseFirstItemCover);
         WriteSetting(section, nameof(EmulationGameplayAutoplay), EmulationGameplayAutoplay);
+        WriteSetting(section, nameof(EmulationGameplayPreviewOnCarouselBackground), EmulationGameplayPreviewOnCarouselBackground);
+        WriteSetting(section, nameof(EmulationGameplayPreviewCarouselBackgroundOpacity), EmulationGameplayPreviewCarouselBackgroundOpacity);
         WriteSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
         WriteSetting(section, nameof(GameplayRecordingOutputDirectory), GameplayRecordingOutputDirectory);
         WriteSetting(section, nameof(GameplayRecordingContainer), GameplayRecordingContainer.ToString());

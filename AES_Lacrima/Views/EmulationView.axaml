@@ -65,6 +65,8 @@
                                                     GameplayPreviewItemIndex="{Binding GameplayPreviewItemIndex}"
                                                     IsGameplayPreviewVisible="{Binding IsGameplayPreviewViewportVisible}"
                                                     IsGameplayPreviewVideoVisible="{Binding IsGameplayVideoSurfaceVisible}"
+                                                    GameplayPreviewOnCarouselBackground="{Binding SettingsViewModel.EmulationGameplayPreviewOnCarouselBackground}"
+                                                    GameplayPreviewCarouselBackgroundOpacity="{Binding SettingsViewModel.EmulationGameplayPreviewCarouselBackgroundOpacity}"
                                                     GameplayPreviewPlayer="{Binding AudioPlayer}"
                                                     PauseLoadingSpinnerAnimation="{Binding IsCompositionCaptureVisible}"
                                                     SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
@@ -805,6 +807,40 @@
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="8"
+                                                IsVisible="{Binding SettingsViewModel.IsCoverCarouselMode}">
+                                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                            <TextBlock Text="Preview in background" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
+                                            <ToggleSwitch IsChecked="{Binding SettingsViewModel.EmulationGameplayPreviewOnCarouselBackground, Mode=TwoWay}"
+                                                          ToolTip.Tip="When enabled, gameplay previews fill the carousel backdrop instead of replacing the cover on the selected item."/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="12"
+                                                    VerticalAlignment="Center"
+                                                    IsVisible="{Binding SettingsViewModel.EmulationGameplayPreviewOnCarouselBackground}">
+                                            <TextBlock Text="Background opacity" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
+                                            <composition:PillProgressSlider Height="28"
+                                                                            TrackHeight="16"
+                                                                            ExecuteDuringDrag="True"
+                                                                            TrackBorderBrush="#CCCCCC"
+                                                                            FillBrush="#99F5F5F5"
+                                                                            Width="280"
+                                                                            Minimum="0"
+                                                                            Maximum="1"
+                                                                            Value="{Binding SettingsViewModel.EmulationGameplayPreviewCarouselBackgroundOpacity, Mode=TwoWay}" />
+                                            <TextBlock Text="{Binding SettingsViewModel.EmulationGameplayPreviewCarouselBackgroundOpacity, StringFormat='{}{0:0%}'}"
+                                                       Foreground="White"
+                                                       VerticalAlignment="Center"
+                                                       Width="60"
+                                                       FontSize="16"/>
+                                        </StackPanel>
+                                        <TextBlock Text="Carousel only. Off shows the preview on the highlighted game cover; on shows it behind the carousel."
+                                                   Foreground="#AAAAAA"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="560" />
                                     </StackPanel>
                                 </StackPanel>
                             </ScrollViewer>
