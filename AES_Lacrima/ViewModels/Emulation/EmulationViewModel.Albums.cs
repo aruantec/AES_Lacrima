@@ -3135,6 +3135,7 @@ namespace AES_Lacrima.ViewModels
                 SelectedIndex = 0;
                 _coverItemsSourceRef = source;
                 CompositionViewportState.VisibleCenterIndex = -1;
+                _deferGameplayPreviewForAlbumLayout = true;
             }
 
             var query = SearchText?.Trim();
@@ -3181,7 +3182,23 @@ namespace AES_Lacrima.ViewModels
             HighlightedItem = CoverItems[nextIndex];
             IsNoAlbumLoadedVisible = false;
             RefreshActiveAlbumState();
-            RefreshGameplayPreviewForCurrentSelection(immediate: true);
+
+            if (isNewAlbumSource)
+            {
+                var item = CoverItems[nextIndex];
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _deferGameplayPreviewForAlbumLayout = false;
+                    if (!IsGameplayPreviewAvailable || !ReferenceEquals(HighlightedItem, item))
+                        return;
+
+                    QueueGameplayPreview(item, ShouldStartGameplayPreviewImmediately(item));
+                }, DispatcherPriority.Loaded);
+            }
+            else
+            {
+                RefreshGameplayPreviewForCurrentSelection();
+            }
         }
 
         private void ApplyEmptyBrowseAlbumPresentation(FolderMediaItem? album)

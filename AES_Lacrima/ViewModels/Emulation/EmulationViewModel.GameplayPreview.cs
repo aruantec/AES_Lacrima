@@ -117,9 +117,45 @@ namespace AES_Lacrima.ViewModels
             StartGameplayPreviewLoad(item, immediate);
         }
 
+        private int ResolveActiveGameplayPreviewCoverIndex()
+        {
+            if (string.IsNullOrWhiteSpace(_activeGameplayPreviewItemPath))
+                return -1;
+
+            var activeItem = CoverItems.FirstOrDefault(candidate =>
+                string.Equals(candidate.FileName, _activeGameplayPreviewItemPath, StringComparison.OrdinalIgnoreCase));
+            return activeItem == null ? -1 : CoverItems.IndexOf(activeItem);
+        }
+
+        private void PinGameplayPreviewVisualsToActivePlayback()
+        {
+            if (!_isGameplayPreviewActive)
+                return;
+
+            int activeIndex = ResolveActiveGameplayPreviewCoverIndex();
+            if (activeIndex < 0)
+                return;
+
+            if (GameplayPreviewItemIndex != activeIndex)
+                GameplayPreviewItemIndex = activeIndex;
+
+            IsGameplayPreviewHostVisible = true;
+            IsGameplayVideoVisible = true;
+        }
+
         private void ApplyGameplayPreviewSelectionVisuals(MediaItem? item)
         {
-            if (!CanPlayGameplayPreviewFor(item) || item == null || string.IsNullOrWhiteSpace(item.FileName))
+            if (item == null || string.IsNullOrWhiteSpace(item.FileName))
+                return;
+
+            if (_isGameplayPreviewActive &&
+                !string.Equals(_activeGameplayPreviewItemPath, item.FileName, StringComparison.OrdinalIgnoreCase))
+            {
+                PinGameplayPreviewVisualsToActivePlayback();
+                return;
+            }
+
+            if (!CanPlayGameplayPreviewFor(item))
                 return;
 
             if (HighlightedItem == null ||
@@ -128,32 +164,15 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
-            var previewIndex = ResolveGameplayPreviewItemIndex(item);
-            if (previewIndex >= 0)
+            int previewIndex = ResolveGameplayPreviewItemIndex(item);
+            if (previewIndex >= 0 && previewIndex != GameplayPreviewItemIndex)
                 GameplayPreviewItemIndex = previewIndex;
-
-            if (_isGameplayPreviewActive &&
-                !string.Equals(_activeGameplayPreviewItemPath, item.FileName, StringComparison.OrdinalIgnoreCase))
-            {
-                IsGameplayVideoVisible = false;
-                _isGameplayPreviewActive = false;
-                _activeGameplayPreviewItemPath = null;
-                AudioPlayer?.SuppressActivePreviewPlayback();
-            }
         }
 
         private void StartGameplayPreviewLoad(MediaItem? item, bool immediate = false)
         {
             if (!CanPlayGameplayPreviewFor(item) || item == null || string.IsNullOrWhiteSpace(item.FileName))
-            {
-                if (_isGameplayPreviewActive ||
-                    !string.IsNullOrWhiteSpace(_pendingGameplayPreviewItemPath) ||
-                    _gameplayPreviewCts != null)
-                {
-                    StopGameplayPreview();
-                }
                 return;
-            }
 
             if (HighlightedItem == null ||
                 !string.Equals(item.FileName, HighlightedItem.FileName, StringComparison.OrdinalIgnoreCase))
@@ -201,23 +220,29 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
+                Task<GameplayPreviewSource?>? earlyResolveTask = null;
+                if (!immediate && !EmulationPreviewCacheHelper.HasPreview(item.FileName))
+                    earlyResolveTask = ResolveGameplayPreviewSourceAsync(item, cancellationToken);
+
                 if (!immediate)
                     await Task.Delay(GameplayPreviewHoverDelayMs, cancellationToken);
 
                 if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                     return;
 
-                // Start resolving the final playback source immediately so the shell reveal
-                // and the yt-dlp/stream work overlap as much as possible.
-                var previewSourceTask = ResolveGameplayPreviewSourceAsync(item, cancellationToken);
-
-                var previewSource = await previewSourceTask.ConfigureAwait(false);
+                var previewSource = earlyResolveTask != null
+                    ? await earlyResolveTask.ConfigureAwait(false)
+                    : await ResolveGameplayPreviewSourceAsync(item, cancellationToken).ConfigureAwait(false);
                 if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                     return;
 
                 if (previewSource == null)
                 {
-                    StopGameplayPreview();
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (string.Equals(_pendingGameplayPreviewItemPath, item.FileName, StringComparison.OrdinalIgnoreCase))
+                            _pendingGameplayPreviewItemPath = null;
+                    }, DispatcherPriority.Background);
                     return;
                 }
 
@@ -227,10 +252,21 @@ namespace AES_Lacrima.ViewModels
 
                 var player = AudioPlayer;
                 if (player == null)
-                {
-                    StopGameplayPreview();
                     return;
-                }
+
+                bool stillHighlighted = await Dispatcher.UIThread.InvokeAsync(() =>
+                        HighlightedItem != null &&
+                        string.Equals(HighlightedItem.FileName, item.FileName, StringComparison.OrdinalIgnoreCase),
+                    DispatcherPriority.Background);
+                if (!stillHighlighted || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                    return;
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    GameplayPreviewItemIndex = ResolveGameplayPreviewItemIndex(item);
+                    IsGameplayPreviewHostVisible = true;
+                    IsGameplayVideoVisible = true;
+                }, DispatcherPriority.Background);
 
                 await player.PlayFile(previewSource.PreviewItem, video: true, enableMediaAnalysis: false).ConfigureAwait(false);
                 player.SetPreviewMuted(false);
@@ -258,6 +294,7 @@ namespace AES_Lacrima.ViewModels
                     GameplayPreviewItemIndex = ResolveGameplayPreviewItemIndex(item);
                     IsGameplayPreviewHostVisible = true;
                     IsGameplayVideoVisible = true;
+                    ScheduleGameplayPreviewPresentationRefresh();
                 }, DispatcherPriority.Background);
             }
             catch (OperationCanceledException logEx) { SLog.Warn("Non-critical error", logEx); }
@@ -526,6 +563,17 @@ namespace AES_Lacrima.ViewModels
                 await Task.Delay(50, cancellationToken).ConfigureAwait(false);
             }
         }
+
+        private void ScheduleGameplayPreviewPresentationRefresh()
+        {
+            Dispatcher.UIThread.Post(NotifyGameplayPreviewPresentationRefresh, DispatcherPriority.Loaded);
+            Dispatcher.UIThread.Post(NotifyGameplayPreviewPresentationRefresh, DispatcherPriority.Render);
+        }
+
+        internal event EventHandler? GameplayPreviewPresentationRefreshRequested;
+
+        private void NotifyGameplayPreviewPresentationRefresh()
+            => GameplayPreviewPresentationRefreshRequested?.Invoke(this, EventArgs.Empty);
 
         private void EnsureGameplayAudioPlayer()
         {

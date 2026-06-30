@@ -36,7 +36,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     private readonly VideoViewControl _gameplayPreviewVideo;
     private SKImage? _pendingGameplayPreviewFrame;
     private bool _gameplayPreviewFramePostScheduled;
-    private DispatcherTimer? _gameplayPreviewRenderGuardTimer;
 
     public static readonly StyledProperty<CoverLayoutMode> LayoutModeProperty =
         AvaloniaProperty.Register<CompositionCoverControl, CoverLayoutMode>(
@@ -179,7 +178,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
         GameplayPreviewItemIndexProperty.Changed.AddClassHandler<CompositionCoverControl>((control, e) =>
         {
-            if (e.GetOldValue<int>() != e.GetNewValue<int>())
+            int oldIndex = e.GetOldValue<int>();
+            int newIndex = e.GetNewValue<int>();
+            if (oldIndex != newIndex && newIndex >= 0)
                 control.ClearGameplayPreviewDisplayedFrame();
             control.ApplyPublishGameplayPreviewBounds();
         });
@@ -273,9 +274,6 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
             UseCustomHeartbeat = false,
         };
         _gameplayPreviewVideo.FrameCaptured += OnGameplayPreviewFrameCaptured;
-
-        _gameplayPreviewRenderGuardTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
-        _gameplayPreviewRenderGuardTimer.Tick += OnGameplayPreviewRenderGuardTick;
 
         Children.Add(_gameplayPreviewVideo);
         Children.Add(_carousel);
@@ -513,26 +511,15 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        _gameplayPreviewRenderGuardTimer?.Start();
         SyncAllProperties();
         ApplyLayoutModeImmediate(LayoutMode);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        _gameplayPreviewRenderGuardTimer?.Stop();
         _pendingGameplayPreviewFrame?.Dispose();
         _pendingGameplayPreviewFrame = null;
         base.OnDetachedFromVisualTree(e);
-    }
-
-    private void OnGameplayPreviewRenderGuardTick(object? sender, EventArgs e)
-    {
-        if (!IsGameplayPreviewVideoVisible)
-            return;
-
-        bool defer = _appliedLayoutMode == CoverLayoutMode.Carousel && _carousel.IsCarouselInteractionActive;
-        _gameplayPreviewVideo.IsRenderingPaused = defer;
     }
 
     private void OnLayoutModeChanged(AvaloniaPropertyChangedEventArgs e)
@@ -879,6 +866,22 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         RefreshSelectedItemBoundsFromActiveChild();
     }
 
+    /// <summary>
+    /// Re-publishes gameplay preview compositor state after carousel layout or cover reload.
+    /// </summary>
+    public void RefreshGameplayPreviewPresentation()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(RefreshGameplayPreviewPresentation, DispatcherPriority.Loaded);
+            return;
+        }
+
+        ApplyPublishGameplayPreviewBounds();
+        if (IsGameplayPreviewVideoVisible)
+            _gameplayPreviewVideo.KickRender();
+    }
+
     private void ApplyPublishSelectedItemBounds()
     {
         var publish = PublishSelectedItemBounds;
@@ -902,13 +905,13 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         if (useCarousel)
         {
             _carousel.PostGameplayPreviewVisualState(GameplayPreviewItemIndex, publish);
-            if (!publish || !showVideo)
+            if (publish && !showVideo)
                 _carousel.PostGameplayPreviewFrame(null);
         }
         else
         {
             _cardGrid.PostGameplayPreviewVisualState(GameplayPreviewItemIndex, publish);
-            if (!publish || !showVideo)
+            if (publish && !showVideo)
                 _cardGrid.PostGameplayPreviewFrame(null);
         }
 
@@ -1077,8 +1080,7 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         }
         else
         {
-            bool defer = _appliedLayoutMode == CoverLayoutMode.Carousel && _carousel.IsCarouselInteractionActive;
-            _gameplayPreviewVideo.IsRenderingPaused = defer;
+            _gameplayPreviewVideo.IsRenderingPaused = false;
             _gameplayPreviewVideo.KickRender();
         }
 

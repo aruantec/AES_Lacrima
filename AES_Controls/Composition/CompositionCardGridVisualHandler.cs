@@ -102,7 +102,11 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private SKImage? _draggedImage;
     private int _gameplayPreviewIndex = -1;
     private bool _gameplayPreviewVisible;
+    private float _gameplayPreviewFade;
+    private float _gameplayPreviewFadeTarget;
     private SKImage? _gameplayPreviewFrame;
+    private const float GameplayPreviewFadeInRate = 9.5f;
+    private const float GameplayPreviewFadeOutRate = 12f;
     private const float SwapAnimationSeconds = 0.2f;
     private const float DragCommitSeconds = 0.3f;
     private const float DragLiftScale = 1.04f;
@@ -482,10 +486,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 Invalidate();
                 break;
             case GameplayPreviewVisualMessage previewVisual:
-                _gameplayPreviewIndex = previewVisual.Index;
-                _gameplayPreviewVisible = previewVisual.Visible;
-                if (!previewVisual.Visible)
-                    SetGameplayPreviewFrame(null);
+                ApplyGameplayPreviewVisualState(previewVisual.Index, previewVisual.Visible);
                 if (_lastTicks == 0)
                     _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
@@ -499,6 +500,44 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
                 Invalidate();
                 break;
         }
+    }
+
+    private void ApplyGameplayPreviewVisualState(int index, bool visible)
+    {
+        if (index != _gameplayPreviewIndex)
+            _gameplayPreviewFade = 0f;
+
+        _gameplayPreviewIndex = index;
+        _gameplayPreviewVisible = visible;
+        _gameplayPreviewFadeTarget = visible ? 1f : 0f;
+    }
+
+    private float GetGameplayPreviewFadeTarget()
+    {
+        if (_gameplayPreviewFadeTarget <= 0f)
+            return 0f;
+
+        return _gameplayPreviewFrame != null ? 1f : _gameplayPreviewFade;
+    }
+
+    private bool AnimateGameplayPreviewFade(float dt)
+    {
+        float target = GetGameplayPreviewFadeTarget();
+        if (Math.Abs(_gameplayPreviewFade - target) > 0.001f)
+        {
+            float rate = target > _gameplayPreviewFade ? GameplayPreviewFadeInRate : GameplayPreviewFadeOutRate;
+            _gameplayPreviewFade += (target - _gameplayPreviewFade) * Math.Min(1f, dt * rate);
+        }
+        else
+        {
+            _gameplayPreviewFade = target;
+        }
+
+        if (_gameplayPreviewFade <= 0.001f && target <= 0f && _gameplayPreviewFrame != null)
+            SetGameplayPreviewFrame(null);
+
+        return Math.Abs(_gameplayPreviewFade - target) > 0.001f ||
+               (_gameplayPreviewFrame != null && _gameplayPreviewFade > 0.001f);
     }
 
     private void SetGameplayPreviewFrame(SKImage? frame)
@@ -655,6 +694,7 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         }
 
         bool imageRevealAnimating = AnimateImageReveals((float)dt);
+        bool animateGameplayPreview = AnimateGameplayPreviewFade((float)dt);
 
         bool isAnimating = _directScrollFollow ||
                            Math.Abs(_targetScrollY - _currentScrollY) > 0.01 ||
@@ -669,7 +709,6 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
         bool animateSpinners = !_interactionSuspended &&
                                !_pauseLoadingSpinnerAnimation &&
                                (_loadingIndices.Count > 0 || (_isContentLoading && _images.Count == 0));
-        bool animateGameplayPreview = _gameplayPreviewIndex >= 0 && _gameplayPreviewFrame != null;
 
         if (isAnimating || animateSpinners || animateGameplayPreview)
         {
@@ -1629,7 +1668,8 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
     private bool ShouldDrawGameplayPreviewOnCard(int index) =>
         _gameplayPreviewIndex >= 0 &&
         index == _gameplayPreviewIndex &&
-        _gameplayPreviewFrame != null;
+        _gameplayPreviewFrame != null &&
+        _gameplayPreviewFade > 0.001f;
 
     private void DrawGameplayPreviewCover(
         SKCanvas canvas,
@@ -1642,9 +1682,26 @@ public class CompositionCardGridVisualHandler : CompositionCustomVisualHandler
             return;
 
         var coverRect = new SKRect(rect.Left, rect.Top, rect.Right, rect.Top + (metrics.CardHeight - titleH));
-        var src = UniformToFillSrc(_gameplayPreviewFrame.Width, _gameplayPreviewFrame.Height, coverRect);
+
+        if (cardImage != null && !IsBakedCardImage(cardImage))
+        {
+            var coverSrc = UniformToFillSrc(cardImage.Width, cardImage.Height, coverRect);
+            _cardPaint.FilterQuality = _interactionSuspended ? SKFilterQuality.Low : SKFilterQuality.Medium;
+            canvas.DrawImage(cardImage, coverSrc, coverRect, _cardPaint);
+        }
+
+        var previewSrc = UniformToFillSrc(_gameplayPreviewFrame.Width, _gameplayPreviewFrame.Height, coverRect);
         _cardPaint.FilterQuality = SKFilterQuality.High;
-        canvas.DrawImage(_gameplayPreviewFrame, src, coverRect, _cardPaint);
+        if (_gameplayPreviewFade < 0.999f)
+        {
+            canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha((byte)(_gameplayPreviewFade * 255)) });
+            canvas.DrawImage(_gameplayPreviewFrame, previewSrc, coverRect, _cardPaint);
+            canvas.Restore();
+        }
+        else
+        {
+            canvas.DrawImage(_gameplayPreviewFrame, previewSrc, coverRect, _cardPaint);
+        }
 
         if (cardImage != null && IsBakedCardImage(cardImage))
         {

@@ -125,7 +125,12 @@ namespace AES_Controls.Composition
         private int _playingItemIndex = -1;
         private int _gameplayPreviewIndex = -1;
         private bool _gameplayPreviewVisible;
+        private float _gameplayPreviewFade;
+        private float _gameplayPreviewFadeTarget;
         private SKImage? _gameplayPreviewFrame;
+
+        private const float GameplayPreviewFadeInRate = 9.5f;
+        private const float GameplayPreviewFadeOutRate = 12f;
 
         private bool UseReducedMotionQuality =>
             _draggingIndex != -1 ||
@@ -340,10 +345,7 @@ namespace AES_Controls.Composition
             }
             else if (message is GameplayPreviewVisualMessage previewVisual)
             {
-                _gameplayPreviewIndex = previewVisual.Index;
-                _gameplayPreviewVisible = previewVisual.Visible;
-                if (!previewVisual.Visible)
-                    SetGameplayPreviewFrame(null);
+                ApplyGameplayPreviewVisualState(previewVisual.Index, previewVisual.Visible);
                 if (_lastTicks == 0)
                     _lastTicks = Stopwatch.GetTimestamp();
                 RegisterForNextAnimationFrameUpdate();
@@ -357,6 +359,44 @@ namespace AES_Controls.Composition
                 RegisterForNextAnimationFrameUpdate();
                 Invalidate();
             }
+        }
+
+        private void ApplyGameplayPreviewVisualState(int index, bool visible)
+        {
+            if (index != _gameplayPreviewIndex)
+                _gameplayPreviewFade = 0f;
+
+            _gameplayPreviewIndex = index;
+            _gameplayPreviewVisible = visible;
+            _gameplayPreviewFadeTarget = visible ? 1f : 0f;
+        }
+
+        private float GetGameplayPreviewFadeTarget()
+        {
+            if (_gameplayPreviewFadeTarget <= 0f)
+                return 0f;
+
+            return _gameplayPreviewFrame != null ? 1f : _gameplayPreviewFade;
+        }
+
+        private bool AnimateGameplayPreviewFade(float dt)
+        {
+            float target = GetGameplayPreviewFadeTarget();
+            if (Math.Abs(_gameplayPreviewFade - target) > 0.001f)
+            {
+                float rate = target > _gameplayPreviewFade ? GameplayPreviewFadeInRate : GameplayPreviewFadeOutRate;
+                _gameplayPreviewFade += (target - _gameplayPreviewFade) * Math.Min(1f, dt * rate);
+            }
+            else
+            {
+                _gameplayPreviewFade = target;
+            }
+
+            if (_gameplayPreviewFade <= 0.001f && target <= 0f && _gameplayPreviewFrame != null)
+                SetGameplayPreviewFrame(null);
+
+            return Math.Abs(_gameplayPreviewFade - target) > 0.001f ||
+                   (_gameplayPreviewFrame != null && _gameplayPreviewFade > 0.001f);
         }
 
         private void SetGameplayPreviewFrame(SKImage? frame)
@@ -478,9 +518,7 @@ namespace AES_Controls.Composition
                 _isDropping ||
                 Math.Abs(_currentVelocity) > 0.01 ||
                 Math.Abs(distance) > 0.01;
-            bool animateGameplayPreview = _gameplayPreviewVisible &&
-                _gameplayPreviewIndex >= 0 &&
-                _gameplayPreviewFrame != null;
+            bool animateGameplayPreview = AnimateGameplayPreviewFade((float)dt);
             if (isAnimating || animateLoadingSpinners || animatePlayingBorder || animateGameplayPreview)
             {
                 RegisterForNextAnimationFrameUpdate();
@@ -722,11 +760,32 @@ namespace AES_Controls.Composition
             var matrix = Matrix4x4.CreateTranslation(new Vector3(finalTranslationX, translationY, translationZ)) * Matrix4x4.CreateRotationY(rotationY) * Matrix4x4.CreateScale(scale);
             
             float baseOpacity = (float)(1.0 - (i == _draggingIndex ? 0 : absDiff) * 0.2) * _globalTransitionAlpha * _currentGlobalOpacity;
-            SKImage? drawImage = img;
-            if (_gameplayPreviewVisible && i == _gameplayPreviewIndex && _gameplayPreviewFrame != null)
-                drawImage = _gameplayPreviewFrame;
+            bool showPreviewLayer = i == _gameplayPreviewIndex &&
+                                    _gameplayPreviewFrame != null &&
+                                    _gameplayPreviewFade > 0.001f;
 
-            DrawQuad(canvas, itemW, itemH, matrix, drawImage, baseOpacity, center, Math.Abs(rotationY));
+            if (showPreviewLayer)
+            {
+                if (img != null)
+                    DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center, Math.Abs(rotationY));
+
+                DrawQuad(
+                    canvas,
+                    itemW,
+                    itemH,
+                    matrix,
+                    _gameplayPreviewFrame,
+                    baseOpacity * _gameplayPreviewFade,
+                    center,
+                    Math.Abs(rotationY));
+            }
+            else
+            {
+                DrawQuad(canvas, itemW, itemH, matrix, img, baseOpacity, center, Math.Abs(rotationY));
+            }
+
+            SKImage? reflectionImage = showPreviewLayer ? _gameplayPreviewFrame : img;
+            float reflectionOpacity = showPreviewLayer ? baseOpacity * _gameplayPreviewFade : baseOpacity;
 
             if (showCoverFound)
                 DrawCoverFoundOverlay(canvas, i, matrix, center, itemW, itemH);
@@ -742,7 +801,7 @@ namespace AES_Controls.Composition
                 DrawProjectedSelectionBorder(canvas, itemW, itemH, matrix, center, baseOpacity);
 
             if (_draggingIndex == -1)
-                DrawItemReflection(canvas, itemW, itemH, matrix, drawImage, baseOpacity, center, absDiff);
+                DrawItemReflection(canvas, itemW, itemH, matrix, reflectionImage, reflectionOpacity, center, absDiff);
         }
 
         private void DrawItemReflection(SKCanvas canvas, float itemW, float itemH, Matrix4x4 matrix, SKImage? img, float baseOpacity, Vector2 center, float absDiff)
