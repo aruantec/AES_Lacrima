@@ -138,10 +138,10 @@ public partial class EmulationViewModel
         if (section != null)
         {
             return section.Handlers.Any(item => item.Handler.UsesRetroArchCores) &&
-                   EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(section.SectionKey, section.SectionTitle);
+                   EmulationConsoleCatalog.IsArcadeStyleSection(section.SectionKey, section.SectionTitle);
         }
 
-        return EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(null, album.Title);
+        return EmulationConsoleCatalog.IsArcadeStyleSection(null, album.Title);
     }
 
     private static MenuItem CreateArcadeRetroArchCoreMenuItem(

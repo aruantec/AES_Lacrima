@@ -76,7 +76,7 @@
                     <MenuItem Header="Use Current Crop Size"
                               CornerRadius="8"
                               Command="{Binding SaveCurrentArcadePillarboxCropCommand}"
-                              IsVisible="{Binding RemoveArcadePillarboxBars}" />
+                              IsVisible="{Binding SupportsArcadePillarboxRemoval}" />
                     <MenuItem Header="Clear Saved Crop Size"
                               CornerRadius="8"
                               Command="{Binding ClearArcadeLockedPillarboxCropCommand}"

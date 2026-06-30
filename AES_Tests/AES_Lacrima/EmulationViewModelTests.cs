@@ -421,6 +421,9 @@ public sealed class EmulationViewModelTests
         Assert.Equal("mame2010_libretro.dll", section.GetSelectedRetroArchCoreForHandler("retroarch"));
         Assert.Equal("fbneo_libretro.dll", section.GetSelectedRetroArchCoreForHandler("retroarch-fbn"));
     }
+
+    [Fact]
+    public void EmulationSectionItem_MigrateRetroArchFbNeoHandlerCoreSelection_MovesLegacyRetroArchCore()
     {
         var section = new EmulationSectionItem
         {

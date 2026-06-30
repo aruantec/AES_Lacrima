@@ -12,7 +12,6 @@ public partial class EmulationViewModel
     private bool CanManageArcadePillarboxCrop() =>
         IsEmulatorRunning &&
         SupportsArcadePillarboxRemoval &&
-        RemoveArcadePillarboxBars &&
         !string.IsNullOrWhiteSpace(_activeCaptureRomPath) &&
         _activeCaptureHost != null;
 
@@ -24,6 +23,9 @@ public partial class EmulationViewModel
     {
         if (!CanManageArcadePillarboxCrop())
             return;
+
+        if (!RemoveArcadePillarboxBars)
+            RemoveArcadePillarboxBars = true;
 
         if (!_activeCaptureHost!.TryGetPillarboxCrop(out var left, out var right, out var frameWidth))
             return;

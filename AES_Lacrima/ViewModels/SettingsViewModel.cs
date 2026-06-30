@@ -4144,6 +4144,9 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (IsPlayStation4Section(sectionKey, sectionTitle))
             settings.StartFullscreen = true;
 
+        if (EmulationConsoleCatalog.DefaultsAggressivePillarboxRemoval(sectionKey, sectionTitle))
+            settings.RemoveArcadePillarboxBars = true;
+
         return settings;
     }
 

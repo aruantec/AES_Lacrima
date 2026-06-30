@@ -61,6 +61,26 @@ namespace AES_Lacrima.ViewModels
         private EmulationSectionItem? ResolveCurrentEmulationSection()
             => TryResolveEmulationSection(GetActiveEmulationSectionAlbum());
 
+        /// <summary>
+        /// Resolves the emulation section that owns arcade pillarbox crop settings.
+        /// Falls back to the selected album and the running handler so FBN/Arcade crop
+        /// stays available while a game is running even if section browse context is stale.
+        /// </summary>
+        private EmulationSectionItem? ResolvePillarboxEmulationSection()
+        {
+            if (TryResolveEmulationSection(LoadedAlbum) is { } loadedSection)
+                return loadedSection;
+
+            if (TryResolveEmulationSection(SelectedAlbum) is { } selectedSection)
+                return selectedSection;
+
+            if (!IsEmulatorRunning || CurrentEmulatorHandler is not { } handler || SettingsViewModel == null)
+                return null;
+
+            return SettingsViewModel.FindEmulationSection(handler.SectionKey)
+                   ?? SettingsViewModel.FindEmulationSection(handler.SectionTitle);
+        }
+
         private bool CurrentEmulationSectionHasRetroArchHandler()
             => ResolveCurrentEmulationSection()?.Handlers
                 .Any(item => item.Handler.UsesRetroArchCores) == true;
