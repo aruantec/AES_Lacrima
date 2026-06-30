@@ -1818,6 +1818,11 @@ namespace AES_Controls.Composition
             _visual?.SendHandlerMessage(new GameplayPreviewVisualMessage(index, visible));
         }
 
+        internal void PostGameplayPreviewPlacement(bool onCarouselBackground, float backgroundOpacity)
+        {
+            _visual?.SendHandlerMessage(new GameplayPreviewPlacementMessage(onCarouselBackground, backgroundOpacity));
+        }
+
         internal void PostGameplayPreviewFrame(SKImage? frame)
         {
             _visual?.SendHandlerMessage(new GameplayPreviewFrameMessage(frame));

@@ -1478,6 +1478,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                 _subscribedSettingsViewModel.EmulatorHandlerConfigurationChanged -= OnEmulatorHandlerConfigurationChanged;
                 _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged -= OnEmulationUseFirstItemCoverChanged;
                 _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged -= OnEmulationGameplayAutoplayChanged;
+                _subscribedSettingsViewModel.EmulationGameplayPreviewOnCarouselBackgroundChanged -= OnEmulationGameplayPreviewOnCarouselBackgroundChanged;
+                _subscribedSettingsViewModel.EmulationGameplayPreviewCarouselBackgroundOpacityChanged -= OnEmulationGameplayPreviewCarouselBackgroundOpacityChanged;
                 _subscribedSettingsViewModel.EmulationUseBackCoverLetterboxFillChanged -= OnEmulationUseBackCoverLetterboxFillChanged;
             }
 
@@ -1488,6 +1490,8 @@ private bool _isShadPs4PatchesOverlayOpen;
             _subscribedSettingsViewModel.EmulatorHandlerConfigurationChanged += OnEmulatorHandlerConfigurationChanged;
             _subscribedSettingsViewModel.EmulationUseFirstItemCoverChanged += OnEmulationUseFirstItemCoverChanged;
             _subscribedSettingsViewModel.EmulationGameplayAutoplayChanged += OnEmulationGameplayAutoplayChanged;
+            _subscribedSettingsViewModel.EmulationGameplayPreviewOnCarouselBackgroundChanged += OnEmulationGameplayPreviewOnCarouselBackgroundChanged;
+            _subscribedSettingsViewModel.EmulationGameplayPreviewCarouselBackgroundOpacityChanged += OnEmulationGameplayPreviewCarouselBackgroundOpacityChanged;
             _subscribedSettingsViewModel.EmulationUseBackCoverLetterboxFillChanged += OnEmulationUseBackCoverLetterboxFillChanged;
             OnPropertyChanged(nameof(UseBackCoverLetterboxFill));
         }
@@ -1673,6 +1677,12 @@ private bool _isShadPs4PatchesOverlayOpen;
             else
                 StopGameplayPreview();
         }
+
+        private void OnEmulationGameplayPreviewOnCarouselBackgroundChanged(bool value)
+            => ScheduleGameplayPreviewPresentationRefresh();
+
+        private void OnEmulationGameplayPreviewCarouselBackgroundOpacityChanged(double value)
+            => ScheduleGameplayPreviewPresentationRefresh();
 
         partial void OnIsEmulatorRunningChanged(bool value)
         {

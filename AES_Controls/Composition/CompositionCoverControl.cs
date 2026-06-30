@@ -94,6 +94,12 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     public static readonly StyledProperty<bool> IsGameplayPreviewVideoVisibleProperty =
         AvaloniaProperty.Register<CompositionCoverControl, bool>(nameof(IsGameplayPreviewVideoVisible));
 
+    public static readonly StyledProperty<bool> GameplayPreviewOnCarouselBackgroundProperty =
+        AvaloniaProperty.Register<CompositionCoverControl, bool>(nameof(GameplayPreviewOnCarouselBackground));
+
+    public static readonly StyledProperty<double> GameplayPreviewCarouselBackgroundOpacityProperty =
+        AvaloniaProperty.Register<CompositionCoverControl, double>(nameof(GameplayPreviewCarouselBackgroundOpacity), 0.6);
+
     public static readonly StyledProperty<AesMpvPlayer?> GameplayPreviewPlayerProperty =
         AvaloniaProperty.Register<CompositionCoverControl, AesMpvPlayer?>(nameof(GameplayPreviewPlayer));
 
@@ -186,6 +192,12 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
         });
 
         IsGameplayPreviewVisibleProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
+            control.ApplyPublishGameplayPreviewBounds());
+
+        GameplayPreviewOnCarouselBackgroundProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
+            control.ApplyPublishGameplayPreviewBounds());
+
+        GameplayPreviewCarouselBackgroundOpacityProperty.Changed.AddClassHandler<CompositionCoverControl>((control, _) =>
             control.ApplyPublishGameplayPreviewBounds());
 
         IsGameplayPreviewVideoVisibleProperty.Changed.AddClassHandler<CompositionCoverControl>((control, e) =>
@@ -380,6 +392,18 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
     {
         get => GetValue(IsGameplayPreviewVideoVisibleProperty);
         set => SetValue(IsGameplayPreviewVideoVisibleProperty, value);
+    }
+
+    public bool GameplayPreviewOnCarouselBackground
+    {
+        get => GetValue(GameplayPreviewOnCarouselBackgroundProperty);
+        set => SetValue(GameplayPreviewOnCarouselBackgroundProperty, value);
+    }
+
+    public double GameplayPreviewCarouselBackgroundOpacity
+    {
+        get => GetValue(GameplayPreviewCarouselBackgroundOpacityProperty);
+        set => SetValue(GameplayPreviewCarouselBackgroundOpacityProperty, value);
     }
 
     public AesMpvPlayer? GameplayPreviewPlayer
@@ -904,6 +928,9 @@ public class CompositionCoverControl : Panel, IScaleExclusionRenderTarget
 
         if (useCarousel)
         {
+            _carousel.PostGameplayPreviewPlacement(
+                GameplayPreviewOnCarouselBackground,
+                (float)Math.Clamp(GameplayPreviewCarouselBackgroundOpacity, 0, 1));
             _carousel.PostGameplayPreviewVisualState(GameplayPreviewItemIndex, publish);
             if (publish && !showVideo)
                 _carousel.PostGameplayPreviewFrame(null);

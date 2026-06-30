@@ -140,6 +140,7 @@ namespace AES_Lacrima.ViewModels
                 ?? ShaderFileItems.FirstOrDefault()
                 ?? new(string.Empty, string.Empty);
             EmulatorVolume = ReadDoubleSetting(section, nameof(EmulatorVolume), 100.0);
+            MigrateLegacyGameplayPreviewPlacementSettings(section);
 
             SLog.Info("EmulationViewModel.OnLoadSettings applied lightweight settings on the UI thread.");
         }
@@ -166,6 +167,29 @@ namespace AES_Lacrima.ViewModels
 
             WriteCollectionSetting(section, "AlbumOrder", "string", _pendingAlbumOrder);
             WriteObjectSetting(section, "AlbumRoms", _pendingAlbumRoms);
+        }
+
+        private void MigrateLegacyGameplayPreviewPlacementSettings(JsonObject section)
+        {
+            if (!section.ContainsKey("GameplayPreviewOnCarouselBackground") &&
+                !section.ContainsKey("GameplayPreviewCarouselBackgroundOpacity"))
+            {
+                return;
+            }
+
+            var settings = SettingsViewModel ?? DiLocator.ResolveViewModel<SettingsViewModel>();
+            if (settings == null)
+                return;
+
+            settings.EmulationGameplayPreviewOnCarouselBackground = ReadBoolSetting(
+                section,
+                "GameplayPreviewOnCarouselBackground",
+                settings.EmulationGameplayPreviewOnCarouselBackground);
+            settings.EmulationGameplayPreviewCarouselBackgroundOpacity = ReadDoubleSetting(
+                section,
+                "GameplayPreviewCarouselBackgroundOpacity",
+                settings.EmulationGameplayPreviewCarouselBackgroundOpacity);
+            settings.SaveSettings();
         }
 
         private void LoadConsoleAlbums()
