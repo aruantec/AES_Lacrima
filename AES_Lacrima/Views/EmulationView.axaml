@@ -538,7 +538,7 @@
                         <MenuItem Header="Use Current Crop Size"
                                   CornerRadius="8"
                                   Command="{Binding SaveCurrentArcadePillarboxCropCommand}"
-                                  IsVisible="{Binding RemoveArcadePillarboxBars}" />
+                                  IsVisible="{Binding SupportsArcadePillarboxRemoval}" />
                         <MenuItem Header="Clear Saved Crop Size"
                                   CornerRadius="8"
                                   Command="{Binding ClearArcadeLockedPillarboxCropCommand}"
@@ -743,9 +743,9 @@
                                         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                                             <TextBlock Text="Remove side pillars" Foreground="White" VerticalAlignment="Center" FontSize="18" Width="220"/>
                                             <ToggleSwitch IsChecked="{Binding RemoveArcadePillarboxBars, Mode=TwoWay}"
-                                                          ToolTip.Tip="Auto-crops uniform black side pillars from arcade-style captures."/>
+                                                          ToolTip.Tip="Auto-crops uniform black side pillars from the capture."/>
                                         </StackPanel>
-                                        <TextBlock Text="Useful for arcade and Final Burn Neo games with unusual aspect ratios."
+                                        <TextBlock Text="Useful for 4:3 and pillarboxed games. Right-click the capture viewport to save a per-game crop size."
                                                    Foreground="#AAAAAA"
                                                    FontSize="13"
                                                    TextWrapping="Wrap"

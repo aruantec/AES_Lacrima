@@ -24,17 +24,41 @@ public partial class EmulationViewModel
     public bool UseBackCoverLetterboxFill =>
         SettingsViewModel?.EmulationUseBackCoverLetterboxFill == true;
 
-    public bool SupportsArcadePillarboxRemoval =>
-        EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(
-            CurrentEmulationSectionItem?.SectionKey,
-            CurrentEmulationSectionItem?.SectionTitle);
+    public bool SupportsArcadePillarboxRemoval
+    {
+        get
+        {
+            if (ResolvePillarboxEmulationSection() is { } section)
+            {
+                return EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(
+                    section.SectionKey,
+                    section.SectionTitle);
+            }
+
+            var album = LoadedAlbum ?? SelectedAlbum;
+            if (album != null &&
+                EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(null, album.Title))
+            {
+                return true;
+            }
+
+            if (IsEmulatorRunning && CurrentEmulatorHandler is { } handler)
+            {
+                return EmulationConsoleCatalog.SupportsArcadePillarboxRemoval(
+                    handler.SectionKey,
+                    handler.SectionTitle);
+            }
+
+            return false;
+        }
+    }
 
     public bool RemoveArcadePillarboxBars
     {
-        get => CurrentEmulationSectionItem?.LaunchSettings?.RemoveArcadePillarboxBars == true;
+        get => ResolvePillarboxEmulationSection()?.LaunchSettings?.RemoveArcadePillarboxBars == true;
         set
         {
-            var section = CurrentEmulationSectionItem;
+            var section = ResolvePillarboxEmulationSection();
             if (section == null || section.RemoveArcadePillarboxBars == value)
                 return;
 

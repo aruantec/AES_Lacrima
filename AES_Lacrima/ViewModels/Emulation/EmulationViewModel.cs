@@ -895,6 +895,10 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(CanShowRenderOptions));
             OnPropertyChanged(nameof(ForceUseTargetClientAreaCapture));
             OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
+            OnPropertyChanged(nameof(SupportsArcadePillarboxRemoval));
+            OnPropertyChanged(nameof(RemoveArcadePillarboxBars));
+            OnPropertyChanged(nameof(AggressivePillarboxCrop));
+            NotifyArcadePillarboxCropCommandsChanged();
             OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
             OnPropertyChanged(nameof(ClientAreaCropLeftInset));
             OnPropertyChanged(nameof(ClientAreaCropTopInset));
@@ -1696,6 +1700,11 @@ private bool _isShadPs4PatchesOverlayOpen;
             OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
             NotifyCaptureChromeMarginChanged();
             RefreshCurrentSectionLaunchOptionsState();
+            OnPropertyChanged(nameof(SupportsArcadePillarboxRemoval));
+            OnPropertyChanged(nameof(RemoveArcadePillarboxBars));
+            OnPropertyChanged(nameof(AggressivePillarboxCrop));
+            OnPropertyChanged(nameof(EnableCapturePillarboxCrop));
+            NotifyArcadePillarboxCropCommandsChanged();
 
             if (value)
             {

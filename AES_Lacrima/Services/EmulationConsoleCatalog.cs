@@ -308,24 +308,44 @@ namespace AES_Lacrima.Services
         }
 
         public static bool SupportsArcadePillarboxRemoval(string? sectionKey, string? sectionTitle = null)
+            => TryResolveConsoleKey(sectionKey, sectionTitle, out var key) &&
+               SupportsPillarboxCropConsoleKey(key);
+
+        /// <summary>
+        /// Arcade and Final Burn Neo commonly ship with non-standard pillarboxed layouts.
+        /// </summary>
+        public static bool DefaultsAggressivePillarboxRemoval(string? sectionKey, string? sectionTitle = null)
+            => TryResolveConsoleKey(sectionKey, sectionTitle, out var key) &&
+               IsArcadeStyleConsoleKey(key);
+
+        public static bool IsArcadeStyleSection(string? sectionKey, string? sectionTitle = null)
+            => TryResolveConsoleKey(sectionKey, sectionTitle, out var key) &&
+               IsArcadeStyleConsoleKey(key);
+
+        private static bool TryResolveConsoleKey(string? sectionKey, string? sectionTitle, out string key)
         {
-            if (TryGetDefinition(sectionKey, out var byKey) &&
-                IsArcadePillarboxConsoleKey(byKey.Key))
+            key = string.Empty;
+
+            if (TryGetDefinition(sectionKey, out var byKey))
             {
+                key = byKey.Key;
                 return true;
             }
 
             if (!string.IsNullOrWhiteSpace(sectionTitle) &&
-                TryGetDefinition(sectionTitle, out var byTitle) &&
-                IsArcadePillarboxConsoleKey(byTitle.Key))
+                TryGetDefinition(sectionTitle, out var byTitle))
             {
+                key = byTitle.Key;
                 return true;
             }
 
             return false;
         }
 
-        private static bool IsArcadePillarboxConsoleKey(string key) =>
+        private static bool SupportsPillarboxCropConsoleKey(string key) =>
+            !string.Equals(key, "STEAM", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsArcadeStyleConsoleKey(string key) =>
             string.Equals(key, "ARCADE", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(key, "FBN", StringComparison.OrdinalIgnoreCase);
 
