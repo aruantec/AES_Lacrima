@@ -562,11 +562,24 @@
                                   Command="{Binding RecordGameplayPreviewCommand}"
                                   IsVisible="{Binding CanRecordGameplayPreview}">
                             <MenuItem.Icon>
-                                <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M10,8L16,12L10,16V8Z"
-                                      Fill="#CCFFFFFF"
-                                      Width="32"
-                                      Height="32"
-                                      Stretch="Uniform" />
+                                <Viewbox Width="32"
+                                         Height="32"
+                                         Stretch="Uniform">
+                                    <Canvas Width="100" Height="100">
+                                        <Ellipse Canvas.Left="5"
+                                                 Canvas.Top="5"
+                                                 Width="90"
+                                                 Height="90"
+                                                 Stroke="#99FFFFFF"
+                                                 StrokeThickness="7"
+                                                 Fill="Transparent"/>
+                                        <Ellipse Canvas.Left="23"
+                                                 Canvas.Top="23"
+                                                 Width="54"
+                                                 Height="54"
+                                                 Fill="#E53935"/>
+                                    </Canvas>
+                                </Viewbox>
                             </MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="Stop Gameplay Preview Recording"
