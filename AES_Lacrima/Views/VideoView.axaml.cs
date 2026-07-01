@@ -115,8 +115,13 @@ public partial class VideoView : UserControl
         }
         else if (e.PropertyName == nameof(MusicViewModel.IsVideoViewportDismissed) && _viewModel.IsVideoViewportDismissed)
             ExitVideoCaptureFullscreen();
-        else if (e.PropertyName == nameof(MusicViewModel.IsActive) && !_viewModel.IsActive)
-            ExitVideoCaptureFullscreen();
+        else if (e.PropertyName == nameof(MusicViewModel.IsActive))
+        {
+            if (_viewModel.IsActive)
+                this.FindControl<Navigation.MusicListView>("AlbumListView")?.ResetAlbumListScroll();
+            else
+                ExitVideoCaptureFullscreen();
+        }
         else if (e.PropertyName == nameof(MusicViewModel.IsAddUrlPopupOpen) && _viewModel.IsAddUrlPopupOpen)
             FocusPopupTextBox(AddUrlTextBox);
         else if (e.PropertyName == nameof(MusicViewModel.IsAddPlaylistPopupOpen) && _viewModel.IsAddPlaylistPopupOpen)

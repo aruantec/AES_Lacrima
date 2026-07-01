@@ -69,7 +69,11 @@ public partial class MusicView : UserControl
             CoverControl.ReloadCoverImages();
         }
         else if (e.PropertyName == nameof(MusicViewModel.IsActive) && _viewModel.IsActive)
-            this.FindControl<Navigation.MusicListView>("AlbumListView")?.RefreshAlbumTileCovers();
+        {
+            var albumListView = this.FindControl<Navigation.MusicListView>("AlbumListView");
+            albumListView?.ResetAlbumListScroll();
+            albumListView?.RefreshAlbumTileCovers();
+        }
         else if (e.PropertyName == nameof(MusicViewModel.IsAddUrlPopupOpen) && _viewModel.IsAddUrlPopupOpen)
             FocusPopupTextBox(AddUrlTextBox);
         else if (e.PropertyName == nameof(MusicViewModel.IsAddPlaylistPopupOpen) && _viewModel.IsAddPlaylistPopupOpen)

@@ -913,7 +913,8 @@
         <!-- Menu-->
         <Grid Grid.Row="3" Background="#FF000000">
             <Separator Margin="0" VerticalAlignment="Top"/>
-            <navigation:MusicListView Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}"
+            <navigation:MusicListView x:Name="AlbumListView"
+                                      Opacity="{Binding !IsAlbumlistOpen, Converter={StaticResource BoolToOpacityConverter}}"
                                       IsHitTestVisible="{Binding ElementName=RootView, Path=IsAlbumListInteractive}">
                 <Interaction.Behaviors>
                     <behaviors:MaxHeightToggleBehavior IsOpen="{Binding IsAlbumlistOpen}" />
