@@ -916,6 +916,14 @@ public partial class EmulationView : UserControl
                 UpdateGamescopeCaptureUiState();
             }
         }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsActive) && vm.IsActive)
+        {
+            this.FindControl<Navigation.EmulationListView>("AlbumListView")?.ResetAlbumListScroll();
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListLoading) && !vm.IsAlbumListLoading)
+        {
+            this.FindControl<Navigation.EmulationListView>("AlbumListView")?.ResetAlbumListScroll();
+        }
         else if (e.PropertyName == nameof(EmulationViewModel.IsAlbumListCollapsed) ||
                  e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen))
         {

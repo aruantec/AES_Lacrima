@@ -22,4 +22,7 @@ public partial class EmulationListView : UserControl
 
     public void RefreshAlbumTileCovers() =>
         this.FindControl<CompositionAlbumRowControl>("AlbumList")?.RefreshAllTileCovers();
+
+    public void ResetAlbumListScroll() =>
+        this.FindControl<CompositionAlbumRowControl>("AlbumList")?.ResetScrollPositionOnViewShown();
 }

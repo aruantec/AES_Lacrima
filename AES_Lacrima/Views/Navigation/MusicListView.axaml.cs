@@ -42,6 +42,9 @@ public partial class MusicListView : UserControl
         this.FindControl<CompositionAlbumRowControl>("AlbumList")?.RefreshAllTileCovers();
     }
 
+    public void ResetAlbumListScroll() =>
+        _albumList?.ResetScrollPositionOnViewShown();
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -82,7 +85,9 @@ public partial class MusicListView : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ViewModels.MusicViewModel.SelectedAlbum)
+        if (e.PropertyName == nameof(ViewModels.MusicViewModel.IsActive) && _viewModel?.IsActive == true)
+            ResetAlbumListScroll();
+        else if (e.PropertyName is nameof(ViewModels.MusicViewModel.SelectedAlbum)
             or nameof(ViewModels.MusicViewModel.SelectedAlbumIndex))
         {
             SubscribeRenamingAlbum(_viewModel?.SelectedAlbum);

@@ -545,6 +545,17 @@ internal sealed class CompositionAlbumRowVisualHandler : CompositionCustomVisual
                 return;
             case AlbumRowAttachSyncMessage attach:
                 _animationSync = attach.State;
+                _currentScrollX = 0;
+                _targetScrollX = 0;
+                _scrollVelocity = 0;
+                _scrollSpringVelocity = 0;
+                if (_animationSync != null)
+                {
+                    _animationSync.CurrentScrollX = 0;
+                    _animationSync.TargetScrollX = 0;
+                    _animationSync.VelocityX = 0;
+                    _animationSync.IsAnimating = false;
+                }
                 return;
             case AlbumRowDragStateMessage drag:
                 if (drag.IsDragging)
