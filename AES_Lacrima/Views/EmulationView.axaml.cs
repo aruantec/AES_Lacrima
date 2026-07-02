@@ -359,7 +359,10 @@ public partial class EmulationView : UserControl
         if (!OperatingSystem.IsWindows())
             return;
 
-        var tunnelActive = vm.IsCompositionCaptureVisible && vm.IsEmulatorViewportVisible;
+        var uiBlocksCaptureInput = vm.IsRenderOptionsOpen || ComboBoxDropDownOpenTracker.IsAnyOpen;
+        var tunnelActive = vm.IsCompositionCaptureVisible &&
+                           vm.IsEmulatorViewportVisible &&
+                           !uiBlocksCaptureInput;
         if (UseInlineCaptureHost)
         {
             EnsureInlineCaptureHost();
@@ -439,13 +442,18 @@ public partial class EmulationView : UserControl
 
     private void OnComboBoxDropDownOpened()
     {
+        if (DataContext is EmulationViewModel vm)
+            UpdateCapturePointerRouting(vm);
         UpdateGamescopeCaptureUiState();
     }
 
     private void OnComboBoxDropDownLastClosed()
     {
+        if (DataContext is EmulationViewModel vm)
+            UpdateCapturePointerRouting(vm);
         UpdateGamescopeCaptureUiState();
-        Dispatcher.UIThread.Post(RestoreCaptureFocusAfterUiInteraction, DispatcherPriority.Input);
+        if (OperatingSystem.IsLinux())
+            Dispatcher.UIThread.Post(RestoreCaptureFocusAfterUiInteraction, DispatcherPriority.Input);
     }
 
     private void EnsureGamescopeFocusKeeper()
@@ -491,6 +499,9 @@ public partial class EmulationView : UserControl
 
     private void RestoreCaptureFocusAfterUiInteraction()
     {
+        if (!OperatingSystem.IsLinux())
+            return;
+
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
             return;
 
@@ -914,6 +925,8 @@ public partial class EmulationView : UserControl
                 EnsureInlineCaptureHost();
                 vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);
                 UpdateGamescopeCaptureUiState();
+                if (vm.IsCompositionCaptureVisible)
+                    AttachPortalCaptureBindings();
             }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsActive) && vm.IsActive)
@@ -930,7 +943,8 @@ public partial class EmulationView : UserControl
             if (e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen) &&
                 vm.IsRenderOptionsOpen &&
                 vm.IsCompositionCaptureVisible &&
-                vm.IsEmulatorRunning)
+                vm.IsEmulatorRunning &&
+                OperatingSystem.IsLinux())
             {
                 ActiveCaptureHost?.ForwardFocusToTarget();
             }
@@ -950,6 +964,7 @@ public partial class EmulationView : UserControl
                 IsAlbumListInteractive = true;
             }
 
+            UpdateCapturePointerRouting(vm);
             UpdateGamescopeCaptureUiState();
         }
         else if ((e.PropertyName == nameof(EmulationViewModel.SelectedShaderPath) ||
@@ -1538,7 +1553,7 @@ public partial class EmulationView : UserControl
     {
         if (DataContext is EmulationViewModel vm && vm.IsActive && vm.IsCompositionCaptureVisible)
         {
-            if (UseInlineCaptureHost && vm.IsEmulatorRunning)
+            if (OperatingSystem.IsLinux() && UseInlineCaptureHost && vm.IsEmulatorRunning)
             {
                 RestoreCaptureFocusAfterUiInteraction();
             }
@@ -2100,6 +2115,18 @@ public partial class EmulationView : UserControl
         if (DataContext is EmulationViewModel vm)
             vm.CompleteEmulatorLaunchAfterCaptureFrames();
         UpdateCaptureChromeVisibilityFromOpacity();
+        AttachPortalCaptureBindings();
+        RefreshPortalCaptureStatsOverlay();
+    }
+
+    private void RefreshPortalCaptureStatsOverlay()
+    {
+        if (this.FindControl<PortalCaptureStatsOverlay>("CaptureStatsOverlay") is { } overlay &&
+            DataContext is EmulationViewModel vm)
+        {
+            overlay.CaptureHost = this;
+            overlay.Settings = vm;
+        }
     }
 
     private void AttachPortalCaptureBindings()
@@ -2190,6 +2217,8 @@ public partial class EmulationView : UserControl
         _captureGpuVendorSubscription = captureControl
             .GetObservable(EmulatorCaptureHostControl.GpuVendorProperty)
             .Subscribe(new SimpleObserver<string>(value => PortalGpuVendor = value));
+
+        RefreshPortalCaptureStatsOverlay();
     }
 
     private void EnsureInlineCaptureHost()

@@ -922,15 +922,24 @@ public class EmulatorCaptureHost : ContentControl
     [SupportedOSPlatform("windows")]
     private void BindToCompositionBackend(CompositionWgcCaptureControl backend)
     {
-        StatusText = "Avalonia composition capture (WGC)";
         IsDirectCompositionActive = true;
 
         backend.GetObservable(CompositionWgcCaptureControl.IsCaptureInitializingProperty)
             .Subscribe(new LambdaObserver<bool>(value => IsCaptureInitializing = value));
+        backend.GetObservable(CompositionWgcCaptureControl.StatusTextProperty)
+            .Subscribe(new LambdaObserver<string>(value => StatusText = value));
         backend.GetObservable(CompositionWgcCaptureControl.FpsProperty)
             .Subscribe(new LambdaObserver<double>(value => Fps = value));
         backend.GetObservable(CompositionWgcCaptureControl.FrameTimeMsProperty)
             .Subscribe(new LambdaObserver<double>(value => FrameTimeMs = value));
+        backend.GetObservable(CompositionWgcCaptureControl.GpuRendererProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuRenderer = value));
+        backend.GetObservable(CompositionWgcCaptureControl.GpuVendorProperty)
+            .Subscribe(new LambdaObserver<string>(value => GpuVendor = value));
+
+        StatusText = backend.StatusText;
+        GpuRenderer = backend.GpuRenderer;
+        GpuVendor = backend.GpuVendor;
     }
 
     private void BindToWindowsBackend(DirectCompositionCaptureHost backend)
