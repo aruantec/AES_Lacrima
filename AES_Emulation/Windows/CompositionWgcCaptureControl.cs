@@ -34,6 +34,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     private CompositionCustomVisual? _visual;
     private WgcCaptureVisualHandler? _handler;
     private DispatcherTimer? _fallbackRenderTimer;
+    private DispatcherTimer? _statisticsTimer;
     private nint _session = nint.Zero;
     private WindowHandler? _windowHandler;
     private nint _hostHandle = nint.Zero;
@@ -169,6 +170,33 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     {
         get => GetValue(FrameTimeMsProperty);
         set => SetValue(FrameTimeMsProperty, value);
+    }
+
+    public static readonly StyledProperty<string> StatusTextProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, string>(nameof(StatusText), "Composition capture idle");
+
+    public string StatusText
+    {
+        get => GetValue(StatusTextProperty);
+        set => SetValue(StatusTextProperty, value);
+    }
+
+    public static readonly StyledProperty<string> GpuRendererProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, string>(nameof(GpuRenderer), "Unknown");
+
+    public string GpuRenderer
+    {
+        get => GetValue(GpuRendererProperty);
+        set => SetValue(GpuRendererProperty, value);
+    }
+
+    public static readonly StyledProperty<string> GpuVendorProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, string>(nameof(GpuVendor), "Unknown");
+
+    public string GpuVendor
+    {
+        get => GetValue(GpuVendorProperty);
+        set => SetValue(GpuVendorProperty, value);
     }
 
     public static readonly StyledProperty<double> BrightnessProperty =
@@ -858,6 +886,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                 UpdateHandlerSession();
                 UpdateHandlerSettings();
                 UpdateFallbackRenderLoop();
+                EnsureStatisticsTimer();
 
                 var captureReady = await WaitForCaptureReadyAsync(cancellationToken).ConfigureAwait(true);
                 if (!captureReady)
@@ -963,6 +992,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         UpdateHandlerSession(deferCompositorNotification: true);
         UpdateFallbackRenderLoop();
         _fallbackRenderTimer?.Stop();
+        StopStatisticsTimer();
         _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(50));
 
         if (windowHandlerToStop != null || canRestoreTargetWindow)
@@ -1448,9 +1478,39 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             if (!_useOwnerRenderFallback || !_isAttachedToVisualTree || _handler == null || _session == IntPtr.Zero)
                 return;
 
-            _handler.OnAnimationFrameUpdate();
+            _handler.PublishStatisticsFromSession(_session);
             InvalidateVisual();
         };
+    }
+
+    private void EnsureStatisticsTimer()
+    {
+        if (_statisticsTimer != null)
+        {
+            if (!_statisticsTimer.IsEnabled)
+                _statisticsTimer.Start();
+            return;
+        }
+
+        _statisticsTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+
+        _statisticsTimer.Tick += (_, _) =>
+        {
+            if (!_isAttachedToVisualTree || _handler == null || _session == IntPtr.Zero)
+                return;
+
+            _handler.PublishStatisticsFromSession(_session);
+        };
+
+        _statisticsTimer.Start();
+    }
+
+    private void StopStatisticsTimer()
+    {
+        _statisticsTimer?.Stop();
     }
 
     public override void Render(DrawingContext context)
@@ -1551,6 +1611,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private nint _session = nint.Zero;
     private nint _targetHwnd = nint.Zero;
     private WeakReference<CompositionWgcCaptureControl>? _ownerRef;
+    private CompositionWgcCaptureControl? _ownerStrong;
     private bool _useOwnerInvalidation;
     private bool _forceUseTargetClientSize = false;
     private int _lastCropX, _lastCropY, _lastCropW;
@@ -1564,8 +1625,8 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
     private double _fpsSmoothing = 0.85;
     private bool _vrrActive = false;
     private long _lastUiUpdateTicks = 0;
-    private double _lastSentFps = -1;
-    private double _lastSentFt = -1;
+    private int _statsLastFrameCount = -1;
+    private long _statsLastSampleTicks;
 
     // Auto Crop
     private bool _enableAutoCrop = false;
@@ -1816,6 +1877,9 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             _glTexSubImage2DPtr = IntPtr.Zero;
             _ownerInvalidateQueued = 0;
             _ownerStatsUpdateQueued = 0;
+            _ownerStrong = null;
+            _statsLastFrameCount = -1;
+            _statsLastSampleTicks = 0;
 
             if (_frameCopyBuffer != IntPtr.Zero)
             {
@@ -1937,55 +2001,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
         try
         {
-            // Perform per-frame updates for FPS tracking
-            var nowTicks = Stopwatch.GetTimestamp();
-            if (_lastFrameTicks != 0)
-            {
-                double dt = (double)(nowTicks - _lastFrameTicks) / Stopwatch.Frequency;
-                double instantFps = dt > 0 ? (1.0 / dt) : 0.0;
-                double frameMs = dt * 1000.0;
-
-                double s = Math.Clamp(_fpsSmoothing, 0.0, 0.999);
-                _smoothedFps = (_smoothedFps <= 0.0) ? instantFps : (_smoothedFps * s) + (instantFps * (1.0 - s));
-                _smoothedFrameTimeMs = (_smoothedFrameTimeMs <= 0.0) ? frameMs : (_smoothedFrameTimeMs * s) + (frameMs * (1.0 - s));
-
-                if (_showFrametimeGraph)
-                {
-                    _frameTimes[_frameTimePtr] = (float)frameMs;
-                    _frameTimePtr = (_frameTimePtr + 1) % _frameTimes.Length;
-                }
-            }
-            _lastFrameTicks = nowTicks;
-
-            if ((double)(nowTicks - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.1)
-            {
-                _lastUiUpdateTicks = nowTicks;
-
-                var fps = Math.Round(_smoothedFps, 1);
-                var ft = Math.Round(_smoothedFrameTimeMs, 2);
-
-                if ((fps != _lastSentFps || ft != _lastSentFt) && _ownerRef != null && _ownerRef.TryGetTarget(out var owner))
-                {
-                    _lastSentFps = fps;
-                    _lastSentFt = ft;
-
-                    if (Interlocked.Exchange(ref _ownerStatsUpdateQueued, 1) == 0)
-                    {
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            try
-                            {
-                                owner.Fps = fps;
-                                owner.FrameTimeMs = ft;
-                            }
-                            finally
-                            {
-                                Volatile.Write(ref _ownerStatsUpdateQueued, 0);
-                            }
-                        }, DispatcherPriority.Background);
-                    }
-                }
-            }
+            PublishStatisticsFromSession(_session);
 
             if (_forceUseTargetClientSize && _session != IntPtr.Zero && _lastCropW != 0)
             {
@@ -2011,6 +2027,171 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
             if (!_useOwnerInvalidation && _session != nint.Zero && !_renderSuspended)
                 RegisterForNextAnimationFrameUpdate();
         }
+    }
+
+    internal void PublishStatisticsFromSession(nint session)
+    {
+        if (session == nint.Zero || _renderSuspended)
+            return;
+
+        RefreshSmoothedStatistics(session);
+        TryPushOwnerStatistics();
+    }
+
+    private void RefreshSmoothedStatistics(nint session)
+    {
+        var nativeFps = WgcBridgeApi.GetDirectCompositionSmoothedFps(session);
+        var nativeFrameTimeMs = WgcBridgeApi.GetDirectCompositionSmoothedFrameTimeMs(session);
+        if (nativeFps > 0.01 || nativeFrameTimeMs > 0.01)
+        {
+            if (nativeFps > 0.01)
+                _smoothedFps = nativeFps;
+            if (nativeFrameTimeMs > 0.01)
+                _smoothedFrameTimeMs = nativeFrameTimeMs;
+            else if (nativeFps > 0.01)
+                _smoothedFrameTimeMs = 1000.0 / nativeFps;
+            return;
+        }
+
+        var frames = WgcBridgeApi.GetCaptureStatus(session);
+        var nowTicks = Stopwatch.GetTimestamp();
+        if (_statsLastSampleTicks != 0 && frames > _statsLastFrameCount)
+        {
+            var elapsed = (double)(nowTicks - _statsLastSampleTicks) / Stopwatch.Frequency;
+            var deltaFrames = frames - _statsLastFrameCount;
+            if (elapsed >= 0.05 && deltaFrames > 0)
+            {
+                var frameMs = (elapsed * 1000.0) / deltaFrames;
+                var instantFps = 1000.0 / frameMs;
+                var smoothing = Math.Clamp(_fpsSmoothing, 0.0, 0.999);
+                _smoothedFrameTimeMs = (_smoothedFrameTimeMs <= 0.0)
+                    ? frameMs
+                    : (_smoothedFrameTimeMs * smoothing) + (frameMs * (1.0 - smoothing));
+                _smoothedFps = (_smoothedFps <= 0.0)
+                    ? instantFps
+                    : (_smoothedFps * smoothing) + (instantFps * (1.0 - smoothing));
+            }
+        }
+
+        _statsLastSampleTicks = nowTicks;
+        _statsLastFrameCount = frames;
+    }
+
+    private void RecordPresentedFrame()
+    {
+        var nowTicks = Stopwatch.GetTimestamp();
+        if (_lastFrameTicks != 0)
+        {
+            var dt = (double)(nowTicks - _lastFrameTicks) / Stopwatch.Frequency;
+            if (dt > 0.0)
+            {
+                var instantFps = 1.0 / dt;
+                var frameMs = dt * 1000.0;
+                var smoothing = Math.Clamp(_fpsSmoothing, 0.0, 0.999);
+                _smoothedFps = (_smoothedFps <= 0.0)
+                    ? instantFps
+                    : (_smoothedFps * smoothing) + (instantFps * (1.0 - smoothing));
+                _smoothedFrameTimeMs = (_smoothedFrameTimeMs <= 0.0)
+                    ? frameMs
+                    : (_smoothedFrameTimeMs * smoothing) + (frameMs * (1.0 - smoothing));
+
+                if (_showFrametimeGraph)
+                {
+                    _frameTimes[_frameTimePtr] = (float)frameMs;
+                    _frameTimePtr = (_frameTimePtr + 1) % _frameTimes.Length;
+                }
+            }
+        }
+
+        _lastFrameTicks = nowTicks;
+
+        if ((double)(nowTicks - _lastUiUpdateTicks) / Stopwatch.Frequency >= 0.1)
+        {
+            _lastUiUpdateTicks = nowTicks;
+            TryPushOwnerStatistics();
+        }
+    }
+
+    private CompositionWgcCaptureControl? ResolveOwner()
+    {
+        if (_ownerStrong != null)
+            return _ownerStrong;
+
+        return _ownerRef?.TryGetTarget(out var owner) == true ? owner : null;
+    }
+
+    private void TryPushOwnerStatistics()
+    {
+        var owner = ResolveOwner();
+        if (owner == null)
+            return;
+
+        var fps = Math.Round(_smoothedFps, 1);
+        var ft = Math.Round(_smoothedFrameTimeMs, 2);
+        var statusText = BuildCaptureStatusText(fps, ft);
+        var gpuRenderer = _gpuRenderer;
+        var gpuVendor = _gpuVendor;
+
+        if (Interlocked.Exchange(ref _ownerStatsUpdateQueued, 1) != 0)
+            return;
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            try
+            {
+                ApplyOwnerStatistics(owner, fps, ft, statusText, gpuRenderer, gpuVendor);
+            }
+            finally
+            {
+                Volatile.Write(ref _ownerStatsUpdateQueued, 0);
+            }
+
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var liveOwner = ResolveOwner() ?? owner;
+                ApplyOwnerStatistics(liveOwner, fps, ft, statusText, gpuRenderer, gpuVendor);
+            }
+            finally
+            {
+                Volatile.Write(ref _ownerStatsUpdateQueued, 0);
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private static void ApplyOwnerStatistics(
+        CompositionWgcCaptureControl owner,
+        double fps,
+        double ft,
+        string statusText,
+        string gpuRenderer,
+        string gpuVendor)
+    {
+        owner.Fps = fps;
+        owner.FrameTimeMs = ft;
+        owner.StatusText = statusText;
+        owner.GpuRenderer = gpuRenderer;
+        owner.GpuVendor = gpuVendor;
+    }
+
+    private string BuildCaptureStatusText(double fps, double frameTimeMs)
+    {
+        if (_session == nint.Zero)
+            return "Composition capture idle";
+
+        var frames = WgcBridgeApi.GetCaptureStatus(_session);
+        var presents = WgcBridgeApi.GetDirectCompositionPresentCount(_session);
+        var syntheticPresents = WgcBridgeApi.GetDirectCompositionSyntheticPresentCount(_session);
+        var frameGenSuffix = syntheticPresents > 0 ? $" | FG ~{syntheticPresents} synth" : string.Empty;
+
+        if (fps <= 0.01 && frames > 0)
+            return $"Composition capture active (stalled) | frames {frames} | presents {presents}{frameGenSuffix}";
+
+        return $"Composition capture active | frames {frames} | presents {presents}{frameGenSuffix}";
     }
 
     private void RequestRender()
@@ -2219,6 +2400,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 TryDrawImportedGpuTexture(canvas, grContext, _wglDxInterop.TextureId, w, h, "WGL DX interop GPU path"))
             {
                 LogDebugOnce(ref _loggedWglDxPath, "WgcCaptureVisualHandler is using WGL DX interop for capture frames.");
+                RecordPresentedFrame();
                 return true;
             }
         }
@@ -2232,6 +2414,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
                 _angleInterop.TryBindSharedHandle(shared) &&
                 TryDrawImportedGpuTexture(canvas, grContext, _angleInterop.TextureId, w, h, "ANGLE shared-texture GPU path"))
             {
+                RecordPresentedFrame();
                 return true;
             }
         }
@@ -2289,17 +2472,17 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         _session = sm.Session;
         _targetHwnd = sm.TargetHwnd;
         _ownerRef = sm.Owner;
+        _ownerStrong = sm.Owner?.TryGetTarget(out var owner) == true ? owner : null;
         _useOwnerInvalidation = sm.UseOwnerInvalidation;
         _renderSuspended = sm.Session == nint.Zero;
         _lastNativeFrameCount = -1;
         _pillarboxScanCounter = 0;
+        _statsLastFrameCount = -1;
+        _statsLastSampleTicks = 0;
         if (sm.Session != nint.Zero)
         {
-            if (_ownerRef?.TryGetTarget(out var owner) == true &&
-                !string.IsNullOrWhiteSpace(owner.CaptureRomPath))
-            {
-                _captureRomPath = owner.CaptureRomPath;
-            }
+            if (_ownerStrong != null && !string.IsNullOrWhiteSpace(_ownerStrong.CaptureRomPath))
+                _captureRomPath = _ownerStrong.CaptureRomPath;
 
             ReloadArcadeCropResolverState();
         }
@@ -2415,6 +2598,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
 
                 if (_useNativeHlslPipeline && !_interopCpuMirrorEnabled)
                 {
+                    RecordPresentedFrame();
                     if (_showStatisticsOverlay)
                         RenderOverlay(canvas);
                     return;
@@ -2527,6 +2711,7 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_showStatisticsOverlay)
             RenderOverlay(canvas);
 
+        RecordPresentedFrame();
         TryPublishRecordingFrame(ptr, w, h);
     }
 
