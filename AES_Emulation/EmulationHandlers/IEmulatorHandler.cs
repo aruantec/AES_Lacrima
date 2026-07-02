@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using AES_Emulation.Windows.VirtualDisplay;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -101,6 +102,11 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null);
 
     void PrepareProcessForCapture(Process process);
+
+    void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        WindowsVirtualDisplayMonitor monitor);
 
     void PrepareWindowForCapture(IntPtr hwnd);
 

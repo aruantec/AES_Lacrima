@@ -523,6 +523,54 @@
                                        Margin="0,4,0,0"
                                        IsVisible="{Binding GamescopeManager.IsBusy}"/>
                         </StackPanel>
+
+                        <StackPanel IsVisible="{Binding IsVirtualDisplayDriverSupported}" Spacing="10" Margin="0,18,0,0">
+                            <TextBlock Text="Virtual Display Driver" FontSize="16" Foreground="WhiteSmoke"/>
+                            <Separator />
+                            <TextBlock Text="{Binding VirtualDisplayDriverRequiredMessage}"
+                                       TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="Gold"/>
+                            <TextBlock Text="{Binding VirtualDisplayDriverInstallNote}"
+                                       TextWrapping="Wrap"
+                                       FontSize="11"
+                                       Foreground="DarkGray"/>
+                            <TextBlock Text="{Binding VirtualDisplayDriverManager.Status}" FontSize="14" Foreground="DarkGray"/>
+                            <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,0,0,6" IsVisible="{Binding IsVirtualDisplayDriverInstalled}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="CURRENT VERSION" FontSize="12" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding VirtualDisplayDriverVersion, FallbackValue='Not Found'}" FontSize="14" Foreground="WhiteSmoke"/>
+                                </StackPanel>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsVirtualDisplayDriverUpdateAvailable}">
+                                    <TextBlock Text="UPDATE AVAILABLE" FontSize="12" Foreground="Gold" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding VirtualDisplayDriverUpdateVersion}" FontSize="14" Foreground="Gold"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                                <Button Content="Install Driver"
+                                        Command="{Binding InstallVirtualDisplayDriverCommand}"
+                                        IsVisible="{Binding !IsVirtualDisplayDriverKernelInstalled}"
+                                        IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}"/>
+                                <Button Content="Update"
+                                        Command="{Binding UpdateVirtualDisplayDriverCommand}"
+                                        IsVisible="{Binding IsVirtualDisplayDriverUpdateAvailable}"
+                                        IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}"
+                                        Background="Gold"
+                                        Foreground="Black"/>
+                                <Button Content="Uninstall"
+                                        Background="#F44336"
+                                        Foreground="White"
+                                        Command="{Binding UninstallVirtualDisplayDriverCommand}"
+                                        IsVisible="{Binding IsVirtualDisplayDriverPackageInstalled}"
+                                        IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}"/>
+                                <Button Content="Refresh Driver Info"
+                                        Command="{Binding RefreshVirtualDisplayDriverInfoCommand}"
+                                        IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}"/>
+                            </WrapPanel>
+                            <ProgressBar IsIndeterminate="True"
+                                         IsVisible="{Binding VirtualDisplayDriverManager.IsBusy}"
+                                         Margin="0,8,0,0" />
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

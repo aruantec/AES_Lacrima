@@ -3792,11 +3792,11 @@ static HWND FindBestCaptureWindowForCurrentProcess()
 }
 
 extern "C" {
-    void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd, int lowLatencyCapture)
+    void* CreateCaptureSessionInternal(HWND targetHwnd, HWND presentationHwnd, int lowLatencyCapture, HMONITOR targetMonitor = nullptr)
     {
         try
         {
-            OutputDebugStringA("[WGC_NATIVE] CreateCaptureSession start\n");
+            OutputDebugStringA(targetMonitor ? "[WGC_NATIVE] CreateCaptureSession (monitor) start\n" : "[WGC_NATIVE] CreateCaptureSession start\n");
 
             // Ensure WinRT is initialized for this thread (MTA is appropriate for capture APIs)
             try
@@ -3882,9 +3882,12 @@ extern "C" {
                     desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
                     desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
-                    // We use the same targetHwnd. Even though we never show this swapchain,
+                    // We use the target HWND (or desktop when capturing a monitor). Even though we never show this swapchain,
                     // presenting to it allows us to utilize the tearing flag for VRR.
-                    factory->CreateSwapChainForHwnd(s->d3dDevice.get(), targetHwnd, &desc, nullptr, nullptr, s->swapChain.put());
+                    HWND swapchainHwnd = targetHwnd;
+                    if (!swapchainHwnd)
+                        swapchainHwnd = presentationHwnd ? presentationHwnd : GetDesktopWindow();
+                    factory->CreateSwapChainForHwnd(s->d3dDevice.get(), swapchainHwnd, &desc, nullptr, nullptr, s->swapChain.put());
                 }
                 catch (...) {
                     OutputDebugStringA("[WGC_NATIVE] Failed to create VRR swapchain\n");
@@ -3900,36 +3903,39 @@ extern "C" {
             }
 
             HWND captureTargetHwnd = targetHwnd;
-            // Qt emulators (e.g. RPCS3 gs_frame) expose a dedicated render QWindow that must be
-            // captured directly. Normalizing to GA_ROOTOWNER pulls in launcher/dialog surfaces.
-            RECT targetClientRect{};
-            const bool hasUsableClient =
-                GetClientRect(targetHwnd, &targetClientRect) &&
-                (targetClientRect.right - targetClientRect.left) >= 480 &&
-                (targetClientRect.bottom - targetClientRect.top) >= 270;
-
-            if (!hasUsableClient)
+            if (!targetMonitor)
             {
-                HWND rootOwnerHwnd = GetAncestor(targetHwnd, GA_ROOTOWNER);
-                HWND rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
-                if (rootOwnerHwnd && rootOwnerHwnd != targetHwnd)
+                // Qt emulators (e.g. RPCS3 gs_frame) expose a dedicated render QWindow that must be
+                // captured directly. Normalizing to GA_ROOTOWNER pulls in launcher/dialog surfaces.
+                RECT targetClientRect{};
+                const bool hasUsableClient =
+                    GetClientRect(targetHwnd, &targetClientRect) &&
+                    (targetClientRect.right - targetClientRect.left) >= 480 &&
+                    (targetClientRect.bottom - targetClientRect.top) >= 270;
+
+                if (!hasUsableClient)
                 {
-                    captureTargetHwnd = rootOwnerHwnd;
+                    HWND rootOwnerHwnd = GetAncestor(targetHwnd, GA_ROOTOWNER);
+                    HWND rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+                    if (rootOwnerHwnd && rootOwnerHwnd != targetHwnd)
+                    {
+                        captureTargetHwnd = rootOwnerHwnd;
+                    }
+                    else if (rootHwnd && rootHwnd != targetHwnd)
+                    {
+                        captureTargetHwnd = rootHwnd;
+                    }
                 }
-                else if (rootHwnd && rootHwnd != targetHwnd)
+
+                if (captureTargetHwnd != targetHwnd)
                 {
-                    captureTargetHwnd = rootHwnd;
+                    char normalizedBuf[256];
+                    _snprintf_s(normalizedBuf, sizeof(normalizedBuf), _TRUNCATE, "[WGC_NATIVE] Normalized capture target from HWND=%p to root HWND=%p\n", targetHwnd, captureTargetHwnd);
+                    OutputDebugStringA(normalizedBuf);
                 }
             }
 
-            if (captureTargetHwnd != targetHwnd)
-            {
-                char normalizedBuf[256];
-                _snprintf_s(normalizedBuf, sizeof(normalizedBuf), _TRUNCATE, "[WGC_NATIVE] Normalized capture target from HWND=%p to root HWND=%p\n", targetHwnd, captureTargetHwnd);
-                OutputDebugStringA(normalizedBuf);
-            }
-
-            // Create capture item for the target HWND
+            // Create capture item for the target HWND or monitor
             try
             {
                 auto factory = rt::get_activation_factory<wgc::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
@@ -3940,24 +3946,38 @@ extern "C" {
                     return nullptr;
                 }
 
-                char hwndBuf[256];
-                wchar_t titleBuf[256]{};
-                wchar_t classBuf[128]{};
-                GetWindowTextW(targetHwnd, titleBuf, static_cast<int>(std::size(titleBuf)));
-                GetClassNameW(targetHwnd, classBuf, static_cast<int>(std::size(classBuf)));
-                _snprintf_s(hwndBuf, sizeof(hwndBuf), _TRUNCATE, "[WGC_NATIVE] Target HWND=%p title='%ls' class='%ls' visible=%d iconic=%d\n",
-                    targetHwnd,
-                    titleBuf,
-                    classBuf,
-                    IsWindowVisible(targetHwnd) ? 1 : 0,
-                    IsIconic(targetHwnd) ? 1 : 0);
-                OutputDebugStringA(hwndBuf);
-
                 HRESULT createHr = E_FAIL;
                 for (int attempt = 0; attempt < 20; ++attempt)
                 {
                     s->item = nullptr;
-                    createHr = factory->CreateForWindow(captureTargetHwnd, rt::guid_of<ABI::Windows::Graphics::Capture::IGraphicsCaptureItem>(), rt::put_abi(s->item));
+                    if (targetMonitor)
+                    {
+                        createHr = factory->CreateForMonitor(
+                            targetMonitor,
+                            rt::guid_of<ABI::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
+                            rt::put_abi(s->item));
+                    }
+                    else
+                    {
+                        char hwndBuf[256];
+                        wchar_t titleBuf[256]{};
+                        wchar_t classBuf[128]{};
+                        GetWindowTextW(targetHwnd, titleBuf, static_cast<int>(std::size(titleBuf)));
+                        GetClassNameW(targetHwnd, classBuf, static_cast<int>(std::size(classBuf)));
+                        _snprintf_s(hwndBuf, sizeof(hwndBuf), _TRUNCATE, "[WGC_NATIVE] Target HWND=%p title='%ls' class='%ls' visible=%d iconic=%d\n",
+                            targetHwnd,
+                            titleBuf,
+                            classBuf,
+                            IsWindowVisible(targetHwnd) ? 1 : 0,
+                            IsIconic(targetHwnd) ? 1 : 0);
+                        OutputDebugStringA(hwndBuf);
+
+                        createHr = factory->CreateForWindow(
+                            captureTargetHwnd,
+                            rt::guid_of<ABI::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
+                            rt::put_abi(s->item));
+                    }
+
                     if (SUCCEEDED(createHr) && s->item)
                         break;
 
@@ -3968,16 +3988,23 @@ extern "C" {
                 if (FAILED(createHr) || !s->item)
                 {
                     char buf[256];
-                    _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] CreateForWindow failed: 0x%08X for HWND=%p (normalized=%p). Ensure the RPCS3 renderer window is ready.\n", (unsigned)createHr, targetHwnd, captureTargetHwnd);
+                    if (targetMonitor)
+                    {
+                        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] CreateForMonitor failed: 0x%08X for HMONITOR=%p\n", (unsigned)createHr, targetMonitor);
+                    }
+                    else
+                    {
+                        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "[WGC_NATIVE] CreateForWindow failed: 0x%08X for HWND=%p (normalized=%p). Ensure the RPCS3 renderer window is ready.\n", (unsigned)createHr, targetHwnd, captureTargetHwnd);
+                    }
                     DebugLog(buf);
                     delete s;
                     return nullptr;
                 }
 
-                OutputDebugStringA("[WGC_NATIVE] CreateForWindow succeeded\n");
+                OutputDebugStringA(targetMonitor ? "[WGC_NATIVE] CreateForMonitor succeeded\n" : "[WGC_NATIVE] CreateForWindow succeeded\n");
             }
             catch (...) {
-                OutputDebugStringA("[WGC_NATIVE] Exception during CreateForWindow\n");
+                OutputDebugStringA(targetMonitor ? "[WGC_NATIVE] Exception during CreateForMonitor\n" : "[WGC_NATIVE] Exception during CreateForWindow\n");
                 delete s;
                 return nullptr;
             }
@@ -4072,7 +4099,12 @@ extern "C" {
 
     __declspec(dllexport) void* CreateDirectCompositionCaptureSession(HWND targetHwnd, HWND presentationHwnd, int lowLatencyCapture)
     {
-        return CreateCaptureSessionInternal(targetHwnd, presentationHwnd, lowLatencyCapture);
+        return CreateCaptureSessionInternal(targetHwnd, presentationHwnd, lowLatencyCapture, nullptr);
+    }
+
+    __declspec(dllexport) void* CreateMonitorCaptureSession(HMONITOR monitor)
+    {
+        return CreateCaptureSessionInternal(nullptr, nullptr, 0, monitor);
     }
 
     __declspec(dllexport) void DestroyCaptureSession(void* ptr) {

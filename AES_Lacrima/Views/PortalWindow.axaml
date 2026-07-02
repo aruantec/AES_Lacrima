@@ -19,6 +19,7 @@
                                        HorizontalAlignment="Stretch"
                                        VerticalAlignment="Stretch"
                                        TargetHwnd="{Binding EmulatorTargetHwnd}"
+                                       TargetMonitor="{Binding EmulatorTargetMonitor}"
                                        TargetProcessId="{Binding EmulatorTargetProcessId}"
                                        TargetWindowTitleHint="{Binding CurrentEmulatorWindowTitleHint}"
                                        ForceUseTargetClientArea="{Binding ForceUseTargetClientAreaCapture}"

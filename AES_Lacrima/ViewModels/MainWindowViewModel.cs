@@ -5,6 +5,7 @@ using AES_Lacrima.Settings;
 using AES_Core.Services;
 using AES_Lacrima.ViewModels.Prompts;
 using AES_Controls.Helpers;
+using AES_Controls.Helpers.Windows;
 using Avalonia.Collections;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -13,6 +14,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 
 using log4net;
 using AES_Core.Logging;
@@ -398,6 +400,54 @@ namespace AES_Lacrima.ViewModels
         }
 
         /// <summary>
+        /// Prompts the user to install the Virtual Display Driver when starting emulation on Windows.
+        /// </summary>
+        public void ShowVirtualDisplaySetupPrompt(string? message = null)
+        {
+            if (!OperatingSystem.IsWindows() || VirtualDisplayDriverManager.IsDriverActive())
+                return;
+
+            if (PromptView is VirtualDisplaySetupPromptViewModel
+                or ComponentSetupPromptViewModel
+                or RestartPromptViewModel)
+            {
+                return;
+            }
+
+            var virtualDisplayDriver = DiLocator.ResolveViewModel<VirtualDisplayDriverManager>();
+            var prompt = new VirtualDisplaySetupPromptViewModel(
+                virtualDisplayDriver,
+                () => NavigationService?.NavigateToSettings(3),
+                message);
+            prompt.RequestClose += () => { if (PromptView == prompt) PromptView = null; };
+            PromptView = prompt;
+        }
+
+        /// <summary>
+        /// Blocks emulation launch on Windows until the Virtual Display Driver is ready.
+        /// Shows an install prompt instead of installing automatically.
+        /// </summary>
+        public Task<bool> EnsureVirtualDisplayDriverForCaptureAsync()
+        {
+            if (!OperatingSystem.IsWindows() || VirtualDisplayDriverManager.IsDriverActive())
+                return Task.FromResult(true);
+
+            if (VirtualDisplayDriverManager.IsKernelDriverPresent())
+            {
+                ShowVirtualDisplaySetupPrompt(
+                    VirtualDisplayKernelInstaller.GetDriverProblemUserMessage()
+                    ?? "Virtual Display Driver is installed but capture is not responding yet. " +
+                       "Open Settings → Tools, reboot once, then click Install or Refresh Driver Info.");
+            }
+            else
+            {
+                ShowVirtualDisplaySetupPrompt();
+            }
+
+            return Task.FromResult(false);
+        }
+
+        /// <summary>
         /// Closes the application and performs necessary cleanup operations before shutdown.
         /// </summary>
         [RelayCommand]
@@ -413,6 +463,10 @@ namespace AES_Lacrima.ViewModels
             else if (PromptView is ComponentSetupPromptViewModel setupPrompt)
             {
                 setupPrompt.SkipCommand.Execute(null);
+            }
+            else if (PromptView is VirtualDisplaySetupPromptViewModel virtualDisplayPrompt)
+            {
+                virtualDisplayPrompt.SkipCommand.Execute(null);
             }
 
             //Save all settings

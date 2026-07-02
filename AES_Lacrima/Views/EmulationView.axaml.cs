@@ -326,7 +326,8 @@ public partial class EmulationView : UserControl
         if (TryHandleCaptureDoubleClick(e))
             return;
 
-        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
+        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true } vm &&
+            !ShouldBlockCaptureInputRouting(vm))
             ActiveCaptureHost?.ForwardFocusToTarget();
     }
 
@@ -359,18 +360,25 @@ public partial class EmulationView : UserControl
         if (!OperatingSystem.IsWindows())
             return;
 
-        var tunnelActive = vm.IsCompositionCaptureVisible && vm.IsEmulatorViewportVisible;
+        var blocksCaptureInput = vm.IsRenderOptionsOpen || ComboBoxDropDownOpenTracker.IsAnyOpen;
+        var capturePointerRoutingEnabled = vm.IsCompositionCaptureVisible && vm.IsEmulatorViewportVisible;
+        var tunnelForward = capturePointerRoutingEnabled && !blocksCaptureInput;
         if (UseInlineCaptureHost)
         {
             EnsureInlineCaptureHost();
             var layer = this.FindControl<Border>("CaptureContextMenuLayer");
-            _inlineCaptureHost?.ConfigurePointerTunnelSurface(tunnelActive ? layer : null);
+            _inlineCaptureHost?.ConfigurePointerTunnelSurface(capturePointerRoutingEnabled ? layer : null);
+            _inlineCaptureHost?.SetPointerTunnelEnabled(tunnelForward);
             return;
         }
 
         var portalLayer = _portalWindow?.FindControl<Border>("CaptureContextMenuLayer");
-        _portalWindow?.CaptureHostControl?.ConfigurePointerTunnelSurface(tunnelActive ? portalLayer : null);
+        _portalWindow?.CaptureHostControl?.ConfigurePointerTunnelSurface(capturePointerRoutingEnabled ? portalLayer : null);
+        _portalWindow?.CaptureHostControl?.SetPointerTunnelEnabled(tunnelForward);
     }
+
+    private static bool ShouldBlockCaptureInputRouting(EmulationViewModel vm) =>
+        vm.IsRenderOptionsOpen || ComboBoxDropDownOpenTracker.IsAnyOpen;
 
     private bool TryDismissRenderOptionsOnPointerPressed(PointerPressedEventArgs e)
     {
@@ -414,7 +422,10 @@ public partial class EmulationView : UserControl
         if (TryHandleCaptureDoubleClick(e))
             return;
 
-        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
+        if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true } vm)
+            return;
+
+        if (ShouldBlockCaptureInputRouting(vm))
             return;
 
         ActiveCaptureHost?.ForwardFocusToTarget();
@@ -439,13 +450,14 @@ public partial class EmulationView : UserControl
 
     private void OnComboBoxDropDownOpened()
     {
-        UpdateGamescopeCaptureUiState();
+        UpdateCaptureUiInteractionState();
     }
 
     private void OnComboBoxDropDownLastClosed()
     {
-        UpdateGamescopeCaptureUiState();
-        Dispatcher.UIThread.Post(RestoreCaptureFocusAfterUiInteraction, DispatcherPriority.Input);
+        UpdateCaptureUiInteractionState();
+        if (OperatingSystem.IsLinux())
+            Dispatcher.UIThread.Post(RestoreCaptureFocusAfterUiInteraction, DispatcherPriority.Input);
     }
 
     private void EnsureGamescopeFocusKeeper()
@@ -466,6 +478,17 @@ public partial class EmulationView : UserControl
         return vm.IsCompositionCaptureVisible &&
                vm.IsEmulatorRunning &&
                (vm.IsRenderOptionsOpen || ComboBoxDropDownOpenTracker.IsAnyOpen);
+    }
+
+    private void UpdateCaptureUiInteractionState()
+    {
+        if (DataContext is EmulationViewModel vm)
+            UpdateCapturePointerRouting(vm);
+
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        UpdateGamescopeCaptureUiState();
     }
 
     private void UpdateGamescopeCaptureUiState()
@@ -491,6 +514,9 @@ public partial class EmulationView : UserControl
 
     private void RestoreCaptureFocusAfterUiInteraction()
     {
+        if (!OperatingSystem.IsLinux())
+            return;
+
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
             return;
 
@@ -913,7 +939,7 @@ public partial class EmulationView : UserControl
             {
                 EnsureInlineCaptureHost();
                 vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);
-                UpdateGamescopeCaptureUiState();
+                UpdateCaptureUiInteractionState();
             }
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsActive) && vm.IsActive)
@@ -930,7 +956,8 @@ public partial class EmulationView : UserControl
             if (e.PropertyName == nameof(EmulationViewModel.IsRenderOptionsOpen) &&
                 vm.IsRenderOptionsOpen &&
                 vm.IsCompositionCaptureVisible &&
-                vm.IsEmulatorRunning)
+                vm.IsEmulatorRunning &&
+                OperatingSystem.IsLinux())
             {
                 ActiveCaptureHost?.ForwardFocusToTarget();
             }
@@ -950,14 +977,14 @@ public partial class EmulationView : UserControl
                 IsAlbumListInteractive = true;
             }
 
-            UpdateGamescopeCaptureUiState();
+            UpdateCaptureUiInteractionState();
         }
         else if ((e.PropertyName == nameof(EmulationViewModel.SelectedShaderPath) ||
                   e.PropertyName == nameof(EmulationViewModel.SelectedShaderFileItem)) &&
                  vm.IsCompositionCaptureVisible &&
                  vm.IsEmulatorRunning)
         {
-            UpdateGamescopeCaptureUiState();
+            UpdateCaptureUiInteractionState();
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorLaunchInProgress))
         {

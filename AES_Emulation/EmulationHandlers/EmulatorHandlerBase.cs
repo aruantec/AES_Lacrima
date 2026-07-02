@@ -1,4 +1,5 @@
 using AES_Emulation.Windows.API;
+using AES_Emulation.Windows.VirtualDisplay;
 using AES_Core.Logging;
 using log4net;
 using System;
@@ -416,6 +417,13 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
             return;
 
         CaptureService?.PrepareProcessForCapture(process);
+    }
+
+    public virtual void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        WindowsVirtualDisplayMonitor monitor)
+    {
     }
 
     public virtual void PrepareWindowForCapture(IntPtr hwnd)

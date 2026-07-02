@@ -56,6 +56,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<int> TargetProcessIdProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(TargetProcessId));
 
+    public static readonly StyledProperty<IntPtr> TargetMonitorProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, IntPtr>(nameof(TargetMonitor));
+
     public static readonly StyledProperty<string?> TargetWindowTitleHintProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, string?>(nameof(TargetWindowTitleHint));
 
@@ -223,6 +226,12 @@ public class EmulatorCaptureHost : ContentControl
         RecreateMouseTunnel();
     }
 
+    public void SetPointerTunnelEnabled(bool enabled)
+    {
+        if (_mouseTunnel != null)
+            _mouseTunnel.TunnelMouse = enabled;
+    }
+
     public IntPtr TargetHwnd
     {
         get => GetValue(TargetHwndProperty);
@@ -233,6 +242,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(TargetProcessIdProperty);
         set => SetValue(TargetProcessIdProperty, value);
+    }
+
+    public IntPtr TargetMonitor
+    {
+        get => GetValue(TargetMonitorProperty);
+        set => SetValue(TargetMonitorProperty, value);
     }
 
     public string? TargetWindowTitleHint
@@ -979,6 +994,8 @@ public class EmulatorCaptureHost : ContentControl
             {
                 case CompositionWgcCaptureControl compositionBackend:
                     compositionBackend.TargetHwnd = TargetHwnd;
+                    compositionBackend.TargetMonitor = TargetMonitor;
+                    compositionBackend.CaptureOnVirtualDisplay = TargetMonitor != IntPtr.Zero;
                     compositionBackend.Stretch = Stretch;
                     compositionBackend.Brightness = Brightness;
                     compositionBackend.Saturation = Saturation;
@@ -993,7 +1010,8 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.ClientAreaCropRightInset = ClientAreaCropRightInset;
                     compositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                     compositionBackend.CaptureSessionStartDelayMs = CaptureSessionStartDelayMs;
-                    compositionBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                    compositionBackend.HideTargetWindowAfterCaptureStarts =
+                        TargetMonitor == IntPtr.Zero && HideTargetWindowAfterCaptureStarts;
                     compositionBackend.RestoreTargetWindowOnStop = RestoreTargetWindowOnStop;
                     compositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
                     compositionBackend.ShowStatisticsOverlay = false;

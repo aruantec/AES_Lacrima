@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AES_Controls.Composition;
 using AES_Controls.Helpers;
+using AES_Controls.Helpers.Windows;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
@@ -1610,6 +1611,63 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     public string GamescopeInstallLogPath => GamescopeManager?.InstallLogPath ?? string.Empty;
 
     /// <summary>
+    /// Gets or sets the Virtual Display Driver manager for Windows emulator capture.
+    /// </summary>
+    [AutoResolve]
+    [ObservableProperty]
+    private VirtualDisplayDriverManager? _virtualDisplayDriverManager;
+
+    /// <summary>
+    /// Gets whether Virtual Display Driver management is supported on this platform.
+    /// </summary>
+    public bool IsVirtualDisplayDriverSupported => VirtualDisplayDriverManager.IsSupported;
+
+    public string VirtualDisplayDriverRequiredMessage => VirtualDisplayDriverManager.CaptureRequiredUserMessage;
+
+    public string VirtualDisplayDriverInstallNote => VirtualDisplayDriverManager.InstallRequiresAdminMessage;
+
+    /// <summary>
+    /// Gets or sets whether the Virtual Display Driver is active and ready for capture.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isVirtualDisplayDriverInstalled;
+
+    /// <summary>
+    /// Gets or sets whether the Virtual Display Driver winget package is installed.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isVirtualDisplayDriverPackageInstalled;
+
+    /// <summary>
+    /// Gets or sets whether the virtual display kernel adapter is registered in Device Manager.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isVirtualDisplayDriverKernelInstalled;
+
+    public bool NeedsVirtualDisplayDriverCompletion =>
+        IsVirtualDisplayDriverPackageInstalled && !IsVirtualDisplayDriverInstalled;
+    [ObservableProperty]
+    private string? _virtualDisplayDriverVersion;
+
+    /// <summary>
+    /// Gets or sets the version of an available Virtual Display Driver update.
+    /// </summary>
+    [ObservableProperty]
+    private string? _virtualDisplayDriverUpdateVersion;
+
+    /// <summary>
+    /// Gets or sets whether a Virtual Display Driver update is available.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isVirtualDisplayDriverUpdateAvailable;
+
+    /// <summary>
+    /// True while a Virtual Display Driver install/upgrade command is running.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isVirtualDisplayDriverInstalling;
+
+    /// <summary>
     /// Gets or sets the currently selected tab in the compact mini settings view.
     /// This is not persisted and only exists to guide the mini-mode UX.
     /// </summary>
@@ -2029,6 +2087,109 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (GamescopeManager == null) return;
         await GamescopeManager.UninstallAsync();
         await RefreshGamescopeInfo();
+    }
+
+    /// <summary>
+    /// Refreshes information about the Virtual Display Driver installation.
+    /// </summary>
+    [RelayCommand]
+    public async Task RefreshVirtualDisplayDriverInfo()
+    {
+        if (VirtualDisplayDriverManager == null || !IsVirtualDisplayDriverSupported)
+            return;
+
+        try
+        {
+            IsVirtualDisplayDriverKernelInstalled = VirtualDisplayDriverManager.IsKernelDriverPresent();
+            IsVirtualDisplayDriverPackageInstalled = await VirtualDisplayDriverManager.IsPackageInstalledAsync().ConfigureAwait(true);
+            IsVirtualDisplayDriverInstalled = IsVirtualDisplayDriverKernelInstalled &&
+                                              await VirtualDisplayDriverManager.PingAsync().ConfigureAwait(true);
+            VirtualDisplayDriverVersion = await VirtualDisplayDriverManager.GetCurrentVersionAsync().ConfigureAwait(true);
+            var updateDetails = await VirtualDisplayDriverManager.CheckForUpdateDetailsAsync().ConfigureAwait(true);
+            IsVirtualDisplayDriverUpdateAvailable = updateDetails?.UpdateAvailable ?? false;
+            VirtualDisplayDriverUpdateVersion = updateDetails?.NewVersion;
+
+            if (!IsVirtualDisplayDriverInstalled && !IsVirtualDisplayDriverPackageInstalled)
+            {
+                VirtualDisplayDriverManager.Status = VirtualDisplayDriverManager.CaptureRequiredUserMessage;
+                VirtualDisplayDriverVersion = null;
+            }
+            else if (!IsVirtualDisplayDriverKernelInstalled && IsVirtualDisplayDriverPackageInstalled)
+            {
+                VirtualDisplayDriverManager.Status =
+                    "Virtual Display Driver download is complete. Click Install to let AES finish setup automatically.";
+            }
+            else if (IsVirtualDisplayDriverKernelInstalled && !IsVirtualDisplayDriverInstalled)
+            {
+                VirtualDisplayDriverManager.Status =
+                    VirtualDisplayKernelInstaller.GetDriverProblemUserMessage()
+                    ?? "Virtual Display Driver is registered in Windows, but capture is not responding yet. Reboot once, then refresh.";
+            }
+            else if (IsVirtualDisplayDriverUpdateAvailable)
+            {
+                VirtualDisplayDriverManager.Status = $"Virtual Display Driver update found: {VirtualDisplayDriverUpdateVersion}.";
+            }
+            else
+            {
+                VirtualDisplayDriverManager.Status = string.IsNullOrWhiteSpace(VirtualDisplayDriverVersion)
+                    ? "Virtual Display Driver is ready for capture."
+                    : $"Virtual Display Driver is ready for capture ({VirtualDisplayDriverVersion}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to refresh Virtual Display Driver info", ex);
+            VirtualDisplayDriverManager.Status = $"Virtual Display Driver check failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Installs the Virtual Display Driver using winget.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallVirtualDisplayDriver()
+    {
+        if (VirtualDisplayDriverManager == null) return;
+        IsVirtualDisplayDriverInstalling = true;
+        try
+        {
+            await VirtualDisplayDriverManager.InstallAsync().ConfigureAwait(true);
+            await RefreshVirtualDisplayDriverInfo().ConfigureAwait(true);
+        }
+        finally
+        {
+            IsVirtualDisplayDriverInstalling = false;
+        }
+    }
+
+    /// <summary>
+    /// Updates the Virtual Display Driver using winget.
+    /// </summary>
+    [RelayCommand]
+    private async Task UpdateVirtualDisplayDriver()
+    {
+        if (VirtualDisplayDriverManager == null) return;
+        IsVirtualDisplayDriverInstalling = true;
+        try
+        {
+            await VirtualDisplayDriverManager.UpgradeAsync().ConfigureAwait(true);
+            await RefreshVirtualDisplayDriverInfo().ConfigureAwait(true);
+        }
+        finally
+        {
+            IsVirtualDisplayDriverInstalling = false;
+        }
+    }
+
+    /// <summary>
+    /// Uninstalls the Virtual Display Driver using winget.
+    /// </summary>
+    [RelayCommand]
+    private async Task UninstallVirtualDisplayDriver()
+    {
+        if (VirtualDisplayDriverManager == null) return;
+        await VirtualDisplayDriverManager.UninstallAsync().ConfigureAwait(true);
+        await RefreshVirtualDisplayDriverInfo().ConfigureAwait(true);
     }
 
     /// <summary>
@@ -2769,6 +2930,27 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             newValue.PropertyChanged += OnGamescopeManagerPropertyChanged;
 
         OnPropertyChanged(nameof(GamescopeInstallLogPath));
+    }
+
+    partial void OnVirtualDisplayDriverManagerChanged(VirtualDisplayDriverManager? oldValue, VirtualDisplayDriverManager? newValue)
+    {
+        if (oldValue != null)
+            oldValue.PropertyChanged -= OnVirtualDisplayDriverManagerPropertyChanged;
+
+        if (newValue != null)
+            newValue.PropertyChanged += OnVirtualDisplayDriverManagerPropertyChanged;
+    }
+
+    private void OnVirtualDisplayDriverManagerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(VirtualDisplayDriverManager.IsBusy))
+        {
+            IsVirtualDisplayDriverInstalling = VirtualDisplayDriverManager?.IsBusy ?? false;
+            OnPropertyChanged(nameof(VirtualDisplayDriverManager.IsBusy));
+        }
+
+        if (e.PropertyName == nameof(VirtualDisplayDriverManager.Status))
+            OnPropertyChanged(nameof(VirtualDisplayDriverManager.Status));
     }
 
     private void OnGamescopeManagerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -4217,13 +4399,16 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         MpvManager ??= DiLocator.ResolveViewModel<MpvLibraryManager>();
         YtDlp ??= DiLocator.ResolveViewModel<YtDlpManager>();
         GamescopeManager ??= DiLocator.ResolveViewModel<GamescopeManager>();
+        VirtualDisplayDriverManager ??= DiLocator.ResolveViewModel<VirtualDisplayDriverManager>();
         AppUpdateService ??= DiLocator.ResolveViewModel<AppUpdateService>();
 
-        if (FfmpegManager == null || MpvManager == null || YtDlp == null || GamescopeManager == null || AppUpdateService == null)
+        if (FfmpegManager == null || MpvManager == null || YtDlp == null || GamescopeManager == null ||
+            VirtualDisplayDriverManager == null || AppUpdateService == null)
         {
             Log.Warn("One or more external tool managers failed to resolve during SettingsViewModel.Prepare. " +
                      $"FFmpegManager={(FfmpegManager != null)}, MpvManager={(MpvManager != null)}, " +
-                     $"YtDlp={(YtDlp != null)}, GamescopeManager={(GamescopeManager != null)}, AppUpdateService={(AppUpdateService != null)}");
+                     $"YtDlp={(YtDlp != null)}, GamescopeManager={(GamescopeManager != null)}, " +
+                     $"VirtualDisplayDriverManager={(VirtualDisplayDriverManager != null)}, AppUpdateService={(AppUpdateService != null)}");
         }
 
         // Disable our property‑changed handler while we populate values from disk.
@@ -4261,6 +4446,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         _ = RefreshMpvInfo();
         _ = RefreshYtDlpInfo();
         _ = RefreshGamescopeInfo();
+        _ = RefreshVirtualDisplayDriverInfo();
         _ = RefreshAppReleaseHistory(forceRefresh: false);
 
         // Generate dummy preview items

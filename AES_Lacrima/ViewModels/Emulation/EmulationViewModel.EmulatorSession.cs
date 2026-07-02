@@ -9,7 +9,9 @@ using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Steam;
+using AES_Controls.Helpers.Windows;
 using AES_Emulation.Windows.API;
+using AES_Emulation.Windows.VirtualDisplay;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
@@ -74,6 +76,7 @@ namespace AES_Lacrima.ViewModels
             else
                 RestoreTargetWindowOnStop = false;
             EmulatorTargetHwnd = IntPtr.Zero;
+            EmulatorTargetMonitor = IntPtr.Zero;
             IsEmulatorLaunchInProgress = true;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
@@ -105,6 +108,20 @@ namespace AES_Lacrima.ViewModels
             var launchStopwatch = Stopwatch.StartNew();
             try
             {
+                // Let the launch overlay paint before any heavy prep work runs on the UI thread.
+                await Task.Yield();
+
+                if (OperatingSystem.IsWindows())
+                {
+                    var mainWindow = DiLocator.ResolveViewModel<MainWindowViewModel>();
+                    if (mainWindow != null && !await mainWindow.EnsureVirtualDisplayDriverForCaptureAsync().ConfigureAwait(true))
+                    {
+                        SLog.Warn("Emulator launch blocked: Virtual Display Driver is not ready for Windows capture.");
+                        await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                        return;
+                    }
+                }
+
                 ClearRetroArchErrorState();
 
                 var handler = request.Handler;
@@ -116,6 +133,13 @@ namespace AES_Lacrima.ViewModels
                     : handler.CaptureStartupDelayMs;
 
                 SLog.Info($"Selected capture mode for '{handler.HandlerId}' is {SelectedCaptureMode}.");
+
+                Task? virtualDisplayPrepareTask = null;
+                if (OperatingSystem.IsWindows() && ShouldAttemptWindowsVirtualDisplayCapture())
+                {
+                    _windowsVirtualDisplayCaptureHandoffCompleted = false;
+                    virtualDisplayPrepareTask = EnsureWindowsVirtualDisplaySessionAsync();
+                }
 
                 if (!handler.IsPrepared)
                     handler.Prepare();
@@ -357,7 +381,21 @@ namespace AES_Lacrima.ViewModels
                 }
                 else
                 {
+                    if (virtualDisplayPrepareTask != null)
+                        await virtualDisplayPrepareTask.ConfigureAwait(false);
+
+                    if (ShouldUseWindowsVirtualDisplayCapture() && _windowsVirtualDisplayMonitor is { } launchMonitor)
+                    {
+                        WindowsVirtualDisplayLaunchHelper.PrepareStartInfoForVirtualDisplay(
+                            handler,
+                            startInfo,
+                            launchMonitor);
+                    }
+
                     process = Process.Start(startInfo);
+
+                    if (process != null && ShouldUseWindowsVirtualDisplayCapture() && _windowsVirtualDisplayMonitor is { } activeMonitor)
+                        WindowsVirtualDisplayLaunchHelper.BeginPlacement(process, activeMonitor, handler);
                 }
                 SLog.Info($"Emulation launch started for '{request.AlbumTitle}'/'{request.ItemTitle}' after {launchStopwatch.ElapsedMilliseconds} ms. pid={(process?.Id ?? 0)}.");
 
@@ -377,6 +415,7 @@ namespace AES_Lacrima.ViewModels
                 var useLinuxGamescopeCapture = OperatingSystem.IsLinux()
                                                && _linuxCompositorPid > 0
                                                && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition;
+                var useWindowsVirtualDisplayCapture = ShouldUseWindowsVirtualDisplayCapture();
                 if (process != null)
                 {
                     if (useLinuxGamescopeCapture)
@@ -387,6 +426,18 @@ namespace AES_Lacrima.ViewModels
                         SLog.Debug(
                             $"Skipping blocking runtime process resolution for Linux gamescope capture; " +
                             $"compositorPid={_linuxCompositorPid}.");
+                        _ = ResolveRuntimeProcessInBackgroundAsync(
+                            handler,
+                            process,
+                            request.AlbumTitle,
+                            request.ItemTitle,
+                            launchStopwatch);
+                    }
+                    else if (useWindowsVirtualDisplayCapture)
+                    {
+                        SLog.Debug(
+                            "Skipping blocking runtime process resolution for Windows virtual display capture; " +
+                            $"monitor=0x{(_windowsVirtualDisplayMonitor?.Handle ?? IntPtr.Zero).ToInt64():X}.");
                         _ = ResolveRuntimeProcessInBackgroundAsync(
                             handler,
                             process,
@@ -416,7 +467,8 @@ namespace AES_Lacrima.ViewModels
                         handler.HideUntilCaptured &&
                         !handler.DeferWindowHidingUntilCaptured &&
                         runtimeProcess != null &&
-                        OperatingSystem.IsWindows())
+                        OperatingSystem.IsWindows() &&
+                        !useWindowsVirtualDisplayCapture)
                     {
                         try
                         {
@@ -720,6 +772,138 @@ namespace AES_Lacrima.ViewModels
             }
         }
 
+        private bool ShouldAttemptWindowsVirtualDisplayCapture()
+            => OperatingSystem.IsWindows()
+               && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition
+               && VirtualDisplayDriverManager.IsDriverActive();
+
+        private bool ShouldUseWindowsVirtualDisplayCapture()
+            => OperatingSystem.IsWindows()
+               && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition
+               && _windowsVirtualDisplayMonitor != null;
+
+        private void TeardownWindowsVirtualDisplaySession(bool restoreDriverDisplayCount = true)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            _windowsVirtualDisplayMonitor = null;
+            _windowsVirtualDisplayCaptureHandoffCompleted = false;
+
+            var session = _windowsVirtualDisplaySession;
+            _windowsVirtualDisplaySession = null;
+            if (session == null)
+                return;
+
+            if (!restoreDriverDisplayCount)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await session.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to tear down Windows virtual display session.", ex);
+                }
+            });
+        }
+
+        private async Task EnsureWindowsVirtualDisplaySessionAsync()
+        {
+            if (_windowsVirtualDisplaySession?.IsActive == true && _windowsVirtualDisplayMonitor != null)
+                return;
+
+            var adoptedStartupSession = Interlocked.Exchange(ref _startupVirtualDisplaySession, null);
+            if (adoptedStartupSession?.IsActive == true)
+            {
+                _windowsVirtualDisplaySession = adoptedStartupSession;
+                _windowsVirtualDisplayMonitor = adoptedStartupSession.ActiveMonitor;
+                var adoptedMonitor = _windowsVirtualDisplayMonitor;
+                SLog.Info(
+                    $"Adopted startup virtual display '{adoptedMonitor?.DeviceName}' " +
+                    $"{adoptedMonitor?.Width}x{adoptedMonitor?.Height} at {adoptedMonitor?.Left},{adoptedMonitor?.Top}.");
+                return;
+            }
+
+            adoptedStartupSession?.Dispose();
+
+            try
+            {
+                var driverManager = SettingsViewModel?.VirtualDisplayDriverManager
+                    ?? DiLocator.ResolveViewModel<VirtualDisplayDriverManager>();
+                if (driverManager == null)
+                    return;
+
+                _windowsVirtualDisplaySession = await WindowsVirtualDisplaySession
+                    .StartAsync(driverManager, CancellationToken.None)
+                    .ConfigureAwait(false);
+                _windowsVirtualDisplayMonitor = _windowsVirtualDisplaySession.ActiveMonitor;
+                var monitor = _windowsVirtualDisplayMonitor;
+                SLog.Info(
+                    $"Virtual display ready for capture on '{monitor?.DeviceName}' " +
+                    $"{monitor?.Width}x{monitor?.Height} at {monitor?.Left},{monitor?.Top}.");
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to prepare virtual display session; falling back to standard HWND capture.", ex);
+                TeardownWindowsVirtualDisplaySession();
+            }
+        }
+
+        private void PreWarmWindowsVirtualDisplayCapture()
+        {
+            if (!ShouldAttemptWindowsVirtualDisplayCapture())
+                return;
+
+            if (_windowsVirtualDisplaySession?.IsActive == true && _windowsVirtualDisplayMonitor != null)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await EnsureWindowsVirtualDisplaySessionAsync().ConfigureAwait(false);
+                    SLog.Info("Virtual display pre-warmed for Windows capture.");
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Background virtual display pre-warm failed.", ex);
+                }
+            });
+        }
+
+        internal static void PreWarmWindowsVirtualDisplayCaptureAtStartup()
+        {
+            if (!OperatingSystem.IsWindows() || !VirtualDisplayDriverManager.IsDriverActive())
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var driverManager = DiLocator.ResolveViewModel<VirtualDisplayDriverManager>();
+                    if (driverManager == null)
+                        return;
+
+                    if (WindowsVirtualDisplayMonitorHelper.EnumerateVirtualMonitors().Count > 0)
+                        return;
+
+                    Interlocked.Exchange(ref _startupVirtualDisplaySession, null)?.Dispose();
+                    _startupVirtualDisplaySession = await WindowsVirtualDisplaySession
+                        .StartAsync(driverManager, CancellationToken.None)
+                        .ConfigureAwait(false);
+                    SLog.Info("Virtual display pre-warmed at application startup.");
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Application startup virtual display pre-warm failed.", ex);
+                }
+            });
+        }
+
         private void PrepareEmulatorShutdownCapture()
         {
             RestoreTargetWindowOnStop = false;
@@ -932,6 +1116,9 @@ namespace AES_Lacrima.ViewModels
                     EmulatorTargetHwnd = IntPtr.Zero;
                 }
 
+                if (EmulatorTargetMonitor != IntPtr.Zero)
+                    EmulatorTargetMonitor = IntPtr.Zero;
+
                 ClearActiveCaptureRomPath();
             }, DispatcherPriority.Background);
 
@@ -941,6 +1128,7 @@ namespace AES_Lacrima.ViewModels
         private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler, string? gameTitle = null)
         {
             EmulatorTargetHwnd = IntPtr.Zero;
+            EmulatorTargetMonitor = IntPtr.Zero;
 
             if (process == null)
             {
@@ -950,6 +1138,7 @@ namespace AES_Lacrima.ViewModels
                 RestoreAppTopMost();
                 RestoreHostWindowFocus();
                 EmulatorTargetHwnd = IntPtr.Zero;
+                EmulatorTargetMonitor = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 IsEmulatorLaunchInProgress = false;
                 StopGameplayPreview();
@@ -1052,6 +1241,12 @@ namespace AES_Lacrima.ViewModels
                 StartActiveEmulatorWatchdog(process);
                 _ = CompleteLinuxGamescopeCaptureHandoffAsync(process, romPath);
             }
+            else if (ShouldUseWindowsVirtualDisplayCapture())
+            {
+                StartActiveEmulatorWatchdog(process);
+                _ = CompleteWindowsVirtualDisplayCaptureHandoffAsync(process, romPath);
+                _ = PositionEmulatorOnVirtualDisplayAsync(process, handler);
+            }
             else
             {
                 StartActiveEmulatorWatchdog(process);
@@ -1095,6 +1290,69 @@ namespace AES_Lacrima.ViewModels
             {
                 SLog.Warn($"Linux gamescope capture handoff failed for '{romPath}'.", ex);
                 ScheduleEmulatorLaunchOverlayFallbackClear();
+            }
+        }
+
+        private async Task CompleteWindowsVirtualDisplayCaptureHandoffAsync(Process process, string romPath)
+        {
+            try
+            {
+                await Task.Delay(50).ConfigureAwait(false);
+                if (!ReferenceEquals(_activeEmulatorProcess, process))
+                    return;
+
+                var monitorHandle = _windowsVirtualDisplayMonitor?.Handle ?? IntPtr.Zero;
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!ReferenceEquals(_activeEmulatorProcess, process) || _isClosingActiveEmulatorForRelaunch)
+                        return;
+
+                    RestoreAppTopMost();
+                    RestoreHostWindowFocus();
+                    ClearRetroArchErrorState();
+                    if (monitorHandle != IntPtr.Zero)
+                        EmulatorTargetMonitor = monitorHandle;
+                    _windowsVirtualDisplayCaptureHandoffCompleted = true;
+                    IsEmulatorLaunchInProgress = false;
+                    SLog.Info(
+                        $"Windows virtual display monitor capture handoff completed for '{romPath}'. monitor=0x{monitorHandle.ToInt64():X}.");
+                }, DispatcherPriority.Background);
+
+                ScheduleEmulatorLaunchOverlayFallbackClear();
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn($"Windows virtual display capture handoff failed for '{romPath}'.", ex);
+                ScheduleEmulatorLaunchOverlayFallbackClear();
+            }
+        }
+
+        private async Task PositionEmulatorOnVirtualDisplayAsync(Process process, IEmulatorHandler handler)
+        {
+            if (!ShouldUseWindowsVirtualDisplayCapture() || _windowsVirtualDisplayMonitor is not { } monitor)
+                return;
+
+            try
+            {
+                await WindowsVirtualDisplayLaunchHelper
+                    .PositionProcessOnVirtualDisplayAsync(process, monitor, handler, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (!ReferenceEquals(_activeEmulatorProcess, process))
+                    return;
+
+                var hwnd = await WindowsVirtualDisplayLaunchHelper
+                    .TryResolveWindowOnMonitorAsync(process, monitor.Handle, handler, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (hwnd == IntPtr.Zero)
+                    return;
+
+                await TryApplyEmulatorTargetHwndAsync(process, hwnd, showWindowForCapture: false, handler)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed to position emulator on virtual display for input routing.", ex);
             }
         }
 
@@ -1241,6 +1499,7 @@ namespace AES_Lacrima.ViewModels
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
             EmulatorTargetProcessId = 0;
+            EmulatorTargetMonitor = IntPtr.Zero;
 
             if (!_isClosingActiveEmulatorForRelaunch)
                 RequestStopEmulatorCapture = true;
@@ -1273,14 +1532,20 @@ namespace AES_Lacrima.ViewModels
 
         private string? TryBuildEarlyLinuxLaunchFailureDetails(Process process, IEmulatorHandler? handler)
         {
-            if (!OperatingSystem.IsLinux() ||
-                _linuxCaptureHandoffCompleted ||
-                _isClosingActiveEmulatorForRelaunch)
-            {
+            if (_isClosingActiveEmulatorForRelaunch)
                 return null;
-            }
 
             if ((DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalSeconds > 60)
+                return null;
+
+            if (OperatingSystem.IsWindows() &&
+                _windowsVirtualDisplayMonitor != null &&
+                !_windowsVirtualDisplayCaptureHandoffCompleted)
+            {
+                return "The game exited before virtual display capture could start.";
+            }
+
+            if (!OperatingSystem.IsLinux() || _linuxCaptureHandoffCompleted)
                 return null;
 
             if (handler is SteamHandler)
@@ -1394,6 +1659,7 @@ namespace AES_Lacrima.ViewModels
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
+                EmulatorTargetMonitor = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 _retroArchLogWatcherCts?.Cancel();
                 _retroArchLogWatcherCts?.Dispose();
@@ -1416,6 +1682,7 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorRomPath = null;
                 _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
+                EmulatorTargetMonitor = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 _linuxSuspendedEmulatorPids.Clear();
                 _emulatorAudioVolume.Detach();

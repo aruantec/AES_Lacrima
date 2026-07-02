@@ -359,6 +359,18 @@ namespace AES_Lacrima
                 Logger.Warn("Failed during post-startup tool checks", ex);
             }
 
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    AES_Lacrima.ViewModels.EmulationViewModel.PreWarmWindowsVirtualDisplayCaptureAtStartup();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Debug("Virtual display startup pre-warm scheduling failed.", ex);
+                }
+            }
+
             Logger.Info($"Post-startup initialization completed in {startupStopwatch.ElapsedMilliseconds} ms.");
             StopStartupUiProbe("post-startup-complete");
         }

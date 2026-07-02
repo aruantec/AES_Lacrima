@@ -683,6 +683,7 @@ namespace AES_Lacrima.ViewModels
             if (OperatingSystem.IsLinux())
                 TeardownLinuxGamescopeSession();
             EmulatorTargetHwnd = IntPtr.Zero;
+            EmulatorTargetMonitor = IntPtr.Zero;
             EmulatorTargetProcessId = 0;
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
@@ -740,12 +741,18 @@ namespace AES_Lacrima.ViewModels
 
             PrepareEmulatorShutdownCapture();
 
+            if (OperatingSystem.IsWindows())
+                TeardownWindowsVirtualDisplaySession();
+
             var shutdownHwnd = EmulatorTargetHwnd;
             if (shutdownHwnd != IntPtr.Zero)
             {
                 SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{shutdownHwnd.ToInt64():X} for application shutdown.");
                 EmulatorTargetHwnd = IntPtr.Zero;
             }
+
+            if (EmulatorTargetMonitor != IntPtr.Zero)
+                EmulatorTargetMonitor = IntPtr.Zero;
 
             if (!TryGetRunningTrackedEmulatorProcess(out var process))
             {

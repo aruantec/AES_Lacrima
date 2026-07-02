@@ -23,6 +23,7 @@ namespace AES_Lacrima
             {
                 [typeof(AppUpdatePromptViewModel)] = static () => new AppUpdatePromptView(),
                 [typeof(ComponentSetupPromptViewModel)] = static () => new ComponentSetupPromptView(),
+                [typeof(VirtualDisplaySetupPromptViewModel)] = static () => new VirtualDisplaySetupPromptView(),
                 [typeof(RestartPromptViewModel)] = static () => new RestartPromptView(),
                 [typeof(EmulatorErrorPromptViewModel)] = static () => new EmulatorErrorPromptView(),
                 [typeof(ViewModels.EmulationViewModel)] = static () => new EmulationView(),

@@ -860,6 +860,45 @@
                                        Margin="0,4,0,0"
                                        IsVisible="{Binding GamescopeManager.IsBusy}"/>
                         </StackPanel>
+                        <StackPanel IsVisible="{Binding IsVirtualDisplayDriverSupported}">
+                            <TextBlock Text="Virtual Display Driver" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
+                            <Separator Margin="0,0,0,15"/>
+                            <TextBlock Text="{Binding VirtualDisplayDriverRequiredMessage}"
+                                       TextWrapping="Wrap"
+                                       FontSize="14"
+                                       Foreground="Gold"
+                                       Margin="0,0,0,10"/>
+                            <TextBlock Text="{Binding VirtualDisplayDriverInstallNote}"
+                                       TextWrapping="Wrap"
+                                       FontSize="13"
+                                       Foreground="DarkGray"
+                                       Margin="0,0,0,10"/>
+                            <StackPanel Spacing="10" Margin="0,0,0,15">
+                                <TextBlock Text="{Binding VirtualDisplayDriverManager.Status}" FontSize="16" Foreground="DarkGray"/>
+                                <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10" IsVisible="{Binding IsVirtualDisplayDriverInstalled}">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding VirtualDisplayDriverVersion, FallbackValue='Not Found'}" FontSize="18" Foreground="WhiteSmoke"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="5" IsVisible="{Binding IsVirtualDisplayDriverUpdateAvailable}">
+                                        <TextBlock Text="UPDATE AVAILABLE" FontSize="14" Foreground="Gold" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding VirtualDisplayDriverUpdateVersion}" FontSize="18" Foreground="Gold"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="Install Virtual Display Driver" Command="{Binding InstallVirtualDisplayDriverCommand}" IsVisible="{Binding !IsVirtualDisplayDriverKernelInstalled}" IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Update" Command="{Binding UpdateVirtualDisplayDriverCommand}" IsVisible="{Binding IsVirtualDisplayDriverUpdateAvailable}" IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Uninstall" Background="#F44336" Foreground="White" Command="{Binding UninstallVirtualDisplayDriverCommand}" IsVisible="{Binding IsVirtualDisplayDriverPackageInstalled}" IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}" Padding="15,8"/>
+                                <Button Content="Refresh Driver Info" Command="{Binding RefreshVirtualDisplayDriverInfoCommand}" IsEnabled="{Binding !VirtualDisplayDriverManager.IsBusy}" Padding="15,8"/>
+                            </StackPanel>
+                            <ProgressBar IsIndeterminate="True" IsVisible="{Binding VirtualDisplayDriverManager.IsBusy}" Margin="0,20,0,0" Height="8" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                            <TextBlock Text="Installing Virtual Display Driver — approve the administrator prompts when Windows asks..."
+                                       FontSize="13"
+                                       Foreground="Gold"
+                                       Margin="0,8,0,0"
+                                       IsVisible="{Binding VirtualDisplayDriverManager.IsBusy}"/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

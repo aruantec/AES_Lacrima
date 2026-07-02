@@ -1,3 +1,4 @@
+using AES_Emulation.Windows.VirtualDisplay;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -85,6 +86,20 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
         => BuildRetroArchStartInfo(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore, FlatpakAppId);
+
+    public override void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        WindowsVirtualDisplayMonitor monitor)
+    {
+        var configPath = WriteRetroArchWindowsVirtualDisplayConfig(monitorIndex, monitor, FlatpakAppId);
+        if (string.IsNullOrWhiteSpace(configPath))
+            return;
+
+        startInfo.ArgumentList.Add("--appendconfig");
+        startInfo.ArgumentList.Add(configPath);
+        startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+    }
 
     public static ProcessStartInfo BuildRetroArchStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null, string? flatpakAppId = null)
         => BuildRetroArchStartInfoInternal(launcherPath, romPath, startFullscreen, sectionTitle, selectedRetroArchCore, flatpakAppId);
@@ -336,6 +351,37 @@ public sealed class RetroArchHandler : EmulatorHandlerBase
                 "video_context_driver = \"x\"",
                 "video_fullscreen = \"true\"",
                 "video_windowed_fullscreen = \"true\""
+            });
+
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? WriteRetroArchWindowsVirtualDisplayConfig(
+        int monitorIndex,
+        WindowsVirtualDisplayMonitor monitor,
+        string? flatpakAppId = null)
+    {
+        try
+        {
+            var path = Path.Combine(
+                ResolveRetroArchWritableDirectory(null, flatpakAppId) ?? Path.GetTempPath(),
+                "aes-lacrima-retroarch-virtual-display.cfg");
+            File.WriteAllLines(path, new[]
+            {
+                "video_fullscreen = \"true\"",
+                "video_windowed_fullscreen = \"true\"",
+                $"video_monitor_index = \"{monitorIndex}\"",
+                $"video_windowed_position_x = \"{monitor.Left}\"",
+                $"video_windowed_position_y = \"{monitor.Top}\"",
+                $"video_windowed_width = \"{monitor.Width}\"",
+                $"video_windowed_height = \"{monitor.Height}\"",
+                "pause_nonactive = \"false\"",
+                "input_auto_game_focus = \"0\""
             });
 
             return path;

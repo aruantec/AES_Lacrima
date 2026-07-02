@@ -10,6 +10,7 @@ using AES_Emulation.EmulationHandlers;
 using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Windows.API;
+using AES_Emulation.Windows.VirtualDisplay;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
@@ -262,6 +263,10 @@ private bool _isShadPs4PatchesOverlayOpen;
         private int _linuxCompositorPid;
         private int _linuxCompositorOutputWidth;
         private int _linuxCompositorOutputHeight;
+        private WindowsVirtualDisplaySession? _windowsVirtualDisplaySession;
+        private WindowsVirtualDisplayMonitor? _windowsVirtualDisplayMonitor;
+        private static WindowsVirtualDisplaySession? _startupVirtualDisplaySession;
+        private bool _windowsVirtualDisplayCaptureHandoffCompleted;
         private string? _activeEmulatorRomPath;
         private string? _activeEmulatorGameTitle;
         private ShadPs4IpcSession? _shadPs4IpcSession;
@@ -560,6 +565,9 @@ private bool _isShadPs4PatchesOverlayOpen;
 
         [ObservableProperty]
         private IntPtr _emulatorTargetHwnd;
+
+        [ObservableProperty]
+        private IntPtr _emulatorTargetMonitor;
 
         [ObservableProperty]
         private int _emulatorTargetProcessId;
@@ -1457,6 +1465,7 @@ private bool _isShadPs4PatchesOverlayOpen;
                     ScheduleDeferredSteamStartupSync();
                     FlushDeferredSteamPresentationUpdates();
                     FlushDeferredAlbumCoverDisplayNotification();
+                    PreWarmWindowsVirtualDisplayCapture();
                 }
             }
         }

@@ -1,0 +1,67 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AES_Lacrima.ViewModels.Prompts"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="AES_Lacrima.Views.Prompts.VirtualDisplaySetupPromptView"
+             x:DataType="vm:VirtualDisplaySetupPromptViewModel">
+    <Grid Background="#B3000000" Grid.ColumnDefinitions="30*,40*,30*">
+        <Border Background="#1E1E1E"
+                BorderBrush="#3E3E42"
+                BorderThickness="1"
+                CornerRadius="8"
+                Grid.Column="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <Grid Name="Dialog" RowDefinitions="*,Auto">
+                <StackPanel Margin="30" Spacing="20">
+                    <TextBlock Text="Virtual Display Driver Required"
+                               FontSize="22"
+                               FontWeight="Bold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding Message}"
+                               FontSize="18"
+                               Foreground="#CCCCCC"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="20"
+                            Spacing="10">
+                    <ProgressBar Grid.ColumnSpan="3"
+                                 IsIndeterminate="True"
+                                 IsVisible="{Binding IsInstalling}"
+                                 VerticalAlignment="Top"
+                                 Margin="0,-30,0,0"
+                                 Height="2"/>
+                    <Button Content="SKIP"
+                            Command="{Binding SkipCommand}"
+                            IsEnabled="{Binding !IsInstalling}"
+                            Background="Transparent"
+                            BorderBrush="#3E3E42"
+                            Width="100"
+                            HorizontalContentAlignment="Center"/>
+                    <Button Content="OPEN SETTINGS"
+                            Command="{Binding OpenSettingsCommand}"
+                            IsEnabled="{Binding !IsInstalling}"
+                            Background="#4E4E4E"
+                            Foreground="White"
+                            Width="120"
+                            HorizontalContentAlignment="Center"/>
+                    <Button Content="INSTALL"
+                            Command="{Binding InstallCommand}"
+                            IsEnabled="{Binding !IsInstalling}"
+                            Background="#007ACC"
+                            Foreground="White"
+                            FontWeight="Bold"
+                            Width="150"
+                            HorizontalContentAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
