@@ -69,6 +69,9 @@ public static class ArchiveExtractionHelper
         });
     }
 
+    public static bool TryExtractWithSystemTool(string archivePath, string extractDirectory)
+        => TryExtract7zWithSystemTool(archivePath, extractDirectory);
+
     private static bool TryExtract7zWithSystemTool(string archivePath, string extractDirectory)
     {
         foreach (var tool in Get7zToolCandidates())
@@ -109,7 +112,15 @@ public static class ArchiveExtractionHelper
     private static IEnumerable<string> Get7zToolCandidates()
     {
         if (OperatingSystem.IsWindows())
-            return new[] { "tar.exe", "7z.exe" };
+        {
+            return new[]
+            {
+                "7z.exe",
+                @"C:\Program Files\7-Zip\7z.exe",
+                @"C:\Program Files (x86)\7-Zip\7z.exe",
+                "tar.exe"
+            };
+        }
 
         return new[]
         {

@@ -31,7 +31,7 @@ namespace AES_Lacrima.ViewModels
 
         private void ScheduleDeferredSteamStartupSync()
         {
-            if (!OperatingSystem.IsLinux())
+            if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
                 return;
 
             if (Volatile.Read(ref _steamStartupSyncState) == 2)

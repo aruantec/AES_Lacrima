@@ -1,3 +1,4 @@
+using AES_Controls.Helpers;
 using AES_Emulation.Windows.API;
 using AES_Core.Logging;
 using log4net;
@@ -183,6 +184,8 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     public virtual double? CaptureWindowAspectRatio => 16.0 / 9.0;
 
     public virtual EmulatorCaptureMode PreferredCaptureMode => EmulatorCaptureMode.DirectComposition;
+
+    public virtual bool PrefersParsecMonitorCapture => OperatingSystem.IsWindows();
 
     public virtual string LinuxGamescopeScalingMode => "fit";
 
@@ -427,12 +430,17 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
         HideWindowForCapture(hwnd);
     }
 
-    /// <summary>
-    /// Strip decorations and resize the capture target before WGC attaches. Does not hide/move the window.
-    /// </summary>
     public virtual void PrepareWindowForCaptureAttach(IntPtr hwnd)
     {
         ApplyCaptureWindowGeometryPrepare(hwnd);
+    }
+
+    public virtual void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        ParsecVirtualDisplayMonitor monitor)
+    {
+        startInfo.UseShellExecute = false;
     }
 
     protected void ApplyCaptureWindowGeometryPrepare(IntPtr hwnd)
@@ -452,6 +460,10 @@ public abstract class EmulatorHandlerBase : IEmulatorHandler
     }
 
     public virtual IntPtr FindPreferredWindowHandle(Process process) => CaptureService?.FindPreferredWindowHandle(process) ?? process.MainWindowHandle;
+
+    public virtual IntPtr FindVirtualDisplayPlacementWindowHandle(Process process) =>
+        FindPreferredWindowHandle(process);
+
     protected static IReadOnlyList<IntPtr> EnumerateProcessTopLevelWindows(Process process, bool includeHiddenWindows = false, string? fallbackTitleHint = null)
     {
         if (!OperatingSystem.IsWindows())

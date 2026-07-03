@@ -108,6 +108,24 @@ public partial class EmulationView : UserControl
             o => o.PortalGpuVendor,
             (o, v) => o.PortalGpuVendor = v);
 
+    public static readonly DirectProperty<EmulationView, string> PortalVirtualDisplayStatusTextProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, string>(
+            nameof(PortalVirtualDisplayStatusText),
+            o => o.PortalVirtualDisplayStatusText,
+            (o, v) => o.PortalVirtualDisplayStatusText = v);
+
+    public static readonly DirectProperty<EmulationView, bool> PortalVirtualDisplayStatusIsHealthyProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(PortalVirtualDisplayStatusIsHealthy),
+            o => o.PortalVirtualDisplayStatusIsHealthy,
+            (o, v) => o.PortalVirtualDisplayStatusIsHealthy = v);
+
+    public static readonly DirectProperty<EmulationView, bool> ShowPortalVirtualDisplayStatusProperty =
+        AvaloniaProperty.RegisterDirect<EmulationView, bool>(
+            nameof(ShowPortalVirtualDisplayStatus),
+            o => o.ShowPortalVirtualDisplayStatus,
+            (o, v) => o.ShowPortalVirtualDisplayStatus = v);
+
     public static readonly DirectProperty<EmulationView, Geometry?> PortalFrametimeGraphGeometryProperty =
         AvaloniaProperty.RegisterDirect<EmulationView, Geometry?>(
             nameof(PortalFrametimeGraphGeometry),
@@ -175,6 +193,9 @@ public partial class EmulationView : UserControl
     private double _portalCaptureFrameTimeMs;
     private string _portalGpuRenderer = "Unknown";
     private string _portalGpuVendor = "Unknown";
+    private string _portalVirtualDisplayStatusText = string.Empty;
+    private bool _portalVirtualDisplayStatusIsHealthy;
+    private bool _showPortalVirtualDisplayStatus;
     private Geometry? _portalFrametimeGraphGeometry;
     private CancellationTokenSource? _portalBrightnessFadeCancellation;
     private CancellationTokenSource? _portalHideTransitionCancellation;
@@ -263,6 +284,10 @@ public partial class EmulationView : UserControl
         PortalStatusText = "DirectComposition idle";
         PortalGpuRenderer = "Unknown";
         PortalGpuVendor = "Unknown";
+        ShowPortalVirtualDisplayStatus = OperatingSystem.IsWindows();
+        PortalVirtualDisplayStatusText = OperatingSystem.IsWindows()
+            ? "Virtual display: loading..."
+            : string.Empty;
         IsAlbumListInteractive = true;
         CarouselOpacity = 1;
         AlbumRowOpacity = 1;
@@ -650,6 +675,24 @@ public partial class EmulationView : UserControl
         set => SetAndRaise(PortalGpuVendorProperty, ref _portalGpuVendor, value);
     }
 
+    public string PortalVirtualDisplayStatusText
+    {
+        get => _portalVirtualDisplayStatusText;
+        set => SetAndRaise(PortalVirtualDisplayStatusTextProperty, ref _portalVirtualDisplayStatusText, value);
+    }
+
+    public bool PortalVirtualDisplayStatusIsHealthy
+    {
+        get => _portalVirtualDisplayStatusIsHealthy;
+        set => SetAndRaise(PortalVirtualDisplayStatusIsHealthyProperty, ref _portalVirtualDisplayStatusIsHealthy, value);
+    }
+
+    public bool ShowPortalVirtualDisplayStatus
+    {
+        get => _showPortalVirtualDisplayStatus;
+        set => SetAndRaise(ShowPortalVirtualDisplayStatusProperty, ref _showPortalVirtualDisplayStatus, value);
+    }
+
     public Geometry? PortalFrametimeGraphGeometry
     {
         get => _portalFrametimeGraphGeometry;
@@ -878,6 +921,7 @@ public partial class EmulationView : UserControl
             AttachMetadataServiceForCapture(vm);
             UpdatePortalVisibility(vm);
             UpdateEmulatorLaunchGateActive();
+            RefreshPortalVirtualDisplayStatusFromViewModel(vm);
         }
         else
         {
@@ -925,9 +969,18 @@ public partial class EmulationView : UserControl
                 EnsureInlineCaptureHost();
                 vm.SetActiveCaptureHostForRecording(ActiveCaptureHost);
                 UpdateGamescopeCaptureUiState();
+                RefreshPortalVirtualDisplayStatusFromViewModel(vm);
                 if (vm.IsCompositionCaptureVisible)
                     AttachPortalCaptureBindings();
             }
+        }
+        else if (e.PropertyName is nameof(EmulationViewModel.ParsecVirtualDisplayStatusText)
+                 or nameof(EmulationViewModel.ParsecVirtualDisplayStatusIsHealthy)
+                 or nameof(EmulationViewModel.EmulatorTargetMonitor)
+                 or nameof(EmulationViewModel.EmulatorTargetHwnd)
+                 or nameof(EmulationViewModel.UsesParsecVirtualDisplayMonitorCapture))
+        {
+            RefreshPortalVirtualDisplayStatusFromViewModel(vm);
         }
         else if (e.PropertyName == nameof(EmulationViewModel.IsActive) && vm.IsActive)
         {
@@ -1954,6 +2007,7 @@ public partial class EmulationView : UserControl
         if (_portalFullscreenOverlayWindow.FindControl<PortalCaptureStatsOverlay>("StatsOverlay") is { } statsOverlay &&
             DataContext is EmulationViewModel vm)
         {
+            RefreshPortalVirtualDisplayStatusFromViewModel(vm);
             statsOverlay.CaptureHost = this;
             statsOverlay.Settings = vm;
         }
@@ -2121,11 +2175,14 @@ public partial class EmulationView : UserControl
 
     private void RefreshPortalCaptureStatsOverlay()
     {
+        if (DataContext is EmulationViewModel vm)
+            RefreshPortalVirtualDisplayStatusFromViewModel(vm);
+
         if (this.FindControl<PortalCaptureStatsOverlay>("CaptureStatsOverlay") is { } overlay &&
-            DataContext is EmulationViewModel vm)
+            DataContext is EmulationViewModel settingsVm)
         {
             overlay.CaptureHost = this;
-            overlay.Settings = vm;
+            overlay.Settings = settingsVm;
         }
     }
 
@@ -2218,7 +2275,26 @@ public partial class EmulationView : UserControl
             .GetObservable(EmulatorCaptureHostControl.GpuVendorProperty)
             .Subscribe(new SimpleObserver<string>(value => PortalGpuVendor = value));
 
+        if (DataContext is EmulationViewModel vm)
+            RefreshPortalVirtualDisplayStatusFromViewModel(vm);
+
         RefreshPortalCaptureStatsOverlay();
+    }
+
+    private void RefreshPortalVirtualDisplayStatusFromViewModel(EmulationViewModel? vm = null)
+    {
+        vm ??= DataContext as EmulationViewModel;
+        if (vm == null || !OperatingSystem.IsWindows())
+        {
+            ShowPortalVirtualDisplayStatus = false;
+            PortalVirtualDisplayStatusText = string.Empty;
+            PortalVirtualDisplayStatusIsHealthy = false;
+            return;
+        }
+
+        ShowPortalVirtualDisplayStatus = true;
+        PortalVirtualDisplayStatusText = vm.ParsecVirtualDisplayStatusText;
+        PortalVirtualDisplayStatusIsHealthy = vm.ParsecVirtualDisplayStatusIsHealthy;
     }
 
     private void EnsureInlineCaptureHost()

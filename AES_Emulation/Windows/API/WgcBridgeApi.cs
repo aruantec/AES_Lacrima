@@ -17,6 +17,7 @@ public static class WgcBridgeApi
     private static bool s_releaseLatestFrameFaulted;
     private static bool s_loggedCreateCaptureSession;
     private static bool s_loggedCreateDirectCompositionCaptureSession;
+    private static bool s_loggedCreateMonitorCaptureSession;
     private static bool s_loggedGetLatestFrame;
     private static bool s_loggedPeekLatestFrame;
     private static bool s_loggedAcquireLatestFrame;
@@ -107,6 +108,10 @@ public static class WgcBridgeApi
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint CreateDirectCompositionCaptureSessionDel(nint targetHwnd, nint presentationHwnd, int lowLatencyCapture);
     private static CreateDirectCompositionCaptureSessionDel? s_createDirectCompositionCaptureSession;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint CreateMonitorCaptureSessionDel(nint monitor);
+    private static CreateMonitorCaptureSessionDel? s_createMonitorCaptureSession;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void DestroyCaptureSessionDel(nint session);
@@ -200,6 +205,7 @@ public static class WgcBridgeApi
                 string[] exports = new[] {
                     "CreateCaptureSession",
                     "CreateDirectCompositionCaptureSession",
+                    "CreateMonitorCaptureSession",
                     "GetLatestFrame",
                     "DestroyCaptureSession",
                     "GetCaptureStatus",
@@ -266,6 +272,8 @@ public static class WgcBridgeApi
                     s_createCaptureSession = Marshal.GetDelegateForFunctionPointer<CreateCaptureSessionDel>(pCreate);
                 if (NativeLibrary.TryGetExport(handle, "CreateDirectCompositionCaptureSession", out IntPtr pCreateDComp))
                     s_createDirectCompositionCaptureSession = Marshal.GetDelegateForFunctionPointer<CreateDirectCompositionCaptureSessionDel>(pCreateDComp);
+                if (NativeLibrary.TryGetExport(handle, "CreateMonitorCaptureSession", out IntPtr pCreateMonitor))
+                    s_createMonitorCaptureSession = Marshal.GetDelegateForFunctionPointer<CreateMonitorCaptureSessionDel>(pCreateMonitor);
                 if (NativeLibrary.TryGetExport(handle, "DestroyCaptureSession", out IntPtr pDestroy))
                     s_destroyCaptureSession = Marshal.GetDelegateForFunctionPointer<DestroyCaptureSessionDel>(pDestroy);
                 if (NativeLibrary.TryGetExport(handle, "GetCaptureStatus", out IntPtr pStatus))
@@ -322,6 +330,9 @@ public static class WgcBridgeApi
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "CreateDirectCompositionCaptureSession")]
     private static extern nint CreateDirectCompositionCaptureSessionNative(nint targetHwnd, nint presentationHwnd, int lowLatencyCapture);
+
+    [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "CreateMonitorCaptureSession")]
+    private static extern nint CreateMonitorCaptureSessionNative(nint monitor);
 
     [DllImport("WgcBridge.dll", CallingConvention = CallingConvention.Cdecl, SetLastError = true, EntryPoint = "GetLatestFrame")]
     private static extern bool GetLatestFrameNative(nint session, nint outBuffer, nuint bufferSize, out int width, out int height);
@@ -413,6 +424,38 @@ public static class WgcBridgeApi
         catch (Exception ex)
         {
             LogError("[WGC] Exception CreateCaptureSession.", ex);
+            return nint.Zero;
+        }
+    }
+
+    public static nint CreateMonitorCaptureSession(nint monitor)
+    {
+        try
+        {
+            LogDebugOnce(ref s_loggedCreateMonitorCaptureSession, "[WGC] CreateMonitorCaptureSession invoked for the first time.");
+            if (s_createMonitorCaptureSession != null)
+            {
+                var result = s_createMonitorCaptureSession(monitor);
+                if (result == nint.Zero)
+                    LogWarn("[WGC] CreateMonitorCaptureSession (delegate) returned NULL");
+                else
+                    LogInfo($"[WGC] CreateMonitorCaptureSession (delegate) succeeded: 0x{result:X}");
+                return result;
+            }
+
+            var res = CreateMonitorCaptureSessionNative(monitor);
+            if (res == nint.Zero)
+            {
+                int err = Marshal.GetLastWin32Error();
+                LogWarn($"[WGC] CreateMonitorCaptureSession returned NULL. Win32 error: {err}");
+            }
+            else
+                LogInfo($"[WGC] CreateMonitorCaptureSession succeeded: 0x{res:X}");
+            return res;
+        }
+        catch (Exception ex)
+        {
+            LogError("[WGC] Exception CreateMonitorCaptureSession.", ex);
             return nint.Zero;
         }
     }

@@ -561,6 +561,23 @@ private bool _isShadPs4PatchesOverlayOpen;
         [ObservableProperty]
         private IntPtr _emulatorTargetHwnd;
 
+        partial void OnEmulatorTargetHwndChanged(IntPtr value)
+        {
+            OnPropertyChanged(nameof(UsesParsecVirtualDisplayMonitorCapture));
+            OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
+            NotifyParsecVirtualDisplayStatusChanged();
+        }
+
+        [ObservableProperty]
+        private IntPtr _emulatorTargetMonitor;
+
+        partial void OnEmulatorTargetMonitorChanged(IntPtr value)
+        {
+            OnPropertyChanged(nameof(UsesParsecVirtualDisplayMonitorCapture));
+            OnPropertyChanged(nameof(HideTargetWindowAfterCaptureStarts));
+            NotifyParsecVirtualDisplayStatusChanged();
+        }
+
         [ObservableProperty]
         private int _emulatorTargetProcessId;
 
@@ -1181,7 +1198,16 @@ private bool _isShadPs4PatchesOverlayOpen;
             (UseBackCoverLetterboxFill && CaptureLetterboxBitmap != null) ||
             CurrentEmulatorHandler?.EnableCapturePillarboxCrop == true;
         public bool HideTargetWindowAfterCaptureStarts =>
-            OperatingSystem.IsLinux() ? false : CurrentEmulatorHandler?.HideUntilCaptured != false;
+            OperatingSystem.IsLinux() || UsesParsecVirtualDisplayMonitorCapture
+                ? false
+                : CurrentEmulatorHandler?.HideUntilCaptured != false;
+
+        public bool UsesParsecVirtualDisplayMonitorCapture =>
+            OperatingSystem.IsWindows() &&
+            ShouldUseWindowsParsecCapture() &&
+            EmulatorTargetMonitor != IntPtr.Zero;
+
+        public bool RetainCaptureTargetPlacement => UsesParsecVirtualDisplayMonitorCapture;
         public int ClientAreaCropLeftInset => CurrentEmulatorHandler?.ClientAreaCropLeftInset ?? 0;
         public int ClientAreaCropTopInset
         {
@@ -1687,6 +1713,7 @@ private bool _isShadPs4PatchesOverlayOpen;
         partial void OnIsEmulatorRunningChanged(bool value)
         {
             NotifyGameplayRecordingAvailabilityChanged();
+            NotifyParsecVirtualDisplayStatusChanged();
             if (!value)
             {
                 if (IsGameplayRecording)

@@ -821,6 +821,39 @@
                             <Button Content="Check for Updates" Command="{Binding RefreshYtDlpInfoCommand}" IsEnabled="{Binding !YtDlp.IsBusy}" Padding="15,8"/>
                         </StackPanel>
                         <ProgressBar IsIndeterminate="True" IsVisible="{Binding YtDlp.IsBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                        <StackPanel IsVisible="{Binding IsParsecVddSupported}">
+                            <TextBlock Text="Parsec Virtual Display Driver" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
+                            <Separator Margin="0,0,0,15"/>
+                            <TextBlock Text="{Binding ParsecVddRequiredMessage}" TextWrapping="Wrap" FontSize="14" Foreground="DarkGray" Margin="0,0,0,8"/>
+                            <TextBlock Text="{Binding ParsecVddInstallNote}" TextWrapping="Wrap" FontSize="13" Foreground="DarkGray" Margin="0,0,0,12"/>
+                            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,12" IsEnabled="{Binding IsParsecVddInstalled}">
+                                <ToggleSwitch IsChecked="{Binding UseParsecVirtualDisplayCapture, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBlock Text="Use Parsec virtual monitor for all games (created once when AES starts, removed when AES closes)" TextWrapping="Wrap" FontSize="14" Foreground="DarkGray" VerticalAlignment="Center" MaxWidth="520"/>
+                            </StackPanel>
+                            <StackPanel Spacing="10" Margin="0,0,0,15">
+                                <TextBlock Text="{Binding ParsecVddStatusText}" TextWrapping="Wrap" FontSize="16" Foreground="DarkGray"/>
+                                <StackPanel Orientation="Horizontal" Spacing="40" Margin="0,0,0,10">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Text="CURRENT VERSION" FontSize="14" Foreground="DarkGray" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding ParsecVddVersion, FallbackValue='Not Installed'}" FontSize="18" Foreground="WhiteSmoke"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="5" IsVisible="{Binding IsParsecVddUpdateAvailable}">
+                                        <TextBlock Text="UPDATE AVAILABLE" FontSize="14" Foreground="Gold" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding ParsecVddUpdateVersion}" FontSize="18" Foreground="Gold"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="Download &amp; Open Installer" Command="{Binding InstallParsecVddCommand}" IsVisible="{Binding !IsParsecVddInstalled}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8"/>
+                                <Button Content="Register Driver" Command="{Binding RegisterParsecVddDriverCommand}" IsVisible="{Binding IsParsecVddRegistrationPending}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8" Background="Gold" Foreground="Black"/>
+                                <Button Content="Open Installer Again" Command="{Binding ReopenParsecVddInstallerCommand}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8"/>
+                                <Button Content="Open Driver Folder" Command="{Binding OpenParsecVddFolderCommand}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8"/>
+                                <Button Content="Update" Command="{Binding UpdateParsecVddCommand}" IsVisible="{Binding IsParsecVddUpdateAvailable}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8" Background="Gold" Foreground="Black"/>
+                                <Button Content="Uninstall" Background="#F44336" Foreground="White" Command="{Binding UninstallParsecVddCommand}" IsVisible="{Binding IsParsecVddInstalled}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8"/>
+                                <Button Content="Refresh Driver Info" Command="{Binding RefreshParsecVddInfoCommand}" IsEnabled="{Binding !IsParsecVddBusy}" Padding="15,8"/>
+                            </StackPanel>
+                            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsParsecVddBusy}" Margin="0,30,0,0" Height="2" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                        </StackPanel>
                         <StackPanel IsVisible="{Binding IsGamescopeSupported}">
                             <TextBlock Text="gamescope Status" FontSize="20" Foreground="WhiteSmoke" Margin="0,30,0,10"/>
                             <Separator Margin="0,0,0,15"/>

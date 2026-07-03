@@ -28,13 +28,13 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<CompositionAlbumRowControl>();
     private const int AnimationHeartbeatMs = 16;
-    private const int ScrollIdleMs = 150;
-    private const double WheelStrideFactor = 0.80;
-    private const double WheelVelocityScale = 8.2;
-    private const double WheelSmoothBoostWindowMs = 100.0;
-    private const double WheelSmoothBoostMax = 1.22;
-    private const double WheelBurstBoostMax = 0.20;
-    private const double WheelMaxVelocity = 4000.0;
+    private const int ScrollIdleMs = 180;
+    private const double WheelScrollSensitivity = 1.0;
+    private const double WheelVelocityImpulseScale = 3.5;
+    private const double WheelVelocityBlend = 0.42;
+    private const double WheelSmoothBoostWindowMs = 95.0;
+    private const double WheelSmoothBoostMax = 1.45;
+    private const double WheelMaxVelocity = 2400.0;
     private const double DragReleaseVelocityScale = 0.76;
     private const double DragStartThreshold = 4.0;
     private const int DragAutoScrollMs = 16;
@@ -583,10 +583,9 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         if (Math.Abs(rawDelta) < 0.0001)
             return;
 
-        // ~one album tile per wheel notch; scales with tile size for a natural list feel.
-        double wheelDelta = rawDelta * GetTileStridePx() * WheelStrideFactor;
+        // Match carousel pacing: one album tile per wheel notch, spring-smoothed in the visual handler.
+        double wheelDelta = rawDelta * GetTileStridePx() * WheelScrollSensitivity;
         _targetScrollX = Math.Clamp(_animationSync.TargetScrollX - wheelDelta, 0, GetMaxScrollX());
-        _knownScrollX = _targetScrollX;
 
         // Keep only a small smoothing tail for rapid trackpad micro-deltas.
         ulong now = e.Timestamp;
@@ -602,25 +601,11 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             smoothFactor = 1.0 + smoothT * (WheelSmoothBoostMax - 1.0);
         }
 
-        // Faster consecutive scroll events build higher velocity (trackpad flings / fast wheel).
-        double burstBoost = 1.0;
-        if (sinceLastMs < WheelSmoothBoostWindowMs * 1.35)
-        {
-            double burstT = 1.0 - Math.Clamp(sinceLastMs / (WheelSmoothBoostWindowMs * 1.35), 0.0, 1.0);
-            burstBoost = 1.0 + burstT * WheelBurstBoostMax;
-        }
-
-        double scrollDir = Math.Sign(-wheelDelta);
-        double momentumBoost = 1.0;
-        if (scrollDir != 0 &&
-            Math.Abs(_animationSync.VelocityX) > 220 &&
-            Math.Sign(_animationSync.VelocityX) == scrollDir)
-        {
-            momentumBoost = 1.0 + Math.Min(Math.Abs(_animationSync.VelocityX) / 3500.0, 0.22);
-        }
-
-        double impulse = -wheelDelta * WheelVelocityScale * smoothFactor * burstBoost * momentumBoost;
-        double newVelocity = Math.Clamp(_animationSync.VelocityX + impulse, -WheelMaxVelocity, WheelMaxVelocity);
+        double impulse = -wheelDelta * WheelVelocityImpulseScale * smoothFactor;
+        double newVelocity = Math.Clamp(
+            (_animationSync.VelocityX * WheelVelocityBlend) + impulse,
+            -WheelMaxVelocity,
+            WheelMaxVelocity);
         _visual?.SendHandlerMessage(new AlbumRowScrollMessage(_targetScrollX));
         _visual?.SendHandlerMessage(new AlbumRowScrollVelocityMessage(newVelocity));
         EnsureVisibleTileCoversLoadedIfNeeded();

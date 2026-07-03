@@ -172,6 +172,26 @@ public sealed class XeniaCustomConfigServiceTests
     }
 
     [Fact]
+    public void ApplyWindowsVirtualDisplayLaunchValues_SetsBorderlessAndOutputSize()
+    {
+        var root = new TomlTable
+        {
+            ["Display"] = new TomlTable { ["fullscreen"] = false },
+            ["UI"] = new TomlTable { ["window_size_x"] = 1280L, ["window_size_y"] = 720L },
+        };
+
+        XeniaCustomConfigService.ApplyWindowsVirtualDisplayLaunchValues(root, 1920, 1080);
+
+        var display = Assert.IsType<TomlTable>(root["Display"]);
+        var ui = Assert.IsType<TomlTable>(root["UI"]);
+
+        Assert.False(Assert.IsType<bool>(display["fullscreen"]));
+        Assert.False(Assert.IsType<bool>(display["present_letterbox"]));
+        Assert.Equal(1920L, Assert.IsType<long>(ui["window_size_x"]));
+        Assert.Equal(1080L, Assert.IsType<long>(ui["window_size_y"]));
+    }
+
+    [Fact]
     public void ApplyGamescopeLaunchValues_SetsFullscreenAndOutputSize()
     {
         var root = new TomlTable

@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Controls.Helpers;
 using AES_Core.DI;
 using AES_Core.IO;
 using AES_Lacrima.Serialization;
@@ -180,6 +181,9 @@ public partial class XeniaEmulatorUpdateService
             }
 
             var selectedAsset = SelectAssetForPlatform(targetRelease.Assets);
+            if (selectedAsset == null && !string.IsNullOrWhiteSpace(targetRelease.Tag))
+                selectedAsset = SelectAssetForPlatform(BuildOfficialReleaseAssets(targetRelease.Tag));
+
             if (selectedAsset == null)
             {
                 var missingAssetLauncherPath = ResolveLauncherPath(launcherPath, emulatorDirectory);
@@ -191,11 +195,11 @@ public partial class XeniaEmulatorUpdateService
             var downloadedAssetPath = Path.Combine(updateDirectory, selectedAsset.Name);
             await DownloadAssetAsync(selectedAsset.DownloadUrl, downloadedAssetPath, cancellationToken).ConfigureAwait(false);
 
-            if (downloadedAssetPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            if (IsExtractableArchivePath(downloadedAssetPath))
             {
                 var extractDirectory = Path.Combine(updateDirectory, "extracted");
                 Directory.CreateDirectory(extractDirectory);
-                ZipFile.ExtractToDirectory(downloadedAssetPath, extractDirectory, overwriteFiles: true);
+                ArchiveExtractionHelper.ExtractArchive(downloadedAssetPath, extractDirectory);
                 var sourceDirectory = NormalizeExtractionRoot(extractDirectory);
                 CopyDirectoryContents(sourceDirectory, emulatorDirectory);
             }
@@ -393,7 +397,9 @@ public partial class XeniaEmulatorUpdateService
         if (string.IsNullOrWhiteSpace(hash))
             return null;
 
-        var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "aarch64" : "x86_64";
+        var arch = EmulatorReleaseAssetSelection.ResolveHostArchitecture() == Architecture.Arm64
+            ? "aarch64"
+            : "x86_64";
         return $"Xenia_Canary-{hash}-anylinux-{arch}.AppImage";
     }
 
@@ -457,7 +463,14 @@ public partial class XeniaEmulatorUpdateService
             return atomReleases;
         }
 
-        return ParseReleases(json);
+        var parsed = ParseReleases(json);
+        if (parsed.Count == 0)
+        {
+            var atomReleases = await BuildOfficialReleasesFromAtomAsync(cancellationToken).ConfigureAwait(false);
+            return atomReleases;
+        }
+
+        return parsed;
     }
 
     private async Task<IReadOnlyList<ReleaseInfo>> BuildOfficialReleasesFromAtomAsync(CancellationToken cancellationToken)
@@ -474,12 +487,14 @@ public partial class XeniaEmulatorUpdateService
             if (string.IsNullOrWhiteSpace(entry.Tag))
                 continue;
 
-            var assetName = "xenia_canary_windows.zip";
-            var downloadUrl = $"https://github.com/xenia-canary/xenia-canary/releases/download/{entry.Tag}/{assetName}";
+            var assets = BuildOfficialReleaseAssets(entry.Tag);
+            if (assets.Count == 0)
+                continue;
+
             results.Add(new ReleaseInfo(
-                entry.Title,
+                entry.Tag,
                 entry.PublishedAt,
-                new[] { new ReleaseAsset(assetName, downloadUrl) },
+                assets,
                 entry.Title));
         }
 
@@ -508,10 +523,6 @@ public partial class XeniaEmulatorUpdateService
 
             var tag = item["tag_name"]?.GetValue<string>()?.Trim();
             if (string.IsNullOrWhiteSpace(tag))
-                continue;
-
-            var prerelease = item["prerelease"]?.GetValue<bool>() == true;
-            if (prerelease)
                 continue;
 
             var published = item["published_at"]?.GetValue<string>();
@@ -556,6 +567,63 @@ public partial class XeniaEmulatorUpdateService
             string.Equals(NormalizeVersion(release.Tag), NormalizeVersion(requestedVersion), StringComparison.OrdinalIgnoreCase));
     }
 
+    private static IReadOnlyList<ReleaseAsset> BuildOfficialReleaseAssets(string tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
+            return Array.Empty<ReleaseAsset>();
+
+        var assets = new List<ReleaseAsset>();
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            foreach (var assetName in GetOfficialWindowsAssetCandidates())
+            {
+                assets.Add(new ReleaseAsset(
+                    assetName,
+                    $"https://github.com/xenia-canary/xenia-canary/releases/download/{tag}/{assetName}"));
+            }
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            var linuxAssetName = "xenia_canary_linux.AppImage";
+            assets.Add(new ReleaseAsset(
+                linuxAssetName,
+                $"https://github.com/xenia-canary/xenia-canary/releases/download/{tag}/{linuxAssetName}"));
+        }
+
+        return assets;
+    }
+
+    internal static string[] GetOfficialWindowsAssetCandidates() =>
+    [
+        "xenia_canary_windows.7z",
+        "xenia_canary_windows.zip"
+    ];
+
+    internal static bool IsXeniaWindowsDesktopAssetName(string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(assetName) || !IsExtractableArchivePath(assetName))
+            return false;
+
+        var lower = assetName.ToLowerInvariant();
+        if (lower.Contains("linux", StringComparison.Ordinal) ||
+            lower.Contains("macos", StringComparison.Ordinal) ||
+            lower.Contains("android", StringComparison.Ordinal) ||
+            lower.Contains("appimage", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return lower.Contains("xenia", StringComparison.Ordinal) &&
+               (lower.Contains("windows", StringComparison.Ordinal) ||
+                lower.Contains("win", StringComparison.Ordinal) ||
+                lower.Contains("canary", StringComparison.Ordinal));
+    }
+
+    internal static bool IsExtractableArchivePath(string path) =>
+        path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".7z", StringComparison.OrdinalIgnoreCase);
+
     private static ReleaseAsset? SelectAssetForPlatform(IReadOnlyList<ReleaseAsset> assets)
     {
         if (assets.Count == 0)
@@ -566,17 +634,14 @@ public partial class XeniaEmulatorUpdateService
             return EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
                        assets,
                        static asset => asset.Name,
-                       static asset =>
-                           asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
-                           asset.Name.Contains("canary", StringComparison.OrdinalIgnoreCase) &&
-                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                   ?? EmulatorReleaseAssetSelection.SelectFirstWindowsAsset(
-                       assets,
-                       static asset => asset.Name,
-                       static asset =>
-                           asset.Name.Contains("win", StringComparison.OrdinalIgnoreCase) &&
-                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                   ?? assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                       static asset => IsXeniaWindowsDesktopAssetName(asset.Name))
+                   ?? assets.FirstOrDefault(asset => IsXeniaWindowsDesktopAssetName(asset.Name))
+                   ?? assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("windows", StringComparison.OrdinalIgnoreCase) &&
+                       IsExtractableArchivePath(asset.Name))
+                   ?? assets.FirstOrDefault(asset =>
+                       asset.Name.Contains("canary", StringComparison.OrdinalIgnoreCase) &&
+                       IsExtractableArchivePath(asset.Name));
         }
 
         if (OperatingSystem.IsLinux())
@@ -598,10 +663,13 @@ public partial class XeniaEmulatorUpdateService
                        static asset => asset.Name,
                        static asset =>
                            asset.Name.Contains("linux", StringComparison.OrdinalIgnoreCase) &&
-                           asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                           IsExtractableArchivePath(asset.Name));
         }
 
-        return assets.FirstOrDefault(asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        if (OperatingSystem.IsMacOS())
+            return null;
+
+        return assets.FirstOrDefault(asset => IsExtractableArchivePath(asset.Name));
     }
 
     private static async Task DownloadAssetAsync(string url, string destinationPath, CancellationToken cancellationToken)

@@ -12,6 +12,22 @@ public sealed class XeniaEmulatorUpdateServiceTests
     }
 
     [Fact]
+    public void IsXeniaWindowsDesktopAssetName_accepts_current_7z_release_asset()
+    {
+        Assert.True(XeniaEmulatorUpdateService.IsXeniaWindowsDesktopAssetName("xenia_canary_windows.7z"));
+        Assert.True(XeniaEmulatorUpdateService.IsXeniaWindowsDesktopAssetName("xenia_canary_windows.zip"));
+        Assert.False(XeniaEmulatorUpdateService.IsXeniaWindowsDesktopAssetName("xenia_canary_linux.AppImage"));
+    }
+
+    [Fact]
+    public void GetOfficialWindowsAssetCandidates_includes_7z_and_legacy_zip()
+    {
+        var candidates = XeniaEmulatorUpdateService.GetOfficialWindowsAssetCandidates();
+        Assert.Contains("xenia_canary_windows.7z", candidates);
+        Assert.Contains("xenia_canary_windows.zip", candidates);
+    }
+
+    [Fact]
     public void GitHubAtomReleaseFeedReader_ParseReleases_reads_pkgforge_feed_entry()
     {
         const string xml = """

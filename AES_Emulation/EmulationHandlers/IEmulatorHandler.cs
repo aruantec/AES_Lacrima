@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using AES_Controls.Helpers;
 using AES_Emulation.Controls;
 
 namespace AES_Emulation.EmulationHandlers;
@@ -96,6 +97,11 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     /// </summary>
     string LinuxGamescopeScalingMode { get; }
 
+    /// <summary>
+    /// When true on Windows Parsec capture, the entire virtual display is captured instead of a single HWND.
+    /// </summary>
+    bool PrefersParsecMonitorCapture { get; }
+
     ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null);
 
     ProcessStartInfo BuildSetupStartInfo(string? launcherPath, string? preferredEmulatorDirectory = null);
@@ -107,7 +113,17 @@ public interface IEmulatorHandler : INotifyPropertyChanged
     /// <summary>Decorations off + aspect resize only; used when deferred capture attaches.</summary>
     void PrepareWindowForCaptureAttach(IntPtr hwnd);
 
+    void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        ParsecVirtualDisplayMonitor monitor);
+
     IntPtr FindPreferredWindowHandle(Process process);
+
+    /// <summary>
+    /// Top-level window moved onto a Parsec virtual display. Defaults to <see cref="FindPreferredWindowHandle"/>.
+    /// </summary>
+    IntPtr FindVirtualDisplayPlacementWindowHandle(Process process);
 
     bool CanAssignWindow(IntPtr hwnd, IntPtr mainWindowHandle);
 

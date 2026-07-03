@@ -91,6 +91,15 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
         set => SetValue(TargetHwndProperty, value);
     }
 
+    public static readonly StyledProperty<IntPtr> TargetMonitorProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, IntPtr>(nameof(TargetMonitor));
+
+    public IntPtr TargetMonitor
+    {
+        get => GetValue(TargetMonitorProperty);
+        set => SetValue(TargetMonitorProperty, value);
+    }
+
     public static readonly StyledProperty<bool> IsCaptureInitializingProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(IsCaptureInitializing), false);
 
@@ -346,6 +355,9 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
 
+    public static readonly StyledProperty<bool> RetainCaptureTargetPlacementProperty =
+        AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(RetainCaptureTargetPlacement), false);
+
     public static readonly StyledProperty<bool> RestoreTargetWindowOnStopProperty =
         AvaloniaProperty.Register<CompositionWgcCaptureControl, bool>(nameof(RestoreTargetWindowOnStop), true);
 
@@ -353,6 +365,12 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
         set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public bool RetainCaptureTargetPlacement
+    {
+        get => GetValue(RetainCaptureTargetPlacementProperty);
+        set => SetValue(RetainCaptureTargetPlacementProperty, value);
     }
 
     public bool RestoreTargetWindowOnStop
@@ -775,14 +793,26 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
 
         StopSession();
 
+        var nextTargetMonitor = TargetMonitor;
         var nextTargetHwnd = TargetHwnd;
-        if (nextTargetHwnd == IntPtr.Zero)
+        if (nextTargetMonitor == IntPtr.Zero && nextTargetHwnd == IntPtr.Zero)
         {
-            LogInfo("CompositionWgcCaptureControl StartSession skipped because TargetHwnd is zero.");
+            LogInfo("CompositionWgcCaptureControl StartSession skipped because both TargetHwnd and TargetMonitor are zero.");
             return;
         }
 
         IsCaptureInitializing = true;
+
+        _sessionStartCts?.Cancel();
+        _sessionStartCts?.Dispose();
+        _sessionStartCts = new CancellationTokenSource();
+        var sessionStartToken = _sessionStartCts.Token;
+
+        if (nextTargetMonitor != IntPtr.Zero)
+        {
+            _ = StartMonitorSessionDelayedAsync(nextTargetMonitor, sessionStartToken);
+            return;
+        }
 
         if (_hostHandle == IntPtr.Zero && !TryResolveHostHandle())
         {
@@ -791,11 +821,103 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
             return;
         }
 
-        _sessionStartCts?.Cancel();
-        _sessionStartCts?.Dispose();
-        _sessionStartCts = new CancellationTokenSource();
-        var sessionStartToken = _sessionStartCts.Token;
         _ = StartSessionDelayedAsync(nextTargetHwnd, sessionStartToken);
+    }
+
+    private async Task StartMonitorSessionDelayedAsync(nint nextTargetMonitor, CancellationToken cancellationToken)
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        var startupSw = Stopwatch.StartNew();
+        try
+        {
+            await Task.Delay(Math.Min(CaptureSessionStartDelayMs, 500), cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            IsCaptureInitializing = false;
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested || TargetMonitor != nextTargetMonitor)
+        {
+            IsCaptureInitializing = false;
+            return;
+        }
+
+        try
+        {
+            _session = await CreateMonitorCaptureSessionWithRetryAsync(nextTargetMonitor, cancellationToken).ConfigureAwait(true);
+            if (_session != nint.Zero)
+            {
+                LogInfo(
+                    $"CompositionWgcCaptureControl monitor capture session created. session=0x{_session.ToInt64():X}, " +
+                    $"monitor=0x{nextTargetMonitor.ToInt64():X}, startupMs={startupSw.ElapsedMilliseconds}.");
+
+                if (DisableDownscale)
+                    WgcBridgeApi.SetCaptureMaxResolution(_session, 0, 0);
+                else
+                    WgcBridgeApi.SetCaptureMaxResolution(_session, 4096, 1080);
+
+                if (WgcBridgeApi.SupportsInteropPresentationPipeline)
+                {
+                    WgcBridgeApi.SetInteropEnabled(_session, 1);
+                    WgcBridgeApi.SetInteropCpuMirrorEnabled(_session, false);
+                    _nativeGpuImportFailed = false;
+                    UpdateNativePresentationPipeline(force: true);
+                }
+
+                UpdateHandlerSession();
+                UpdateHandlerSettings();
+                UpdateFallbackRenderLoop();
+                EnsureStatisticsTimer();
+
+                var captureReady = await WaitForCaptureReadyAsync(cancellationToken).ConfigureAwait(true);
+                if (!captureReady)
+                    LogInfo($"CompositionWgcCaptureControl monitor session did not receive a frame within {CaptureReadyTimeoutMs} ms.");
+
+                IsCaptureInitializing = false;
+            }
+            else
+            {
+                LogInfo($"CompositionWgcCaptureControl failed to create monitor capture session for monitor 0x{nextTargetMonitor.ToInt64():X}.");
+                IsCaptureInitializing = false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            IsCaptureInitializing = false;
+        }
+        catch (Exception ex)
+        {
+            LogError(
+                $"CompositionWgcCaptureControl StartMonitorSessionDelayedAsync failed. monitor=0x{nextTargetMonitor.ToInt64():X}, " +
+                $"startupMs={startupSw.ElapsedMilliseconds}.",
+                ex);
+            IsCaptureInitializing = false;
+        }
+    }
+
+    private static async Task<nint> CreateMonitorCaptureSessionWithRetryAsync(nint targetMonitor, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 6;
+        const int retryDelayMs = 300;
+        var sw = Stopwatch.StartNew();
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var session = WgcBridgeApi.CreateMonitorCaptureSession(targetMonitor);
+            if (session != nint.Zero)
+                return session;
+
+            if (attempt < maxAttempts)
+                await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(true);
+        }
+
+        LogInfo($"CreateMonitorCaptureSessionWithRetryAsync exhausted retries for monitor=0x{targetMonitor.ToInt64():X}. totalMs={sw.ElapsedMilliseconds}.");
+        return nint.Zero;
     }
 
     private async Task StartSessionDelayedAsync(nint nextTargetHwnd, CancellationToken cancellationToken)
@@ -837,10 +959,15 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                 try
                 {
                     Win32API.TryExitFullscreenWindow(nextTargetHwnd);
-                    if (Win32API.HasWindowCaption(nextTargetHwnd))
+                    if (RetainCaptureTargetPlacement)
+                    {
+                        WindowsStealth.UncloakWindow(nextTargetHwnd);
+                        Win32API.SetWindowOpacity(nextTargetHwnd, 255);
+                    }
+                    else if (Win32API.HasWindowCaption(nextTargetHwnd))
                         Win32API.RemoveWindowDecorations(nextTargetHwnd);
 
-                    if (DirectCompositionCaptureHost.UseStaticCaptureDock)
+                    if (!RetainCaptureTargetPlacement && DirectCompositionCaptureHost.UseStaticCaptureDock)
                     {
                         var aspect = CaptureWindowAspectRatio > 0.0 ? CaptureWindowAspectRatio : 0.0;
                         Win32API.ParkCaptureWindowAtStaticDock(nextTargetHwnd, aspect);
@@ -848,7 +975,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                         if (HideTargetWindowAfterCaptureStarts)
                             Win32API.HideWindowForInPlaceCapture(nextTargetHwnd);
                     }
-                    else
+                    else if (!RetainCaptureTargetPlacement)
                     {
                         Win32API.RemoveWindowDecorations(nextTargetHwnd);
                         Win32API.MoveAway(nextTargetHwnd, false);
@@ -1123,16 +1250,39 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                 var nextHwnd = change.NewValue is IntPtr p ? p : IntPtr.Zero;
                 if (nextHwnd == IntPtr.Zero)
                 {
-                    if (_session != IntPtr.Zero || _activeTargetHwnd != IntPtr.Zero)
+                    if (TargetMonitor == IntPtr.Zero &&
+                        (_session != IntPtr.Zero || _activeTargetHwnd != IntPtr.Zero))
                     {
                         LogInfo("CompositionWgcCaptureControl TargetHwnd cleared, stopping session.");
                         StopSession();
                     }
                 }
-                else
+                else if (TargetMonitor == IntPtr.Zero)
                 {
                     StartSession();
                 }
+            }
+        }
+        else if (change.Property == TargetMonitorProperty)
+        {
+            if (_visual == null && _handler == null)
+                return;
+
+            if (!IsWindowsPlatform)
+                return;
+
+            var nextMonitor = change.NewValue is IntPtr p ? p : IntPtr.Zero;
+            if (nextMonitor == IntPtr.Zero)
+            {
+                if (TargetHwnd == IntPtr.Zero && _session != IntPtr.Zero)
+                {
+                    LogInfo("CompositionWgcCaptureControl TargetMonitor cleared, stopping session.");
+                    StopSession();
+                }
+            }
+            else
+            {
+                StartSession();
             }
         }
         else if (change.Property == RequestStopSessionProperty)

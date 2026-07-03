@@ -53,6 +53,9 @@ public class EmulatorCaptureHost : ContentControl
     public static readonly StyledProperty<IntPtr> TargetHwndProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, IntPtr>(nameof(TargetHwnd));
 
+    public static readonly StyledProperty<IntPtr> TargetMonitorProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, IntPtr>(nameof(TargetMonitor));
+
     public static readonly StyledProperty<int> TargetProcessIdProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, int>(nameof(TargetProcessId));
 
@@ -97,6 +100,9 @@ public class EmulatorCaptureHost : ContentControl
 
     public static readonly StyledProperty<bool> HideTargetWindowAfterCaptureStartsProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(HideTargetWindowAfterCaptureStarts), true);
+
+    public static readonly StyledProperty<bool> RetainCaptureTargetPlacementProperty =
+        AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(RetainCaptureTargetPlacement), false);
 
     public static readonly StyledProperty<bool> RestoreTargetWindowOnStopProperty =
         AvaloniaProperty.Register<EmulatorCaptureHost, bool>(nameof(RestoreTargetWindowOnStop), true);
@@ -229,6 +235,12 @@ public class EmulatorCaptureHost : ContentControl
         set => SetValue(TargetHwndProperty, value);
     }
 
+    public IntPtr TargetMonitor
+    {
+        get => GetValue(TargetMonitorProperty);
+        set => SetValue(TargetMonitorProperty, value);
+    }
+
     public int TargetProcessId
     {
         get => GetValue(TargetProcessIdProperty);
@@ -323,6 +335,12 @@ public class EmulatorCaptureHost : ContentControl
     {
         get => GetValue(HideTargetWindowAfterCaptureStartsProperty);
         set => SetValue(HideTargetWindowAfterCaptureStartsProperty, value);
+    }
+
+    public bool RetainCaptureTargetPlacement
+    {
+        get => GetValue(RetainCaptureTargetPlacementProperty);
+        set => SetValue(RetainCaptureTargetPlacementProperty, value);
     }
 
     public bool RestoreTargetWindowOnStop
@@ -988,6 +1006,7 @@ public class EmulatorCaptureHost : ContentControl
             {
                 case CompositionWgcCaptureControl compositionBackend:
                     compositionBackend.TargetHwnd = TargetHwnd;
+                    compositionBackend.TargetMonitor = TargetMonitor;
                     compositionBackend.Stretch = Stretch;
                     compositionBackend.Brightness = Brightness;
                     compositionBackend.Saturation = Saturation;
@@ -1003,6 +1022,7 @@ public class EmulatorCaptureHost : ContentControl
                     compositionBackend.ClientAreaCropBottomInset = ClientAreaCropBottomInset;
                     compositionBackend.CaptureSessionStartDelayMs = CaptureSessionStartDelayMs;
                     compositionBackend.HideTargetWindowAfterCaptureStarts = HideTargetWindowAfterCaptureStarts;
+                    compositionBackend.RetainCaptureTargetPlacement = RetainCaptureTargetPlacement;
                     compositionBackend.RestoreTargetWindowOnStop = RestoreTargetWindowOnStop;
                     compositionBackend.CaptureWindowAspectRatio = CaptureWindowAspectRatio;
                     compositionBackend.ShowStatisticsOverlay = false;

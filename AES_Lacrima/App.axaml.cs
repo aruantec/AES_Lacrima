@@ -360,6 +360,7 @@ namespace AES_Lacrima
             }
 
             Logger.Info($"Post-startup initialization completed in {startupStopwatch.ElapsedMilliseconds} ms.");
+            EmulationViewModel.InitializeParsecVirtualDisplayAtStartup();
             StopStartupUiProbe("post-startup-complete");
         }
 
@@ -382,6 +383,7 @@ namespace AES_Lacrima
             _ = settingsViewModel.RefreshFFmpegInfo();
             _ = settingsViewModel.RefreshMpvInfo();
             _ = settingsViewModel.RefreshYtDlpInfo();
+            _ = settingsViewModel.RefreshParsecVddInfo();
 
             if (mainWindow.DataContext is MainWindowViewModel mainViewModel)
             {

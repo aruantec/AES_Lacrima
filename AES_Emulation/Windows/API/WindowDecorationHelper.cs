@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Diagnostics;
 using System;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
@@ -193,6 +193,15 @@ namespace AES_Emulation.Windows.API
             DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref cloak, sizeof(int));
             SetWindowPos(hwnd, IntPtr.Zero, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             //SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+
+        public static void UncloakWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            int cloak = 0;
+            DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref cloak, sizeof(int));
         }
 
         public static void RemoveFromTaskbar(IntPtr hwnd)

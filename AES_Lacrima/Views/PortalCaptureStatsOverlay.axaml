@@ -31,6 +31,12 @@
                            FontSize="13"
                            FontFamily="Consolas"
                            Margin="0,2,0,4"/>
+                <TextBlock Text="{Binding CaptureHost.PortalVirtualDisplayStatusText, ElementName=StatsRoot, FallbackValue='Virtual display: loading...'}"
+                           Foreground="{Binding CaptureHost.PortalVirtualDisplayStatusIsHealthy, ElementName=StatsRoot, Converter={StaticResource BoolToBrushConverter}, ConverterParameter='#7CFC00,#FFCC66'}"
+                           FontSize="13"
+                           FontFamily="Consolas"
+                           Margin="0,0,0,4"
+                           IsVisible="{Binding CaptureHost.ShowPortalVirtualDisplayStatus, ElementName=StatsRoot, FallbackValue=False}"/>
                 <StackPanel Spacing="4"
                             HorizontalAlignment="Left"
                             IsVisible="{Binding Settings.ShowDetailedGpuInfo, ElementName=StatsRoot, FallbackValue=False}">

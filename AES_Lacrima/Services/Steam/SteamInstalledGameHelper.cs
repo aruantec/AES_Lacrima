@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using AES_Emulation.Steam;
 using AES_Core.Logging;
 using log4net;
+using Microsoft.Win32;
 
 namespace AES_Lacrima.Services.Steam;
 
@@ -338,7 +339,7 @@ internal static class SteamInstalledGameHelper
 
     public static IReadOnlyList<SteamInstalledGame> GetInstalledGames()
     {
-        if (!OperatingSystem.IsLinux())
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
             return [];
 
         var nowMs = Environment.TickCount64;
@@ -384,7 +385,7 @@ internal static class SteamInstalledGameHelper
 
     public static IEnumerable<string> GetWatchPaths()
     {
-        if (!OperatingSystem.IsLinux())
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
             yield break;
 
         foreach (var libraryRoot in GetLibraryRoots())
@@ -397,7 +398,7 @@ internal static class SteamInstalledGameHelper
 
     public static IEnumerable<string> GetIconWatchPaths()
     {
-        if (!OperatingSystem.IsLinux())
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
             yield break;
 
         foreach (var libraryRoot in GetLibraryRoots())
@@ -629,6 +630,29 @@ internal static class SteamInstalledGameHelper
     private static IEnumerable<string> GetSteamInstallRoots()
     {
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (var candidate in BuildWindowsSteamRootCandidates())
+            {
+                try
+                {
+                    if (!Directory.Exists(candidate))
+                        continue;
+
+                    var fullPath = SteamLibraryPathHelper.NormalizeLibraryRoot(candidate);
+                    if (Directory.Exists(Path.Combine(fullPath, "steamapps")))
+                        roots.Add(fullPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug($"Failed to inspect Windows Steam root candidate '{candidate}'.", ex);
+                }
+            }
+
+            return roots;
+        }
+
         var home = Environment.GetEnvironmentVariable("HOME");
         if (string.IsNullOrWhiteSpace(home))
             return roots;
@@ -651,6 +675,25 @@ internal static class SteamInstalledGameHelper
         }
 
         return roots;
+    }
+
+    private static IEnumerable<string> BuildWindowsSteamRootCandidates()
+    {
+        yield return @"C:\Program Files (x86)\Steam";
+        yield return @"C:\Program Files\Steam";
+
+        string? steamPath = null;
+        try
+        {
+            steamPath = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam")?.GetValue("SteamPath") as string;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Failed to read Windows Steam install path from registry.", ex);
+        }
+
+        if (!string.IsNullOrWhiteSpace(steamPath))
+            yield return steamPath.Trim().TrimEnd('\\', '/');
     }
 
     internal static IEnumerable<string> BuildSteamRootCandidates(string homeDirectory)

@@ -245,6 +245,45 @@ public static class XeniaCustomConfigService
     }
 
     /// <summary>
+    /// Fullscreen launch defaults for Parsec virtual display capture on Windows.
+    /// </summary>
+    public static void EnsureWindowsVirtualDisplayLaunchSettings(
+        string? emulatorDirectory,
+        int width,
+        int height)
+    {
+        if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(emulatorDirectory))
+            return;
+
+        var activePath = GetActiveConfigPath(emulatorDirectory);
+        if (!File.Exists(activePath))
+            return;
+
+        try
+        {
+            var root = Toml.Parse(File.ReadAllText(activePath)).ToModel();
+            ApplyWindowsVirtualDisplayLaunchValues(root, width, height);
+            File.WriteAllText(activePath, Toml.FromModel(root));
+            Log.Info($"Patched Xenia Windows virtual display launch settings ({width}x{height}, borderless) in '{activePath}'.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Failed to patch Xenia Windows virtual display launch settings in '{activePath}'.", ex);
+        }
+    }
+
+    internal static void ApplyWindowsVirtualDisplayLaunchValues(TomlTable root, int width, int height)
+    {
+        // Borderless on the VDD via placement; exclusive fullscreen targets the primary monitor.
+        SetTomlBool(root, "Display", "fullscreen", false);
+        SetTomlBool(root, "Display", "present_letterbox", false);
+        SetTomlBool(root, "UI", "headless", false);
+        SetTomlBool(root, "UI", "show_profiler", false);
+        SetTomlLong(root, "UI", "window_size_x", width);
+        SetTomlLong(root, "UI", "window_size_y", height);
+    }
+
+    /// <summary>
     /// Forces fullscreen and output-sized window dimensions for gamescope capture on Linux.
     /// </summary>
     public static void EnsureGamescopeLaunchSettings(string? emulatorDirectory)

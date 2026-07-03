@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AES_Controls.Composition;
 using AES_Controls.Helpers;
+using AES_Controls.Helpers.Windows;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
 using AES_Core.IO;
@@ -1498,6 +1499,19 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     [ObservableProperty]
     private YtDlpManager? _ytDlp;
 
+    [AutoResolve]
+    [ObservableProperty]
+    private ParsecVddManager? _parsecVddManager;
+
+    /// <summary>
+    /// Gets whether Parsec VDD management is supported on this platform.
+    /// </summary>
+    public bool IsParsecVddSupported => ParsecVddManager.IsSupported;
+
+    public string ParsecVddRequiredMessage => ParsecVddManager.CaptureRequiredUserMessage;
+
+    public string ParsecVddInstallNote => ParsecVddManager.InstallRequiresAdminMessage;
+
     /// <summary>
     /// Gets or sets the gamescope manager for Linux emulator compositor support.
     /// </summary>
@@ -1571,6 +1585,47 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
     /// </summary>
     [ObservableProperty]
     private bool _isYtDlpUpdateAvailable;
+
+    [ObservableProperty]
+    private bool _isParsecVddInstalled;
+
+    [ObservableProperty]
+    private bool _isParsecVddRegistrationPending;
+
+    [ObservableProperty]
+    private string? _parsecVddVersion;
+
+    [ObservableProperty]
+    private string? _parsecVddUpdateVersion;
+
+    [ObservableProperty]
+    private bool _isParsecVddUpdateAvailable;
+
+    [ObservableProperty]
+    private string _parsecVddStatusText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isParsecVddBusy;
+
+    /// <summary>
+    /// When enabled, games launch on a Parsec virtual monitor for capture. Only takes effect when launching a game.
+    /// </summary>
+    [ObservableProperty]
+    private bool _useParsecVirtualDisplayCapture = true;
+
+    partial void OnUseParsecVirtualDisplayCaptureChanged(bool value)
+    {
+        ParsecVddManager.UseVirtualDisplayCapture = value;
+        SaveSettings();
+
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        if (value)
+            _ = ParsecVirtualDisplayLifetime.EnsureAppSessionAsync();
+        else
+            ParsecVirtualDisplayLifetime.ShutdownAppSession();
+    }
 
     /// <summary>
     /// Gets whether gamescope management is supported on this platform.
@@ -1912,6 +1967,118 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         if (YtDlp == null) return;
         await YtDlp.UninstallAsync();
         await RefreshYtDlpInfo();
+    }
+
+    [RelayCommand]
+    public async Task RefreshParsecVddInfo(bool preserveFailureStatus = false)
+    {
+        if (ParsecVddManager == null || !IsParsecVddSupported)
+            return;
+
+        var previousStatus = ParsecVddManager.Status;
+
+        try
+        {
+            IsParsecVddInstalled = ParsecVddManager.IsDriverActive() || ParsecVddKernelInstaller.IsKernelDriverHealthy();
+            IsParsecVddRegistrationPending = !IsParsecVddInstalled && ParsecVddKernelInstaller.HasExtractedDriverFiles();
+            ParsecVddVersion = await ParsecVddManager.GetInstalledVersionAsync().ConfigureAwait(true);
+            ParsecVddUpdateVersion = await ParsecVddManager.GetLatestReleaseTagAsync().ConfigureAwait(true);
+            IsParsecVddUpdateAvailable = !string.IsNullOrWhiteSpace(ParsecVddVersion) &&
+                                           !string.IsNullOrWhiteSpace(ParsecVddUpdateVersion) &&
+                                           !string.Equals(ParsecVddVersion, ParsecVddUpdateVersion, StringComparison.OrdinalIgnoreCase);
+
+            if (!IsParsecVddInstalled)
+            {
+                if (!preserveFailureStatus ||
+                    (!previousStatus.Contains("failed", StringComparison.OrdinalIgnoreCase) &&
+                     !previousStatus.Contains("setup wizard", StringComparison.OrdinalIgnoreCase) &&
+                     !previousStatus.Contains("Register Driver", StringComparison.OrdinalIgnoreCase) &&
+                     !previousStatus.Contains("extracted", StringComparison.OrdinalIgnoreCase)))
+                    ParsecVddManager.Status = ParsecVddManager.GetDriverStatusMessage();
+                ParsecVddVersion = null;
+            }
+            else if (IsParsecVddUpdateAvailable)
+            {
+                ParsecVddManager.Status = $"Parsec VDD update found: {ParsecVddUpdateVersion}.";
+            }
+            else
+            {
+                ParsecVddManager.Status = string.IsNullOrWhiteSpace(ParsecVddVersion)
+                    ? ParsecVddManager.GetDriverStatusMessage()
+                    : $"Parsec VDD is ready ({ParsecVddVersion}).";
+            }
+
+            if (IsParsecVddInstalled && UseParsecVirtualDisplayCapture)
+                _ = ParsecVirtualDisplayLifetime.EnsureAppSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to refresh Parsec VDD info", ex);
+            ParsecVddManager.Status = $"Parsec VDD check failed: {ex.Message}";
+        }
+
+        SyncParsecVddPresentationFromManager();
+    }
+
+    [RelayCommand]
+    private async Task InstallParsecVdd()
+    {
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
+        if (ParsecVddManager == null)
+            return;
+
+        var installed = await ParsecVddManager.DownloadAndOpenInstallerAsync().ConfigureAwait(true);
+        var pendingManual = ParsecVddManager.Status.Contains("setup wizard", StringComparison.OrdinalIgnoreCase);
+        await RefreshParsecVddInfo(preserveFailureStatus: !installed || pendingManual).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task RegisterParsecVddDriver()
+    {
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
+        if (ParsecVddManager == null)
+            return;
+
+        var registered = await ParsecVddManager.RegisterDriverAsync().ConfigureAwait(true);
+        await RefreshParsecVddInfo(preserveFailureStatus: !registered).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private void OpenParsecVddFolder()
+    {
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
+        ParsecVddManager?.OpenInstallerFolder();
+        SyncParsecVddPresentationFromManager();
+    }
+
+    [RelayCommand]
+    private void ReopenParsecVddInstaller()
+    {
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
+        ParsecVddManager?.ReopenInstaller();
+        SyncParsecVddPresentationFromManager();
+    }
+
+    [RelayCommand]
+    private async Task UpdateParsecVdd()
+    {
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
+        if (ParsecVddManager == null)
+            return;
+
+        await ParsecVddManager.DownloadAndOpenInstallerAsync().ConfigureAwait(true);
+        await RefreshParsecVddInfo(preserveFailureStatus: true).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task UninstallParsecVdd()
+    {
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
+        if (ParsecVddManager == null)
+            return;
+
+        await ParsecVddManager.UninstallAsync().ConfigureAwait(true);
+        await RefreshParsecVddInfo().ConfigureAwait(true);
     }
 
     /// <summary>
@@ -2378,6 +2545,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         nameof(EmulationGameplayPreviewOnCarouselBackground),
         nameof(EmulationGameplayPreviewCarouselBackgroundOpacity),
         nameof(EmulationUseBackCoverLetterboxFill),
+        nameof(UseParsecVirtualDisplayCapture),
         nameof(GameplayRecordingOutputDirectory),
         nameof(GameplayRecordingContainer),
         nameof(GameplayRecordingVideoCodec),
@@ -2769,6 +2937,34 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             newValue.PropertyChanged += OnGamescopeManagerPropertyChanged;
 
         OnPropertyChanged(nameof(GamescopeInstallLogPath));
+    }
+
+    partial void OnParsecVddManagerChanged(ParsecVddManager? oldValue, ParsecVddManager? newValue)
+    {
+        if (oldValue != null)
+            oldValue.PropertyChanged -= OnParsecVddManagerPropertyChanged;
+
+        if (newValue != null)
+            newValue.PropertyChanged += OnParsecVddManagerPropertyChanged;
+
+        SyncParsecVddPresentationFromManager();
+    }
+
+    private void OnParsecVddManagerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ParsecVddManager.IsBusy)
+            or nameof(ParsecVddManager.Status)
+            or nameof(ParsecVddManager.IsDownloading)
+            or nameof(ParsecVddManager.DownloadProgress))
+        {
+            Dispatcher.UIThread.Post(SyncParsecVddPresentationFromManager, DispatcherPriority.Background);
+        }
+    }
+
+    private void SyncParsecVddPresentationFromManager()
+    {
+        ParsecVddStatusText = ParsecVddManager?.Status ?? string.Empty;
+        IsParsecVddBusy = ParsecVddManager?.IsBusy ?? false;
     }
 
     private void OnGamescopeManagerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -4216,6 +4412,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         FfmpegManager ??= DiLocator.ResolveViewModel<FFmpegManager>();
         MpvManager ??= DiLocator.ResolveViewModel<MpvLibraryManager>();
         YtDlp ??= DiLocator.ResolveViewModel<YtDlpManager>();
+        ParsecVddManager ??= DiLocator.ResolveViewModel<ParsecVddManager>();
         GamescopeManager ??= DiLocator.ResolveViewModel<GamescopeManager>();
         AppUpdateService ??= DiLocator.ResolveViewModel<AppUpdateService>();
 
@@ -4260,6 +4457,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         _ = RefreshFFmpegInfo();
         _ = RefreshMpvInfo();
         _ = RefreshYtDlpInfo();
+        _ = RefreshParsecVddInfo();
         _ = RefreshGamescopeInfo();
         _ = RefreshAppReleaseHistory(forceRefresh: false);
 
@@ -4414,6 +4612,8 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
             nameof(EmulationGameplayPreviewCarouselBackgroundOpacity),
             EmulationGameplayPreviewCarouselBackgroundOpacity);
         EmulationUseBackCoverLetterboxFill = ReadBoolSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
+        UseParsecVirtualDisplayCapture = ReadBoolSetting(section, nameof(UseParsecVirtualDisplayCapture), UseParsecVirtualDisplayCapture);
+        ParsecVddManager.UseVirtualDisplayCapture = UseParsecVirtualDisplayCapture;
         GameplayRecordingOutputDirectory = ReadStringSetting(
             section,
             nameof(GameplayRecordingOutputDirectory),
@@ -4624,6 +4824,7 @@ public partial class SettingsViewModel : ViewModelBase, ISettingsViewModel
         WriteSetting(section, nameof(EmulationGameplayPreviewOnCarouselBackground), EmulationGameplayPreviewOnCarouselBackground);
         WriteSetting(section, nameof(EmulationGameplayPreviewCarouselBackgroundOpacity), EmulationGameplayPreviewCarouselBackgroundOpacity);
         WriteSetting(section, nameof(EmulationUseBackCoverLetterboxFill), EmulationUseBackCoverLetterboxFill);
+        WriteSetting(section, nameof(UseParsecVirtualDisplayCapture), UseParsecVirtualDisplayCapture);
         WriteSetting(section, nameof(GameplayRecordingOutputDirectory), GameplayRecordingOutputDirectory);
         WriteSetting(section, nameof(GameplayRecordingContainer), GameplayRecordingContainer.ToString());
         WriteSetting(section, nameof(GameplayRecordingVideoCodec), GameplayRecordingVideoCodec.ToString());

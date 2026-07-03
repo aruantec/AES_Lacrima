@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Controls.Helpers.Windows;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
@@ -10,6 +11,7 @@ using AES_Emulation.Linux;
 using AES_Emulation.Platform;
 using AES_Emulation.Steam;
 using AES_Emulation.Windows.API;
+using AES_Emulation.Windows.Parsec;
 using AES_Lacrima.Mac.API;
 using AES_Lacrima.Services;
 using AES_Lacrima.Services.Emulation;
@@ -74,11 +76,19 @@ namespace AES_Lacrima.ViewModels
             else
                 RestoreTargetWindowOnStop = false;
             EmulatorTargetHwnd = IntPtr.Zero;
+            if (!ShouldPreserveParsecVirtualDisplaySession())
+                EmulatorTargetMonitor = IntPtr.Zero;
             IsEmulatorLaunchInProgress = true;
 
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
                 CloseTrackedEmulatorForPendingLaunch(process);
+                return;
+            }
+
+            if (HasOrphanedParsecEmulatorWindows())
+            {
+                CloseParsecMonitorForPendingLaunch();
                 return;
             }
 
@@ -93,6 +103,12 @@ namespace AES_Lacrima.ViewModels
             if (TryGetRunningTrackedEmulatorProcess(out var process))
             {
                 CloseTrackedEmulatorForPendingLaunch(process);
+                return;
+            }
+
+            if (HasOrphanedParsecEmulatorWindows())
+            {
+                CloseParsecMonitorForPendingLaunch();
                 return;
             }
 
@@ -116,6 +132,23 @@ namespace AES_Lacrima.ViewModels
                     : handler.CaptureStartupDelayMs;
 
                 SLog.Info($"Selected capture mode for '{handler.HandlerId}' is {SelectedCaptureMode}.");
+
+                Task? parsecPrepareTask = null;
+                if (ShouldAttemptWindowsParsecCapture())
+                {
+                    _windowsParsecCaptureHandoffCompleted = false;
+                    ResetParsecVirtualDisplayPlacementState();
+                    parsecPrepareTask = EnsureWindowsParsecSessionAsync();
+                }
+                else if (OperatingSystem.IsWindows() && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition)
+                {
+                    SLog.Info(
+                        ParsecVddManager.UseEmulatorVirtualDisplayCapture
+                            ? ParsecVddManager.UseVirtualDisplayCapture
+                                ? "Parsec virtual display capture unavailable; using HWND capture."
+                                : "Parsec virtual display capture disabled in Settings; using HWND capture."
+                            : "Parsec emulator virtual display capture disabled; using HWND capture.");
+                }
 
                 if (!handler.IsPrepared)
                     handler.Prepare();
@@ -147,6 +180,14 @@ namespace AES_Lacrima.ViewModels
                         handler.LauncherPath);
                     await Task.Run(() => XeniaCustomConfigService.PrepareConfigForLaunch(xeniaStorageRoot, xeniaTitleId))
                         .ConfigureAwait(false);
+                    if (ShouldAttemptWindowsParsecCapture() && ParsecVirtualDisplayLifetime.ActiveMonitor is { } xeniaVddMonitor)
+                    {
+                        await Task.Run(() => XeniaCustomConfigService.EnsureWindowsVirtualDisplayLaunchSettings(
+                                xeniaStorageRoot,
+                                xeniaVddMonitor.Width,
+                                xeniaVddMonitor.Height))
+                            .ConfigureAwait(false);
+                    }
                 }
 
                 var rpcs3TitleId = string.Equals(handler.HandlerId, "rpcs3", StringComparison.OrdinalIgnoreCase)
@@ -193,9 +234,6 @@ namespace AES_Lacrima.ViewModels
                         SLog.Info($"EmulationViewModel fallback booting RPCS3 by GAMEID using '{launchRomPath}'.");
                     }
                 }
-
-                if (handler is ShadPs4Handler shadPs4LaunchHandler)
-                    shadPs4LaunchHandler.UseIpcForCheatsLaunch = OperatingSystem.IsWindows();
 
                 if (handler.UsesRetroArchCores)
                 {
@@ -251,26 +289,50 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 var steamLinuxLaunchPrepared = false;
-                if (OperatingSystem.IsLinux() &&
-                    string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase))
+                var steamWindowsLaunchPrepared = false;
+                if (string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase))
                 {
-                    steamLinuxLaunchPrepared = SteamLinuxLaunchHelper.TryPrepareDirectLaunch(
-                        startInfo,
-                        launchRomPath,
-                        SettingsViewModel?.BuildSteamProtonLaunchPreferences());
-                    if (steamLinuxLaunchPrepared)
+                    if (OperatingSystem.IsLinux())
                     {
-                        _activeSteamLaunchRomPath = launchRomPath;
-                        _activeSteamLaunchTitle = request.ItemTitle;
-                        SLog.Info(
-                            $"Steam direct launch prepared for '{launchRomPath}': " +
-                            $"FileName='{startInfo.FileName}', Args='{string.Join(' ', startInfo.ArgumentList)}'.");
+                        steamLinuxLaunchPrepared = SteamLinuxLaunchHelper.TryPrepareDirectLaunch(
+                            startInfo,
+                            launchRomPath,
+                            SettingsViewModel?.BuildSteamProtonLaunchPreferences());
+                        if (steamLinuxLaunchPrepared)
+                        {
+                            _activeSteamLaunchRomPath = launchRomPath;
+                            _activeSteamLaunchTitle = request.ItemTitle;
+                            SLog.Info(
+                                $"Steam direct launch prepared for '{launchRomPath}': " +
+                                $"FileName='{startInfo.FileName}', Args='{string.Join(' ', startInfo.ArgumentList)}'.");
+                        }
+                        else
+                        {
+                            throw new LinuxCompositorLaunchException(
+                                "Could not prepare a direct Proton/native launch for this Steam game. " +
+                                "Make sure the game is fully installed and has been launched at least once in Steam.");
+                        }
                     }
-                    else
+                    else if (OperatingSystem.IsWindows())
                     {
-                        throw new LinuxCompositorLaunchException(
-                            "Could not prepare a direct Proton/native launch for this Steam game. " +
-                            "Make sure the game is fully installed and has been launched at least once in Steam.");
+                        if (SteamHandler.TryResolveNativeSteamExecutable(handler.LauncherPath) is { } nativeSteamPath)
+                        {
+                            startInfo.FileName = nativeSteamPath;
+                            var workingDirectory = Path.GetDirectoryName(nativeSteamPath);
+                            if (!string.IsNullOrWhiteSpace(workingDirectory))
+                                startInfo.WorkingDirectory = workingDirectory;
+                            steamWindowsLaunchPrepared = true;
+                            _activeSteamLaunchRomPath = launchRomPath;
+                            _activeSteamLaunchTitle = request.ItemTitle;
+                            SLog.Info(
+                                $"Steam Windows launch prepared for '{launchRomPath}': " +
+                                $"FileName='{startInfo.FileName}', Args='{string.Join(' ', startInfo.ArgumentList)}'.");
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException(
+                                "Could not locate Steam. Install Steam or set the Steam executable path in Settings.");
+                        }
                     }
                 }
 
@@ -290,7 +352,7 @@ namespace AES_Lacrima.ViewModels
                     resolvedFlatpakAppId = steamHandler.ResolveLaunchFlatpakAppId();
                 }
 
-                if (!pcsx2PortableLaunchWrapped && !rpcs3LinuxLaunchPrepared && !steamLinuxLaunchPrepared)
+                if (!pcsx2PortableLaunchWrapped && !rpcs3LinuxLaunchPrepared && !steamLinuxLaunchPrepared && !steamWindowsLaunchPrepared)
                 {
                     if (OperatingSystem.IsLinux())
                     {
@@ -305,10 +367,11 @@ namespace AES_Lacrima.ViewModels
                     string.IsNullOrWhiteSpace(resolvedFlatpakAppId) &&
                     handler is SteamHandler &&
                     !steamLinuxLaunchPrepared &&
-                    SteamHandler.TryResolveNativeSteamExecutable(handler.LauncherPath) is { } nativeSteamPath)
+                    !steamWindowsLaunchPrepared &&
+                    SteamHandler.TryResolveNativeSteamExecutable(handler.LauncherPath) is { } linuxNativeSteamPath)
                 {
-                    startInfo.FileName = nativeSteamPath;
-                    var workingDirectory = Path.GetDirectoryName(nativeSteamPath);
+                    startInfo.FileName = linuxNativeSteamPath;
+                    var workingDirectory = Path.GetDirectoryName(linuxNativeSteamPath);
                     if (!string.IsNullOrWhiteSpace(workingDirectory))
                         startInfo.WorkingDirectory = workingDirectory;
                 }
@@ -357,9 +420,32 @@ namespace AES_Lacrima.ViewModels
                 }
                 else
                 {
+                    if (parsecPrepareTask != null)
+                        await parsecPrepareTask.ConfigureAwait(false);
+
+                    if (ShouldUseWindowsParsecCapture() && _windowsParsecMonitor is { } launchMonitor)
+                    {
+                        ParsecVirtualDisplayLaunchHelper.CancelPlacement();
+                        ParsecVirtualDisplayIsolation.PrepareForGameLaunch(launchMonitor);
+                        ParsecVirtualDisplayLaunchHelper.PrepareStartInfoForVirtualDisplay(
+                            handler,
+                            startInfo,
+                            launchMonitor);
+                    }
+
                     process = Process.Start(startInfo);
+
+                    if (process != null && ShouldUseWindowsParsecCapture() && _windowsParsecMonitor is { } protectedMonitor)
+                        ParsecVirtualDisplayIsolation.PrepareForGameLaunch(protectedMonitor, (uint)process.Id);
                 }
                 SLog.Info($"Emulation launch started for '{request.AlbumTitle}'/'{request.ItemTitle}' after {launchStopwatch.ElapsedMilliseconds} ms. pid={(process?.Id ?? 0)}.");
+
+                if (process != null && ShouldUseWindowsParsecCapture() && _windowsParsecMonitor is { } earlyVddMonitor)
+                {
+                    ParsecVirtualDisplayLaunchHelper.BeginPlacement(process, earlyVddMonitor, handler);
+                    SLog.Info(
+                        $"Parsec virtual display placement started immediately for pid={process.Id} on '{earlyVddMonitor.DeviceName}'.");
+                }
 
                 if (process != null)
                 {
@@ -371,12 +457,14 @@ namespace AES_Lacrima.ViewModels
 
                 AttachShadPs4IpcSessionIfNeeded(handler, process);
 
-                RestoreHostWindowFocus();
+                if (!ShouldUseWindowsParsecCapture())
+                    RestoreHostWindowFocus();
 
                 Process? runtimeProcess = process;
                 var useLinuxGamescopeCapture = OperatingSystem.IsLinux()
                                                && _linuxCompositorPid > 0
                                                && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition;
+                var useWindowsParsecCapture = ShouldUseWindowsParsecCapture();
                 if (process != null)
                 {
                     if (useLinuxGamescopeCapture)
@@ -393,6 +481,33 @@ namespace AES_Lacrima.ViewModels
                             request.AlbumTitle,
                             request.ItemTitle,
                             launchStopwatch);
+                    }
+                    else if (useWindowsParsecCapture)
+                    {
+                        try
+                        {
+                            runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
+                            SLog.Info(
+                                $"Parsec virtual display runtime process resolution completed in {launchStopwatch.ElapsedMilliseconds} ms " +
+                                $"for '{request.AlbumTitle}'/'{request.ItemTitle}'. runtimePid={runtimeProcess?.Id ?? 0}.");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            runtimeProcess = process;
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Warn($"Failed to resolve emulator runtime process for Parsec capture '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
+                            runtimeProcess = process;
+                        }
+
+                        if (_windowsParsecMonitor is { } vddMonitor && runtimeProcess != null)
+                        {
+                            ParsecVirtualDisplayLaunchHelper.BeginPlacement(runtimeProcess, vddMonitor, handler);
+                            SLog.Info(
+                                $"Parsec virtual display placement started for pid={runtimeProcess.Id} on '{vddMonitor.DeviceName}' " +
+                                $"({vddMonitor.Width}x{vddMonitor.Height} at {vddMonitor.Left},{vddMonitor.Top}).");
+                        }
                     }
                     else
                     {
@@ -416,7 +531,8 @@ namespace AES_Lacrima.ViewModels
                         handler.HideUntilCaptured &&
                         !handler.DeferWindowHidingUntilCaptured &&
                         runtimeProcess != null &&
-                        OperatingSystem.IsWindows())
+                        OperatingSystem.IsWindows() &&
+                        !useWindowsParsecCapture)
                     {
                         try
                         {
@@ -782,6 +898,8 @@ namespace AES_Lacrima.ViewModels
                 }
                 else
                 {
+                    ParsecVirtualDisplayLaunchHelper.CancelPlacement();
+
                     await Dispatcher.UIThread.InvokeAsync(() => shutdownHwnd = EmulatorTargetHwnd, DispatcherPriority.Background)
                         .GetTask()
                         .ConfigureAwait(false);
@@ -795,6 +913,15 @@ namespace AES_Lacrima.ViewModels
                     {
                         TryKeepEmulatorHiddenForShutdown(shutdownHwnd, process);
                         ForceCloseTrackedEmulatorProcess(process);
+
+                        if (ParsecVirtualDisplayLifetime.ActiveMonitor is { } monitor)
+                        {
+                            uint? protectedPid = null;
+                            try { protectedPid = (uint)process.Id; }
+                            catch { /* process already exited */ }
+
+                            ParsecVirtualDisplayIsolation.TerminateForeignProcessesOnMonitor(monitor, protectedPid);
+                        }
                     }).ConfigureAwait(false);
                 }
             }
@@ -821,6 +948,8 @@ namespace AES_Lacrima.ViewModels
             forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "duckstation", StringComparison.OrdinalIgnoreCase);
             forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "dolphin", StringComparison.OrdinalIgnoreCase);
             forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "shadps4-qtlauncher", StringComparison.OrdinalIgnoreCase);
+            forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "xenia", StringComparison.OrdinalIgnoreCase);
+            forceKillFirst |= string.Equals(CurrentEmulatorHandler?.HandlerId, "xemu", StringComparison.OrdinalIgnoreCase);
             if (!forceKillFirst)
             {
                 try
@@ -911,7 +1040,8 @@ namespace AES_Lacrima.ViewModels
 
         private async Task WaitForCaptureStopBeforeClosingProcessAsync()
         {
-            const int maxAttempts = 80;
+            var parsecCapture = ShouldUseWindowsParsecCapture();
+            var maxAttempts = parsecCapture ? 24 : 80;
             const int delayMs = 50;
 
             for (var attempt = 0; attempt < maxAttempts; attempt++)
@@ -922,7 +1052,7 @@ namespace AES_Lacrima.ViewModels
                 await Task.Delay(delayMs).ConfigureAwait(false);
             }
 
-            await Task.Delay(250).ConfigureAwait(false);
+            await Task.Delay(parsecCapture ? 75 : 250).ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -932,15 +1062,20 @@ namespace AES_Lacrima.ViewModels
                     EmulatorTargetHwnd = IntPtr.Zero;
                 }
 
+                if (EmulatorTargetMonitor != IntPtr.Zero)
+                    EmulatorTargetMonitor = IntPtr.Zero;
+
                 ClearActiveCaptureRomPath();
             }, DispatcherPriority.Background);
 
-            await Task.Delay(250).ConfigureAwait(false);
+            await Task.Delay(parsecCapture ? 75 : 250).ConfigureAwait(false);
         }
 
         private void TrackEmulatorProcess(Process? process, string romPath, IEmulatorHandler handler, string? gameTitle = null)
         {
             EmulatorTargetHwnd = IntPtr.Zero;
+            if (!ShouldPreserveParsecVirtualDisplaySession())
+                EmulatorTargetMonitor = IntPtr.Zero;
 
             if (process == null)
             {
@@ -1024,6 +1159,8 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
 
             CancelAppTopmostRestoreTimeout();
+            if (ShouldUseWindowsParsecCapture())
+                RestoreAppTopMost();
 
             try
             {
@@ -1052,13 +1189,19 @@ namespace AES_Lacrima.ViewModels
                 StartActiveEmulatorWatchdog(process);
                 _ = CompleteLinuxGamescopeCaptureHandoffAsync(process, romPath);
             }
+            else if (ShouldUseWindowsParsecCapture())
+            {
+                StartActiveEmulatorWatchdog(process);
+                _ = CompleteWindowsParsecCaptureHandoffAsync(process, romPath);
+            }
             else
             {
                 StartActiveEmulatorWatchdog(process);
                 _ = ResolveEmulatorTargetHwndAsync(process, romPath, handler);
             }
 
-            RestoreHostWindowFocus();
+            if (!ShouldUseWindowsParsecCapture())
+                RestoreHostWindowFocus();
         }
 
         private bool ShouldUseLinuxGamescopeCapture()
@@ -1233,7 +1376,8 @@ namespace AES_Lacrima.ViewModels
             _activeRpcs3SessionTitleId = null;
             _activeRpcs3SessionEmulatorDirectory = null;
 
-            var earlyLaunchFailureDetails = TryBuildEarlyLinuxLaunchFailureDetails(process, currentHandler);
+            var earlyLaunchFailureDetails = TryBuildEarlyWindowsParsecLaunchFailureDetails()
+                                            ?? TryBuildEarlyLinuxLaunchFailureDetails(process, currentHandler);
             if (OperatingSystem.IsLinux())
                 TeardownLinuxGamescopeSession();
 
@@ -1394,6 +1538,8 @@ namespace AES_Lacrima.ViewModels
             if (_activeEmulatorProcess == null)
             {
                 EmulatorTargetHwnd = IntPtr.Zero;
+                if (!ShouldPreserveParsecVirtualDisplaySession())
+                    EmulatorTargetMonitor = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 _retroArchLogWatcherCts?.Cancel();
                 _retroArchLogWatcherCts?.Dispose();
@@ -1416,6 +1562,8 @@ namespace AES_Lacrima.ViewModels
                 _activeEmulatorRomPath = null;
                 _activeEmulatorGameTitle = null;
                 EmulatorTargetHwnd = IntPtr.Zero;
+                if (!ShouldPreserveParsecVirtualDisplaySession())
+                    EmulatorTargetMonitor = IntPtr.Zero;
                 EmulatorTargetProcessId = 0;
                 _linuxSuspendedEmulatorPids.Clear();
                 _emulatorAudioVolume.Detach();
@@ -1832,7 +1980,8 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 RestoreAppTopMost();
-                RestoreHostWindowFocus();
+                if (!ShouldUseWindowsParsecCapture())
+                    RestoreHostWindowFocus();
                 ClearRetroArchErrorState();
 
                 if (EmulatorTargetHwnd != hwnd)
@@ -1841,7 +1990,11 @@ namespace AES_Lacrima.ViewModels
                 if (!OperatingSystem.IsLinux() || !handler.HideUntilCaptured)
                     IsEmulatorLaunchInProgress = false;
 
-                SLog.Info($"Emulation capture handoff completed in {handoffStopwatch.ElapsedMilliseconds} ms for pid={process.Id}. hwnd=0x{hwnd.ToInt64():X}, showWindowForCapture={showWindowForCapture}.");
+                var processId = 0;
+                try { processId = process.Id; }
+                catch { /* launcher may have already exited after spawning a child */ }
+
+                SLog.Info($"Emulation capture handoff completed in {handoffStopwatch.ElapsedMilliseconds} ms for pid={processId}. hwnd=0x{hwnd.ToInt64():X}, showWindowForCapture={showWindowForCapture}.");
 
                 return true;
             }, DispatcherPriority.Background);
@@ -1874,6 +2027,9 @@ namespace AES_Lacrima.ViewModels
 
         private void EnsureAppTopMostBeforeLaunch()
         {
+            if (ShouldAttemptWindowsParsecCapture())
+                return;
+
             if (_appTopmostOverride)
                 return;
 

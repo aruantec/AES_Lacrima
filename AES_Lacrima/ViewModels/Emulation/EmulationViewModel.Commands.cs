@@ -1,4 +1,5 @@
 using AES_Controls.Helpers;
+using AES_Controls.Helpers.Windows;
 using AES_Controls.Player;
 using AES_Controls.Player.Models;
 using AES_Core.DI;
@@ -683,6 +684,7 @@ namespace AES_Lacrima.ViewModels
             if (OperatingSystem.IsLinux())
                 TeardownLinuxGamescopeSession();
             EmulatorTargetHwnd = IntPtr.Zero;
+            EmulatorTargetMonitor = IntPtr.Zero;
             EmulatorTargetProcessId = 0;
             IsEmulatorRunning = false;
             IsEmulatorPaused = false;
@@ -740,12 +742,18 @@ namespace AES_Lacrima.ViewModels
 
             PrepareEmulatorShutdownCapture();
 
+            if (OperatingSystem.IsWindows())
+                ParsecVirtualDisplayLifetime.ShutdownAppSession();
+
             var shutdownHwnd = EmulatorTargetHwnd;
             if (shutdownHwnd != IntPtr.Zero)
             {
                 SLog.Info($"EmulationViewModel clearing emulator hwnd 0x{shutdownHwnd.ToInt64():X} for application shutdown.");
                 EmulatorTargetHwnd = IntPtr.Zero;
             }
+
+            if (EmulatorTargetMonitor != IntPtr.Zero)
+                EmulatorTargetMonitor = IntPtr.Zero;
 
             if (!TryGetRunningTrackedEmulatorProcess(out var process))
             {

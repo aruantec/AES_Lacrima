@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using AES_Controls.Helpers;
 
 namespace AES_Emulation.EmulationHandlers;
 
@@ -37,4 +38,13 @@ public sealed class RetroArchGbaHandler : EmulatorHandlerBase
 
     public override ProcessStartInfo BuildStartInfo(string launcherPath, string romPath, bool startFullscreen, string? sectionTitle = null, string? selectedRetroArchCore = null)
         => RetroArchHandler.BuildRetroArchStartInfo(launcherPath, romPath, startFullscreen, sectionTitle ?? SectionTitle, selectedRetroArchCore, FlatpakAppId);
+
+    public override void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        ParsecVirtualDisplayMonitor monitor)
+        => RetroArchHandler.ApplyWindowsVirtualDisplayStartInfo(startInfo, monitorIndex, monitor, FlatpakAppId);
+
+    public override IntPtr FindPreferredWindowHandle(Process process)
+        => RetroArchHandler.FindPreferredRetroArchWindowHandle(process);
 }

@@ -4,7 +4,9 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Controls.Helpers;
 using AES_Emulation.Linux;
+using AES_Emulation.Windows.Parsec;
 using AES_Emulation.Windows.API;
 
 namespace AES_Emulation.EmulationHandlers;
@@ -67,10 +69,48 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         return startInfo;
     }
 
-    [SupportedOSPlatform("linux")]
-    private static void ApplyLinuxAudioEnvironment(ProcessStartInfo startInfo)
+    [SupportedOSPlatform("windows")]
+    public override void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        ParsecVirtualDisplayMonitor monitor)
     {
-        LinuxGameplayAudioCapture.ApplyAudioEnvironment(startInfo);
+        if (!startInfo.ArgumentList.Contains("--fullscreen=false"))
+            startInfo.ArgumentList.Insert(0, "--fullscreen=false");
+    }
+
+    public override void PrepareProcessForCapture(Process process)
+    {
+        // Hiding/minimizing before capture is established can stall D3D/Vulkan presentation.
+    }
+
+    public override void PrepareWindowForCapture(IntPtr hwnd)
+    {
+        // Geometry is applied once the render child window is stable during resolve.
+    }
+
+    public override void PrepareWindowForCaptureAttach(IntPtr hwnd)
+    {
+    }
+
+    [SupportedOSPlatform("windows")]
+    public override IntPtr FindVirtualDisplayPlacementWindowHandle(Process process)
+    {
+        if (!OperatingSystem.IsWindows())
+            return IntPtr.Zero;
+
+        try
+        {
+            process.Refresh();
+            if (process.MainWindowHandle != IntPtr.Zero)
+                return process.MainWindowHandle;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+
+        return FindPreferredWindowHandle(process);
     }
 
     [SupportedOSPlatform("windows")]
@@ -138,11 +178,10 @@ public sealed class XeniaHandler : EmulatorHandlerBase
         return IntPtr.Zero;
     }
 
-    [SupportedOSPlatform("windows")]
-    public override void PrepareWindowForCapture(IntPtr hwnd)
+    [SupportedOSPlatform("linux")]
+    private static void ApplyLinuxAudioEnvironment(ProcessStartInfo startInfo)
     {
-        PrepareWindowForCaptureAttach(hwnd);
-        HideWindowForCapture(hwnd);
+        LinuxGameplayAudioCapture.ApplyAudioEnvironment(startInfo);
     }
 
     [SupportedOSPlatform("windows")]

@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using AES_Controls.Helpers;
 using AES_Core.Logging;
 using AES_Emulation.Linux;
 using AES_Emulation.Steam;
@@ -42,7 +44,7 @@ public sealed class SteamHandler : EmulatorHandlerBase
 
     public override bool CanHandleAlbumTitle(string? albumTitle)
     {
-        if (!OperatingSystem.IsLinux() || string.IsNullOrWhiteSpace(albumTitle))
+        if (string.IsNullOrWhiteSpace(albumTitle))
             return false;
 
         return string.Equals(albumTitle, SectionTitle, StringComparison.OrdinalIgnoreCase) ||
@@ -55,8 +57,8 @@ public sealed class SteamHandler : EmulatorHandlerBase
     {
         get
         {
-            if (!OperatingSystem.IsLinux())
-                return false;
+            if (OperatingSystem.IsWindows())
+                return IsLauncherPathValid(LauncherPath) || TryResolveNativeSteamExecutable(LauncherPath) != null;
 
             return HasConfiguredFlatpakLauncher() ||
                    IsLauncherPathValid(LauncherPath) ||
@@ -92,7 +94,6 @@ public sealed class SteamHandler : EmulatorHandlerBase
     public string? ResolveLaunchFlatpakAppId()
         => !string.IsNullOrWhiteSpace(FlatpakAppId) ? FlatpakAppId : ResolveAutoFlatpakAppId();
 
-    [SupportedOSPlatform("linux")]
     public override ProcessStartInfo BuildStartInfo(
         string launcherPath,
         string romPath,
@@ -100,19 +101,20 @@ public sealed class SteamHandler : EmulatorHandlerBase
         string? sectionTitle = null,
         string? selectedRetroArchCore = null)
     {
-        if (!OperatingSystem.IsLinux())
-            throw new PlatformNotSupportedException("Steam launch is only supported on Linux.");
-
         var appId = SteamGamePath.GetAppId(romPath);
         if (string.IsNullOrWhiteSpace(appId))
             throw new InvalidOperationException($"Invalid Steam game path: '{romPath}'.");
 
-        var executablePath = TryResolveNativeSteamExecutable(launcherPath) ?? "steam";
+        var executablePath = TryResolveNativeSteamExecutable(launcherPath);
+        if (string.IsNullOrWhiteSpace(executablePath))
+            throw new InvalidOperationException("Could not locate the Steam executable.");
+
         var startInfo = new ProcessStartInfo
         {
             FileName = executablePath,
             UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            WorkingDirectory = Path.GetDirectoryName(executablePath)
+                               ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
         };
 
         startInfo.ArgumentList.Add("-silent");
@@ -124,13 +126,22 @@ public sealed class SteamHandler : EmulatorHandlerBase
         return startInfo;
     }
 
+    public override void PrepareStartInfoForVirtualDisplay(
+        ProcessStartInfo startInfo,
+        int monitorIndex,
+        ParsecVirtualDisplayMonitor monitor)
+    {
+        base.PrepareStartInfoForVirtualDisplay(startInfo, monitorIndex, monitor);
+        // Steam games are positioned on the virtual display after launch; monitor capture is used once ready.
+    }
+
     public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
     {
-        if (process == null || !OperatingSystem.IsLinux())
-            return process;
+        if (process == null)
+            return null;
 
-        const int maxAttempts = 40;
-        const int delayMs = 250;
+        var maxAttempts = OperatingSystem.IsWindows() ? 120 : 40;
+        var delayMs = OperatingSystem.IsWindows() ? 500 : 250;
 
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
@@ -158,11 +169,11 @@ public sealed class SteamHandler : EmulatorHandlerBase
 
     public static string? TryResolveNativeSteamExecutable(string? launcherPath = null)
     {
-        if (!OperatingSystem.IsLinux())
-            return null;
-
         if (!string.IsNullOrWhiteSpace(launcherPath) && File.Exists(launcherPath))
             return launcherPath;
+
+        if (OperatingSystem.IsWindows())
+            return TryResolveWindowsSteamExecutable();
 
         var pathEntries = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
             .Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -186,6 +197,34 @@ public sealed class SteamHandler : EmulatorHandlerBase
             Path.Combine(home, ".var", "app", DefaultFlatpakAppId, ".local", "share", "Steam", "ubuntu12_64", "steam"),
             "/usr/bin/steam",
             "/usr/games/steam",
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string? TryResolveWindowsSteamExecutable()
+    {
+        try
+        {
+            var steamPath = Microsoft.Win32.Registry.CurrentUser
+                .OpenSubKey(@"Software\Valve\Steam")
+                ?.GetValue("SteamPath") as string;
+            if (!string.IsNullOrWhiteSpace(steamPath))
+            {
+                var registryExe = Path.Combine(steamPath.TrimEnd('\\', '/'), "steam.exe");
+                if (File.Exists(registryExe))
+                    return registryExe;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Failed to read Steam install path from registry.", ex);
+        }
+
+        var candidates = new[]
+        {
+            @"C:\Program Files (x86)\Steam\steam.exe",
+            @"C:\Program Files\Steam\steam.exe",
         };
 
         return candidates.FirstOrDefault(File.Exists);
@@ -235,6 +274,21 @@ public sealed class SteamHandler : EmulatorHandlerBase
         try
         {
             var name = process.ProcessName;
+            if (OperatingSystem.IsWindows())
+            {
+                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                    !IsSteamClientProcess(process) &&
+                    !name.Contains("steamwebhelper", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("gameoverlay", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                return process.MainWindowHandle != IntPtr.Zero &&
+                       !string.IsNullOrWhiteSpace(process.MainWindowTitle) &&
+                       !process.MainWindowTitle.Contains("Steam", StringComparison.OrdinalIgnoreCase);
+            }
+
             if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
                 !name.Contains("steam", StringComparison.OrdinalIgnoreCase))
             {
@@ -316,6 +370,17 @@ public sealed class SteamHandler : EmulatorHandlerBase
         try
         {
             var name = process.ProcessName;
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            if (OperatingSystem.IsWindows())
+            {
+                return name.Equals("steam", StringComparison.OrdinalIgnoreCase) ||
+                       name.Equals("steamservice", StringComparison.OrdinalIgnoreCase) ||
+                       name.Contains("steamwebhelper", StringComparison.OrdinalIgnoreCase) ||
+                       name.Contains("gameoverlay", StringComparison.OrdinalIgnoreCase);
+            }
+
             return name.Contains("steam", StringComparison.OrdinalIgnoreCase) &&
                    !name.Contains("steamservice", StringComparison.OrdinalIgnoreCase);
         }
@@ -374,9 +439,17 @@ internal static class ProcessTreeExtensions
 
     private static Process[] GetChildProcesses(this Process process)
     {
-        if (!OperatingSystem.IsLinux())
-            return [];
+        if (OperatingSystem.IsLinux())
+            return GetLinuxChildProcesses(process);
 
+        if (OperatingSystem.IsWindows())
+            return GetWindowsChildProcesses(process.Id);
+
+        return [];
+    }
+
+    private static Process[] GetLinuxChildProcesses(Process process)
+    {
         var children = new List<Process>();
         var procRoot = $"/proc/{process.Id}/task/{process.Id}/children";
         if (!File.Exists(procRoot))
@@ -402,4 +475,71 @@ internal static class ProcessTreeExtensions
 
         return children.ToArray();
     }
+
+    private static Process[] GetWindowsChildProcesses(int parentProcessId)
+    {
+        var children = new List<Process>();
+        var snapshot = CreateToolhelp32Snapshot(Th32CsSnapProcess, 0);
+        if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1))
+            return [];
+
+        try
+        {
+            var entry = new ProcessEntry32 { DwSize = (uint)Marshal.SizeOf<ProcessEntry32>() };
+            if (!Process32First(snapshot, ref entry))
+                return [];
+
+            do
+            {
+                if ((int)entry.Th32ParentProcessID == parentProcessId && entry.Th32ProcessID != 0)
+                {
+                    try
+                    {
+                        children.Add(Process.GetProcessById((int)entry.Th32ProcessID));
+                    }
+                    catch
+                    {
+                        // ignored
+                    }
+                }
+            }
+            while (Process32Next(snapshot, ref entry));
+        }
+        finally
+        {
+            CloseHandle(snapshot);
+        }
+
+        return children.ToArray();
+    }
+
+    private const uint Th32CsSnapProcess = 0x00000002;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ProcessEntry32
+    {
+        public uint DwSize;
+        public uint CntUsage;
+        public uint Th32ProcessID;
+        public IntPtr Th32DefaultHeapID;
+        public uint Th32ModuleID;
+        public uint CntThreads;
+        public uint Th32ParentProcessID;
+        public int PcPriClassBase;
+        public uint DwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string SzExeFile;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool Process32First(IntPtr hSnapshot, ref ProcessEntry32 lppe);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool Process32Next(IntPtr hSnapshot, ref ProcessEntry32 lppe);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
 }
