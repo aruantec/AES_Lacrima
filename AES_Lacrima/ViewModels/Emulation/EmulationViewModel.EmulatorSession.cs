@@ -70,6 +70,10 @@ namespace AES_Lacrima.ViewModels
             _linuxCaptureHandoffCompleted = false;
             _activeSteamLaunchRomPath = null;
             _activeSteamLaunchTitle = null;
+            _activeSteamInstallDirectory = null;
+            _awaitingSteamRuntimeRebind = false;
+            _steamRuntimeWaitCts?.Cancel();
+            _steamRuntimeWaitCts = null;
             _pendingEmulatorLaunchRequest = request;
             if (!OperatingSystem.IsLinux())
                 PrepareEmulatorShutdownCapture();
@@ -134,7 +138,7 @@ namespace AES_Lacrima.ViewModels
                 SLog.Info($"Selected capture mode for '{handler.HandlerId}' is {SelectedCaptureMode}.");
 
                 Task? parsecPrepareTask = null;
-                if (ShouldAttemptWindowsParsecCapture())
+                if (ShouldAttemptWindowsParsecCapture(handler))
                 {
                     _windowsParsecCaptureHandoffCompleted = false;
                     ResetParsecVirtualDisplayPlacementState();
@@ -143,7 +147,7 @@ namespace AES_Lacrima.ViewModels
                 else if (OperatingSystem.IsWindows() && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition)
                 {
                     SLog.Info(
-                        ParsecVddManager.UseEmulatorVirtualDisplayCapture
+                        ParsecVddManager.UsesVirtualDisplayCaptureForHandler(handler.HandlerId)
                             ? ParsecVddManager.UseVirtualDisplayCapture
                                 ? "Parsec virtual display capture unavailable; using HWND capture."
                                 : "Parsec virtual display capture disabled in Settings; using HWND capture."
@@ -180,7 +184,7 @@ namespace AES_Lacrima.ViewModels
                         handler.LauncherPath);
                     await Task.Run(() => XeniaCustomConfigService.PrepareConfigForLaunch(xeniaStorageRoot, xeniaTitleId))
                         .ConfigureAwait(false);
-                    if (ShouldAttemptWindowsParsecCapture() && ParsecVirtualDisplayLifetime.ActiveMonitor is { } xeniaVddMonitor)
+                    if (ShouldAttemptWindowsParsecCapture(handler) && ParsecVirtualDisplayLifetime.ActiveMonitor is { } xeniaVddMonitor)
                     {
                         await Task.Run(() => XeniaCustomConfigService.EnsureWindowsVirtualDisplayLaunchSettings(
                                 xeniaStorageRoot,
@@ -315,23 +319,66 @@ namespace AES_Lacrima.ViewModels
                     }
                     else if (OperatingSystem.IsWindows())
                     {
-                        if (SteamHandler.TryResolveNativeSteamExecutable(handler.LauncherPath) is { } nativeSteamPath)
+                        if (handler is not SteamHandler steamHandlerForLaunch)
+                            throw new InvalidOperationException("Steam handler is not available on this platform.");
+
+                        steamWindowsLaunchPrepared = SteamWindowsLaunchHelper.TryPrepareDirectLaunch(
+                            startInfo,
+                            launchRomPath);
+                        if (steamWindowsLaunchPrepared)
+                        {
+                            var appId = AES_Emulation.Steam.SteamGamePath.GetAppId(launchRomPath);
+                            var game = SteamInstalledGameHelper.GetInstalledGame(appId);
+                            if (game != null &&
+                                SteamInstalledGameHelper.TryResolveGameExecutable(
+                                    game.InstallDirectory,
+                                    preferWindowsExecutable: true,
+                                    out var gameExecutable))
+                            {
+                                _activeSteamInstallDirectory = game.InstallDirectory;
+                                steamHandlerForLaunch.ConfigureWindowsLaunchContext(
+                                    game.InstallDirectory,
+                                    Path.GetFileName(gameExecutable));
+                            }
+                            else if (game != null)
+                            {
+                                _activeSteamInstallDirectory = game.InstallDirectory;
+                                steamHandlerForLaunch.SetWindowsLaunchInstallDirectory(game.InstallDirectory);
+                            }
+
+                            _activeSteamLaunchRomPath = launchRomPath;
+                            _activeSteamLaunchTitle = request.ItemTitle;
+                            SLog.Info(
+                                $"Steam Windows direct launch prepared for '{launchRomPath}': " +
+                                $"FileName='{startInfo.FileName}', WorkingDirectory='{startInfo.WorkingDirectory}'.");
+                        }
+                        else if (SteamHandler.TryResolveNativeSteamExecutable(handler.LauncherPath) is { } nativeSteamPath)
                         {
                             startInfo.FileName = nativeSteamPath;
                             var workingDirectory = Path.GetDirectoryName(nativeSteamPath);
                             if (!string.IsNullOrWhiteSpace(workingDirectory))
                                 startInfo.WorkingDirectory = workingDirectory;
+                            steamHandlerForLaunch.ConfigureWindowsApplaunchHandoff();
+                            var appId = AES_Emulation.Steam.SteamGamePath.GetAppId(launchRomPath);
+                            var game = SteamInstalledGameHelper.GetInstalledGame(appId);
+                            if (game != null)
+                            {
+                                _activeSteamInstallDirectory = game.InstallDirectory;
+                                steamHandlerForLaunch.SetWindowsLaunchInstallDirectory(game.InstallDirectory);
+                            }
+
                             steamWindowsLaunchPrepared = true;
                             _activeSteamLaunchRomPath = launchRomPath;
                             _activeSteamLaunchTitle = request.ItemTitle;
                             SLog.Info(
-                                $"Steam Windows launch prepared for '{launchRomPath}': " +
+                                $"Steam Windows applaunch fallback prepared for '{launchRomPath}': " +
                                 $"FileName='{startInfo.FileName}', Args='{string.Join(' ', startInfo.ArgumentList)}'.");
                         }
                         else
                         {
                             throw new InvalidOperationException(
-                                "Could not locate Steam. Install Steam or set the Steam executable path in Settings.");
+                                "Could not launch this Steam game. Start Steam and make sure the game is installed, " +
+                                "or set the Steam executable path in Settings.");
                         }
                     }
                 }
@@ -423,7 +470,7 @@ namespace AES_Lacrima.ViewModels
                     if (parsecPrepareTask != null)
                         await parsecPrepareTask.ConfigureAwait(false);
 
-                    if (ShouldUseWindowsParsecCapture() && _windowsParsecMonitor is { } launchMonitor)
+                    if (ShouldUseWindowsParsecCapture(handler) && _windowsParsecMonitor is { } launchMonitor)
                     {
                         ParsecVirtualDisplayLaunchHelper.CancelPlacement();
                         ParsecVirtualDisplayIsolation.PrepareForGameLaunch(launchMonitor);
@@ -435,36 +482,58 @@ namespace AES_Lacrima.ViewModels
 
                     process = Process.Start(startInfo);
 
-                    if (process != null && ShouldUseWindowsParsecCapture() && _windowsParsecMonitor is { } protectedMonitor)
+                    if (process != null && ShouldUseWindowsParsecCapture(handler) && _windowsParsecMonitor is { } protectedMonitor)
                         ParsecVirtualDisplayIsolation.PrepareForGameLaunch(protectedMonitor, (uint)process.Id);
                 }
                 SLog.Info($"Emulation launch started for '{request.AlbumTitle}'/'{request.ItemTitle}' after {launchStopwatch.ElapsedMilliseconds} ms. pid={(process?.Id ?? 0)}.");
 
-                if (process != null && ShouldUseWindowsParsecCapture() && _windowsParsecMonitor is { } earlyVddMonitor)
+                if (process != null && ShouldUseWindowsParsecCapture(handler) && _windowsParsecMonitor is { } earlyVddMonitor)
                 {
-                    ParsecVirtualDisplayLaunchHelper.BeginPlacement(process, earlyVddMonitor, handler);
+                    ParsecVirtualDisplayLaunchHelper.BeginPlacement(
+                        process,
+                        earlyVddMonitor,
+                        handler,
+                        _activeSteamInstallDirectory);
                     SLog.Info(
-                        $"Parsec virtual display placement started immediately for pid={process.Id} on '{earlyVddMonitor.DeviceName}'.");
+                        $"Parsec virtual display placement started immediately for pid={process.Id} on '{earlyVddMonitor.DeviceName}' " +
+                        $"(installDir='{_activeSteamInstallDirectory ?? "n/a"}').");
                 }
 
                 if (process != null)
                 {
                     SLog.Info($"Emulator process launched: {LinuxProcessDiagnosticsHelper.Describe(process)}.");
 
-                    if (LinuxProcessDiagnosticsHelper.TryGetHasExited(process, out var hasExited) && hasExited)
-                        throw CreateLinuxCompositorChildExitException(request.Handler);
+                    if (LinuxProcessDiagnosticsHelper.TryGetHasExited(process, out var hasExited) && hasExited &&
+                        !SteamHandler.UsesLauncherHandoffProcess(handler))
+                    {
+                        if (OperatingSystem.IsWindows() &&
+                            handler is SteamHandler steamHandlerForExit &&
+                            ShouldUseWindowsParsecCapture(handler) &&
+                            steamHandlerForExit.TryResolveActiveWindowsGameProcess(out var replacementProcess) &&
+                            replacementProcess != null)
+                        {
+                            process = replacementProcess;
+                            SLog.Info(
+                                $"Steam Windows launch handoff resolved replacement game process pid={replacementProcess.Id} " +
+                                $"after launcher exit.");
+                        }
+                        else
+                        {
+                            throw CreateLinuxCompositorChildExitException(request.Handler);
+                        }
+                    }
                 }
 
                 AttachShadPs4IpcSessionIfNeeded(handler, process);
 
-                if (!ShouldUseWindowsParsecCapture())
+                if (!ShouldUseWindowsParsecCapture(handler))
                     RestoreHostWindowFocus();
 
                 Process? runtimeProcess = process;
                 var useLinuxGamescopeCapture = OperatingSystem.IsLinux()
                                                && _linuxCompositorPid > 0
                                                && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition;
-                var useWindowsParsecCapture = ShouldUseWindowsParsecCapture();
+                var useWindowsParsecCapture = ShouldUseWindowsParsecCapture(handler);
                 if (process != null)
                 {
                     if (useLinuxGamescopeCapture)
@@ -484,30 +553,13 @@ namespace AES_Lacrima.ViewModels
                     }
                     else if (useWindowsParsecCapture)
                     {
-                        try
-                        {
-                            runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
-                            SLog.Info(
-                                $"Parsec virtual display runtime process resolution completed in {launchStopwatch.ElapsedMilliseconds} ms " +
-                                $"for '{request.AlbumTitle}'/'{request.ItemTitle}'. runtimePid={runtimeProcess?.Id ?? 0}.");
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            runtimeProcess = process;
-                        }
-                        catch (Exception ex)
-                        {
-                            SLog.Warn($"Failed to resolve emulator runtime process for Parsec capture '{request.AlbumTitle}' item '{request.ItemTitle}'.", ex);
-                            runtimeProcess = process;
-                        }
-
-                        if (_windowsParsecMonitor is { } vddMonitor && runtimeProcess != null)
-                        {
-                            ParsecVirtualDisplayLaunchHelper.BeginPlacement(runtimeProcess, vddMonitor, handler);
-                            SLog.Info(
-                                $"Parsec virtual display placement started for pid={runtimeProcess.Id} on '{vddMonitor.DeviceName}' " +
-                                $"({vddMonitor.Width}x{vddMonitor.Height} at {vddMonitor.Left},{vddMonitor.Top}).");
-                        }
+                        runtimeProcess = process;
+                        _ = ResolveWindowsParsecRuntimeProcessInBackgroundAsync(
+                            handler,
+                            process,
+                            request.AlbumTitle,
+                            request.ItemTitle,
+                            launchStopwatch);
                     }
                     else
                     {
@@ -574,6 +626,7 @@ namespace AES_Lacrima.ViewModels
                     ShowEmulatorLaunchFailure(request.Handler, request.ItemTitle, ex.Message);
                     IsEmulatorLaunchInProgress = false;
                 });
+                EndDesktopDisplayIsolation();
             }
             catch (Exception ex)
             {
@@ -588,6 +641,83 @@ namespace AES_Lacrima.ViewModels
                     ShowEmulatorLaunchFailure(request.Handler, request.ItemTitle, details);
                     IsEmulatorLaunchInProgress = false;
                 });
+                EndDesktopDisplayIsolation();
+            }
+        }
+
+        private async Task ResolveWindowsParsecRuntimeProcessInBackgroundAsync(
+            IEmulatorHandler handler,
+            Process process,
+            string albumTitle,
+            string itemTitle,
+            Stopwatch launchStopwatch)
+        {
+            try
+            {
+                var runtimeProcess = await handler.ResolveRuntimeProcessAsync(process, CancellationToken.None).ConfigureAwait(false) ?? process;
+                if (ReferenceEquals(runtimeProcess, process))
+                    return;
+
+                SLog.Info(
+                    $"Parsec virtual display runtime process resolved in background after {launchStopwatch.ElapsedMilliseconds} ms " +
+                    $"for '{albumTitle}'/'{itemTitle}'. launcherPid={process.Id}, runtimePid={runtimeProcess.Id}.");
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!IsEmulatorRunning || _isClosingActiveEmulatorForRelaunch)
+                        return;
+
+                    if (ReferenceEquals(_activeEmulatorProcess, runtimeProcess))
+                        return;
+
+                    try
+                    {
+                        if (_activeEmulatorProcess != null)
+                        {
+                            try { _activeEmulatorProcess.Exited -= ActiveEmulatorProcess_Exited; }
+                            catch { /* ignored */ }
+                        }
+
+                        _activeEmulatorProcess = runtimeProcess;
+                        EmulatorTargetProcessId = runtimeProcess.Id;
+                        EmulationProcessGuard.RegisterEmulator(runtimeProcess.Id);
+
+                        try
+                        {
+                            runtimeProcess.EnableRaisingEvents = true;
+                            runtimeProcess.Exited += ActiveEmulatorProcess_Exited;
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Debug("Failed to subscribe to resolved runtime process exit events.", ex);
+                        }
+
+                        if (_windowsParsecMonitor is { } vddMonitor)
+                        {
+                            ParsecVirtualDisplayLaunchHelper.BeginPlacement(
+                                runtimeProcess,
+                                vddMonitor,
+                                handler,
+                                _activeSteamInstallDirectory);
+                            SLog.Info(
+                                $"Parsec virtual display placement rebound to runtime pid={runtimeProcess.Id} on '{vddMonitor.DeviceName}'.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Debug("Failed to rebind Parsec virtual display runtime process.", ex);
+                    }
+                }, DispatcherPriority.Background);
+            }
+            catch (OperationCanceledException)
+            {
+                // ignored
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug(
+                    $"Background Parsec runtime process resolution failed for '{albumTitle}'/'{itemTitle}'.",
+                    ex);
             }
         }
 
@@ -1040,7 +1170,7 @@ namespace AES_Lacrima.ViewModels
 
         private async Task WaitForCaptureStopBeforeClosingProcessAsync()
         {
-            var parsecCapture = ShouldUseWindowsParsecCapture();
+            var parsecCapture = ShouldUseWindowsParsecCapture(CurrentEmulatorHandler);
             var maxAttempts = parsecCapture ? 24 : 80;
             const int delayMs = 50;
 
@@ -1108,6 +1238,16 @@ namespace AES_Lacrima.ViewModels
             _activeEmulatorWatchdogCts?.Dispose();
             _activeEmulatorWatchdogCts = null;
 
+            if (process.HasExited &&
+                handler is SteamHandler steamHandlerForTrack &&
+                steamHandlerForTrack.TryResolveActiveWindowsGameProcess(out var replacementProcess) &&
+                replacementProcess != null)
+            {
+                SLog.Info(
+                    $"Steam launch tracking rebound from exited pid={process.Id} to runtime pid={replacementProcess.Id}.");
+                process = replacementProcess;
+            }
+
             _activeEmulatorProcess = process;
             _activeEmulatorRomPath = romPath;
             _activeEmulatorGameTitle = gameTitle;
@@ -1159,7 +1299,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
 
             CancelAppTopmostRestoreTimeout();
-            if (ShouldUseWindowsParsecCapture())
+            if (ShouldUseWindowsParsecCapture(handler))
                 RestoreAppTopMost();
 
             try
@@ -1178,7 +1318,10 @@ namespace AES_Lacrima.ViewModels
                 StartRetroArchLogWatcher(process, handler);
 
             if (process.HasExited)
+            {
                 HandleTrackedEmulatorExited(process);
+                return;
+            }
             else if (!EmulatorCapturePlatform.SupportsCompositionCapture)
             {
                 StartActiveEmulatorWatchdog(process);
@@ -1189,9 +1332,10 @@ namespace AES_Lacrima.ViewModels
                 StartActiveEmulatorWatchdog(process);
                 _ = CompleteLinuxGamescopeCaptureHandoffAsync(process, romPath);
             }
-            else if (ShouldUseWindowsParsecCapture())
+            else if (ShouldUseWindowsParsecCapture(handler))
             {
                 StartActiveEmulatorWatchdog(process);
+                ScheduleParsecLaunchGateFallback();
                 _ = CompleteWindowsParsecCaptureHandoffAsync(process, romPath);
             }
             else
@@ -1200,7 +1344,7 @@ namespace AES_Lacrima.ViewModels
                 _ = ResolveEmulatorTargetHwndAsync(process, romPath, handler);
             }
 
-            if (!ShouldUseWindowsParsecCapture())
+            if (!ShouldUseWindowsParsecCapture(handler))
                 RestoreHostWindowFocus();
         }
 
@@ -1239,6 +1383,58 @@ namespace AES_Lacrima.ViewModels
                 SLog.Warn($"Linux gamescope capture handoff failed for '{romPath}'.", ex);
                 ScheduleEmulatorLaunchOverlayFallbackClear();
             }
+        }
+
+        private void ScheduleParsecLaunchGateFallback()
+        {
+            const int fallbackMs = 45_000;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(fallbackMs).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (!IsEmulatorLaunchInProgress || _windowsParsecCaptureHandoffCompleted)
+                            return;
+
+                        SLog.Warn(
+                            "Parsec virtual display launch gate timed out; forcing monitor capture handoff.");
+                        ForceCompleteParsecCaptureHandoff(_activeEmulatorRomPath);
+                    }, DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Parsec launch gate fallback failed.", ex);
+                }
+            });
+        }
+
+        private void ForceCompleteParsecCaptureHandoff(string? romPath = null)
+        {
+            if (_windowsParsecCaptureHandoffCompleted)
+                return;
+
+            if (_windowsParsecMonitor is not { } monitor || CurrentEmulatorHandler is not { } handler)
+                return;
+
+            ClearRetroArchErrorState();
+            EmulatorTargetHwnd = IntPtr.Zero;
+            EmulatorTargetMonitor = monitor.Handle;
+            _windowsParsecCaptureHandoffCompleted = true;
+            _awaitingSteamRuntimeRebind = false;
+            IsEmulatorRunning = true;
+            IsEmulatorLaunchInProgress = false;
+            BeginDesktopDisplayIsolationIfNeeded(handler);
+
+            SLog.Info(
+                $"Parsec virtual display monitor capture forced for '{romPath ?? _activeEmulatorRomPath}'. " +
+                $"Capturing monitor 0x{monitor.Handle.ToInt64():X} ('{monitor.DeviceName}', {monitor.Width}x{monitor.Height}).");
+
+            NotifyParsecVirtualDisplayStatusChanged();
+
+            if (_activeEmulatorProcess is { } monitorProcess)
+                _ = MonitorParsecVirtualDisplayPlacementAsync(monitorProcess, monitor, handler);
         }
 
         private void ScheduleEmulatorLaunchOverlayFallbackClear()
@@ -1345,6 +1541,217 @@ namespace AES_Lacrima.ViewModels
             Dispatcher.UIThread.Post(() => HandleTrackedEmulatorExited(process), DispatcherPriority.Background);
         }
 
+        private bool TryRebindActiveSteamGameProcess(
+            IEmulatorHandler? handler,
+            Process exitedProcess,
+            out Process replacementProcess)
+        {
+            replacementProcess = exitedProcess;
+            if (!OperatingSystem.IsWindows() || handler is not SteamHandler steamHandler)
+                return false;
+
+            if (!steamHandler.TryResolveActiveWindowsGameProcess(out var candidate) || candidate == null)
+                return false;
+
+            try
+            {
+                candidate.Refresh();
+                if (candidate.HasExited || candidate.Id == exitedProcess.Id)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            try
+            {
+                exitedProcess.Exited -= ActiveEmulatorProcess_Exited;
+            }
+            catch
+            {
+                // ignored
+            }
+
+            _activeEmulatorProcess = candidate;
+            replacementProcess = candidate;
+            EmulatorTargetProcessId = candidate.Id;
+            EmulationProcessGuard.RegisterEmulator(candidate.Id);
+            IsEmulatorRunning = true;
+
+            try
+            {
+                EmulatorJobObject.AssignProcess(candidate);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to assign rebound Steam game process to job object.", ex);
+            }
+
+            try
+            {
+                _emulatorAudioVolume.Attach(candidate.Id);
+                ApplyEmulatorVolumeToProcess(EmulatorVolume);
+            }
+            catch
+            {
+                // ignored
+            }
+
+            try
+            {
+                candidate.EnableRaisingEvents = true;
+                candidate.Exited += ActiveEmulatorProcess_Exited;
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to subscribe to rebound Steam game process exit events.", ex);
+            }
+
+            if (_windowsParsecMonitor is { } vddMonitor)
+            {
+                ParsecVirtualDisplayLaunchHelper.BeginPlacement(
+                    candidate,
+                    vddMonitor,
+                    handler,
+                    _activeSteamInstallDirectory);
+            }
+
+            SLog.Info(
+                $"Rebound active Steam game process after pid={exitedProcess.Id} exited; runtime pid={candidate.Id}.");
+            _awaitingSteamRuntimeRebind = false;
+            return true;
+        }
+
+        private bool ShouldDeferSteamParsecExitHandling(IEmulatorHandler? handler)
+        {
+            if (!OperatingSystem.IsWindows() || handler is not SteamHandler)
+                return false;
+
+            if (_windowsParsecCaptureHandoffCompleted)
+                return false;
+
+            if (!ShouldUseWindowsParsecCapture(handler))
+                return false;
+
+            return (DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalSeconds < 180;
+        }
+
+        private bool IsSteamRuntimeLikelyStarting()
+        {
+            if (!OperatingSystem.IsWindows())
+                return false;
+
+            if (_awaitingSteamRuntimeRebind)
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(_activeSteamInstallDirectory) &&
+                ParsecVirtualDisplayLaunchHelper.HasRunningProcessInInstallDirectory(_activeSteamInstallDirectory))
+            {
+                return true;
+            }
+
+            return CurrentEmulatorHandler is SteamHandler steamHandler &&
+                   steamHandler.TryResolveActiveWindowsGameProcess(out var activeGame) &&
+                   activeGame != null;
+        }
+
+        private async Task WaitForSteamRuntimeProcessAfterExitAsync(Process exitedProcess, IEmulatorHandler? handler)
+        {
+            _steamRuntimeWaitCts?.Cancel();
+            _steamRuntimeWaitCts?.Dispose();
+            var cts = new CancellationTokenSource();
+            _steamRuntimeWaitCts = cts;
+            var token = cts.Token;
+            var handoffStarted = false;
+
+            try
+            {
+                SLog.Info(
+                    $"Steam launcher pid={exitedProcess.Id} exited before capture handoff; waiting for runtime game process.");
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    _awaitingSteamRuntimeRebind = true;
+                    IsEmulatorRunning = true;
+                    IsEmulatorLaunchInProgress = true;
+                }, DispatcherPriority.Background);
+
+                const int pollMs = 400;
+                const int maxWaitMs = 180_000;
+                var started = Environment.TickCount64;
+                while (!token.IsCancellationRequested && Environment.TickCount64 - started < maxWaitMs)
+                {
+                    if (!ReferenceEquals(_activeEmulatorProcess, exitedProcess))
+                        return;
+
+                    if (TryRebindActiveSteamGameProcess(handler, exitedProcess, out var replacement))
+                    {
+                        try
+                        {
+                            exitedProcess.Exited -= ActiveEmulatorProcess_Exited;
+                            exitedProcess.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            SLog.Debug("Failed to clean up replaced Steam launcher process reference.", ex);
+                        }
+
+                        if (!handoffStarted &&
+                            !_windowsParsecCaptureHandoffCompleted &&
+                            ShouldUseWindowsParsecCapture(handler) &&
+                            !string.IsNullOrWhiteSpace(_activeEmulatorRomPath))
+                        {
+                            handoffStarted = true;
+                            StartActiveEmulatorWatchdog(replacement);
+                            _ = CompleteWindowsParsecCaptureHandoffAsync(replacement, _activeEmulatorRomPath);
+                        }
+
+                        return;
+                    }
+
+                    await Task.Delay(pollMs, token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Steam runtime process wait failed.", ex);
+            }
+            finally
+            {
+                if (ReferenceEquals(_steamRuntimeWaitCts, cts))
+                {
+                    _steamRuntimeWaitCts.Dispose();
+                    _steamRuntimeWaitCts = null;
+                }
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!ReferenceEquals(_activeEmulatorProcess, exitedProcess))
+                    return;
+
+                if (IsSteamRuntimeLikelyStarting() ||
+                    (handler is SteamHandler steamHandler && steamHandler.TryResolveActiveWindowsGameProcess(out _)))
+                {
+                    if (TryRebindActiveSteamGameProcess(handler, exitedProcess, out _))
+                    {
+                        // Rebind path starts capture handoff.
+                        return;
+                    }
+
+                    ForceCompleteParsecCaptureHandoff(_activeEmulatorRomPath);
+                    return;
+                }
+
+                FinalizeTrackedEmulatorExited(exitedProcess, handler);
+            }, DispatcherPriority.Background);
+        }
+
         private void HandleTrackedEmulatorExited(Process process)
         {
             var currentHandler = CurrentEmulatorHandler;
@@ -1363,6 +1770,43 @@ namespace AES_Lacrima.ViewModels
 
                 return;
             }
+
+            if (TryRebindActiveSteamGameProcess(currentHandler, process, out var replacementProcess))
+            {
+                try
+                {
+                    process.Exited -= ActiveEmulatorProcess_Exited;
+                    process.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    SLog.Debug("Failed to clean up replaced Steam launcher process reference.", ex);
+                }
+
+                if (!_windowsParsecCaptureHandoffCompleted &&
+                    ShouldUseWindowsParsecCapture(currentHandler) &&
+                    !string.IsNullOrWhiteSpace(_activeEmulatorRomPath))
+                {
+                    StartActiveEmulatorWatchdog(replacementProcess);
+                    _ = CompleteWindowsParsecCaptureHandoffAsync(replacementProcess, _activeEmulatorRomPath);
+                }
+
+                return;
+            }
+
+            if (ShouldDeferSteamParsecExitHandling(currentHandler))
+            {
+                _ = WaitForSteamRuntimeProcessAfterExitAsync(process, currentHandler);
+                return;
+            }
+
+            FinalizeTrackedEmulatorExited(process, currentHandler);
+        }
+
+        private void FinalizeTrackedEmulatorExited(Process process, IEmulatorHandler? currentHandler)
+        {
+            _awaitingSteamRuntimeRebind = false;
+            _steamRuntimeWaitCts?.Cancel();
 
             if (string.Equals(currentHandler?.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(_activeRpcs3SessionTitleId) &&
@@ -1413,6 +1857,7 @@ namespace AES_Lacrima.ViewModels
 
             _activeSteamLaunchRomPath = null;
             _activeSteamLaunchTitle = null;
+            _activeSteamInstallDirectory = null;
         }
 
         private string? TryBuildEarlyLinuxLaunchFailureDetails(Process process, IEmulatorHandler? handler)
@@ -1572,6 +2017,7 @@ namespace AES_Lacrima.ViewModels
                 DetachShadPs4IpcSession();
 
                 OnPropertyChanged(nameof(ShowShadPs4InGameCheatsButton));
+                EndDesktopDisplayIsolation();
             }
         }
 
@@ -1980,7 +2426,7 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 RestoreAppTopMost();
-                if (!ShouldUseWindowsParsecCapture())
+                if (!ShouldUseWindowsParsecCapture(handler))
                     RestoreHostWindowFocus();
                 ClearRetroArchErrorState();
 
@@ -2027,7 +2473,7 @@ namespace AES_Lacrima.ViewModels
 
         private void EnsureAppTopMostBeforeLaunch()
         {
-            if (ShouldAttemptWindowsParsecCapture())
+            if (ShouldAttemptWindowsParsecCapture(CurrentEmulatorHandler))
                 return;
 
             if (_appTopmostOverride)
@@ -2118,6 +2564,39 @@ namespace AES_Lacrima.ViewModels
                 return IntPtr.Zero;
 
             return desktop.MainWindow?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        }
+
+        private static void BeginDesktopDisplayIsolationIfNeeded(IEmulatorHandler handler)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            if (!ParsecVddManager.UsesVirtualDisplayCaptureForHandler(handler.HandlerId))
+                return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
+                    desktop.MainWindow is Views.MainWindow mainWindow)
+                {
+                    mainWindow.BeginDesktopDisplayIsolation();
+                }
+            }, DispatcherPriority.Background);
+        }
+
+        private static void EndDesktopDisplayIsolation()
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
+                    desktop.MainWindow is Views.MainWindow mainWindow)
+                {
+                    mainWindow.EndDesktopDisplayIsolation();
+                }
+            }, DispatcherPriority.Background);
         }
 
         private static int GetRoundedSelectedIndex(double value) => (int)Math.Round(value);

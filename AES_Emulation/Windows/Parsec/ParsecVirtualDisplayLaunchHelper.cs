@@ -9,6 +9,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -29,12 +31,25 @@ public static class ParsecVirtualDisplayLaunchHelper
     private const uint SwpNoZOrder = 0x0004;
     private const int SwShow = 5;
     private const uint MonitorDefaultToNearest = 2;
-    private const int StablePlacementThreshold = 6;
+    private const int BorderlessReinforcementIntervalMs = 400;
+    private static readonly ConcurrentDictionary<IntPtr, long> LastBorderlessReinforcementTicks = new();
     private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly ILog Log = LogHelper.For(typeof(ParsecVirtualDisplayLaunchHelper));
     private static readonly ConcurrentDictionary<IntPtr, byte> PreparedWindows = new();
     private static readonly ConcurrentDictionary<IntPtr, byte> TaskbarHiddenWindows = new();
     private static CancellationTokenSource? _placementCts;
+    private static string? _activeInstallDirectory;
+
+    public static string? ActiveInstallDirectory => _activeInstallDirectory;
+
+    public static bool HasRunningProcessInInstallDirectory(string? installDirectory)
+    {
+        var normalizedDirectory = NormalizeInstallDirectory(installDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedDirectory))
+            return false;
+
+        return EnumerateProcessIdsUnderInstallDirectory(normalizedDirectory).Any();
+    }
 
     public static void CancelPlacement()
     {
@@ -51,6 +66,7 @@ public static class ParsecVirtualDisplayLaunchHelper
         ApplyGenericVirtualDisplayEnvironment(startInfo, monitorIndex, monitor);
         handler.PrepareStartInfoForVirtualDisplay(startInfo, monitorIndex, monitor);
         StripFullscreenLaunchArguments(startInfo);
+        InjectVirtualDisplayLaunchArguments(startInfo, handler);
     }
 
     public static void ApplyGenericVirtualDisplayEnvironment(
@@ -64,27 +80,97 @@ public static class ParsecVirtualDisplayLaunchHelper
             $"{monitor.Left.ToString(CultureInfo.InvariantCulture)},{monitor.Top.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    public static void BeginPlacement(Process process, ParsecVirtualDisplayMonitor monitor, IEmulatorHandler handler)
+    public static void BeginPlacement(
+        Process process,
+        ParsecVirtualDisplayMonitor monitor,
+        IEmulatorHandler handler,
+        string? installDirectory = null)
     {
         if (!OperatingSystem.IsWindows() || process == null)
             return;
 
         CancelPlacement();
+        _activeInstallDirectory = NormalizeInstallDirectory(installDirectory);
         _placementCts = new CancellationTokenSource();
         var cancellationToken = _placementCts.Token;
 
         try
         {
             process.Refresh();
-            ConcealProcessWindowsOffMonitor((uint)process.Id, monitor.Handle);
+            if (!process.HasExited)
+                ConcealProcessWindowsOffMonitor((uint)process.Id, monitor.Handle);
         }
         catch (Exception ex)
         {
             Log.Debug("Initial Parsec virtual display conceal failed.", ex);
         }
 
-        _ = RunPlacementLoopAsync(process, monitor, handler, cancellationToken);
-        _ = RunOffMonitorConcealerAsync(process, monitor, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(_activeInstallDirectory))
+            EnforceInstallDirectoryGames(_activeInstallDirectory, monitor, handler, forceBorderlessReinforcement: true);
+
+        _ = RunSessionEnforcementAsync(process, monitor, handler, cancellationToken);
+    }
+
+    /// <summary>
+    /// One-shot enforcement pass used while capture is active.
+    /// </summary>
+    public static void EnforceGameOnVirtualDisplay(
+        Process process,
+        ParsecVirtualDisplayMonitor monitor,
+        IEmulatorHandler handler)
+    {
+        if (!OperatingSystem.IsWindows() || monitor.Handle == IntPtr.Zero)
+            return;
+
+        try
+        {
+            if (process != null)
+            {
+                process.Refresh();
+                if (!process.HasExited)
+                {
+                    ConcealProcessWindowsOffMonitor((uint)process.Id, monitor.Handle);
+                    EnforceProcessWindowOnMonitor(process, monitor, handler, forceBorderlessReinforcement: true);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_activeInstallDirectory))
+                EnforceInstallDirectoryGames(_activeInstallDirectory, monitor, handler, forceBorderlessReinforcement: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Parsec virtual display enforcement pass failed.", ex);
+        }
+    }
+
+    public static IntPtr TryGetWindowFromInstallDirectory(
+        string? installDirectory,
+        ParsecVirtualDisplayMonitor monitor,
+        IEmulatorHandler handler)
+    {
+        if (!OperatingSystem.IsWindows() || monitor.Handle == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        var normalizedDirectory = NormalizeInstallDirectory(installDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedDirectory))
+            return IntPtr.Zero;
+
+        foreach (var processId in EnumerateProcessIdsUnderInstallDirectory(normalizedDirectory))
+        {
+            try
+            {
+                using var process = Process.GetProcessById((int)processId);
+                var hwnd = TryGetWindowOnMonitor(process, monitor, handler);
+                if (hwnd != IntPtr.Zero)
+                    return hwnd;
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        return IntPtr.Zero;
     }
 
     public static string DescribeCaptureTarget(IntPtr hwnd, ParsecVirtualDisplayMonitor monitor)
@@ -155,7 +241,10 @@ public static class ParsecVirtualDisplayLaunchHelper
         return IntPtr.Zero;
     }
 
-    public static bool TryPositionWindowOnMonitor(IntPtr hwnd, ParsecVirtualDisplayMonitor monitor)
+    public static bool TryPositionWindowOnMonitor(
+        IntPtr hwnd,
+        ParsecVirtualDisplayMonitor monitor,
+        bool forceBorderlessReinforcement = false)
     {
         if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
             return false;
@@ -165,14 +254,31 @@ public static class ParsecVirtualDisplayLaunchHelper
             WindowsStealth.UncloakWindow(hwnd);
 
             var alreadyPlaced = IsWindowPlacedOnMonitor(hwnd, monitor) && IsWindowOnMonitor(hwnd, monitor.Handle);
-            if (alreadyPlaced)
+            var needsReinforcement = forceBorderlessReinforcement ||
+                                     !alreadyPlaced ||
+                                     Win32API.IsLikelyFullscreenWindow(hwnd) ||
+                                     ShouldReinforceBorderless(hwnd);
+
+            if (alreadyPlaced && !needsReinforcement)
                 return true;
 
-            if (PreparedWindows.TryAdd(hwnd, 0))
+            if (PreparedWindows.TryAdd(hwnd, 0) || needsReinforcement)
             {
                 Win32API.TryExitFullscreenWindow(hwnd);
                 Win32API.RemoveWindowDecorations(hwnd);
                 HideWindowFromMainTaskbar(hwnd);
+            }
+
+            if (Win32API.TryForceBorderlessWindowedOnRect(
+                    hwnd,
+                    monitor.Left,
+                    monitor.Top,
+                    monitor.Width,
+                    monitor.Height,
+                    HwndTopmost))
+            {
+                ShowWindow(hwnd, SwShow);
+                return IsWindowPlacedOnMonitor(hwnd, monitor);
             }
 
             SetWindowPos(hwnd, HwndTopmost, monitor.Left, monitor.Top, monitor.Width, monitor.Height,
@@ -224,6 +330,25 @@ public static class ParsecVirtualDisplayLaunchHelper
         {
             Log.Debug("Failed to hide emulator window from main taskbar.", ex);
         }
+    }
+
+    private static void InjectVirtualDisplayLaunchArguments(ProcessStartInfo startInfo, IEmulatorHandler handler)
+    {
+        if (!string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        AppendLaunchArgumentIfMissing(startInfo, "-windowed");
+    }
+
+    private static void AppendLaunchArgumentIfMissing(ProcessStartInfo startInfo, string argument)
+    {
+        foreach (var existing in startInfo.ArgumentList)
+        {
+            if (string.Equals(existing, argument, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        startInfo.ArgumentList.Add(argument);
     }
 
     private static void StripFullscreenLaunchArguments(ProcessStartInfo startInfo)
@@ -367,72 +492,196 @@ public static class ParsecVirtualDisplayLaunchHelper
                rect.Height == monitor.Height;
     }
 
-    private static async Task RunPlacementLoopAsync(
+    private static bool ShouldReinforceBorderless(IntPtr hwnd)
+    {
+        var now = Environment.TickCount64;
+        if (LastBorderlessReinforcementTicks.TryGetValue(hwnd, out var last) &&
+            now - last < BorderlessReinforcementIntervalMs)
+        {
+            return false;
+        }
+
+        LastBorderlessReinforcementTicks[hwnd] = now;
+        return true;
+    }
+
+    private static void EnforceProcessWindowOnMonitor(
+        Process process,
+        ParsecVirtualDisplayMonitor monitor,
+        IEmulatorHandler handler,
+        bool forceBorderlessReinforcement)
+    {
+        var captureHwnd = FindPreferredWindowInProcessTree(process, handler);
+        if (captureHwnd == IntPtr.Zero)
+            return;
+
+        var placementHwnd = ResolvePlacementWindow(process, handler, captureHwnd);
+        var onVdd = IsWindowOnMonitor(placementHwnd, monitor.Handle);
+        var misaligned = !IsWindowPlacedOnMonitor(placementHwnd, monitor);
+
+        if (!onVdd || Win32API.IsLikelyFullscreenWindow(placementHwnd) || misaligned)
+        {
+            Win32API.TryExitFullscreenWindow(placementHwnd);
+            if (!onVdd || misaligned)
+                Win32API.TrySendAltEnter(placementHwnd);
+        }
+
+        TryPositionWindowOnMonitor(placementHwnd, monitor, forceBorderlessReinforcement);
+    }
+
+    private static async Task RunSessionEnforcementAsync(
         Process process,
         ParsecVirtualDisplayMonitor monitor,
         IEmulatorHandler handler,
         CancellationToken cancellationToken)
     {
-        var stableCount = 0;
-
-        for (var attempt = 0; attempt < 200; attempt++)
+        for (var attempt = 0; ; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            var processAlive = false;
             try
             {
                 process.Refresh();
+                processAlive = !process.HasExited;
             }
             catch
             {
+                processAlive = false;
+            }
+
+            if (!processAlive && string.IsNullOrWhiteSpace(_activeInstallDirectory))
                 return;
+
+            try
+            {
+                if (processAlive)
+                {
+                    ConcealProcessWindowsOffMonitor((uint)process.Id, monitor.Handle);
+                    EnforceProcessWindowOnMonitor(
+                        process,
+                        monitor,
+                        handler,
+                        forceBorderlessReinforcement: attempt % 2 == 0);
+                }
+
+                if (!string.IsNullOrWhiteSpace(_activeInstallDirectory))
+                {
+                    EnforceInstallDirectoryGames(
+                        _activeInstallDirectory,
+                        monitor,
+                        handler,
+                        forceBorderlessReinforcement: attempt % 2 == 0);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Parsec virtual display session enforcement failed.", ex);
             }
 
-            var captureHwnd = FindPreferredWindowInProcessTree(process, handler);
-            if (captureHwnd != IntPtr.Zero)
-            {
-                var placementHwnd = ResolvePlacementWindow(process, handler, captureHwnd);
-                if (TryPositionWindowOnMonitor(placementHwnd, monitor) &&
-                    IsWindowOnMonitor(placementHwnd, monitor.Handle))
-                {
-                    stableCount++;
-                    if (stableCount >= StablePlacementThreshold)
-                        return;
-                }
-                else
-                {
-                    stableCount = 0;
-                }
-            }
-            else
-            {
-                stableCount = 0;
-            }
-
-            await Task.Delay(attempt < 40 ? 25 : 75, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(attempt < 80 ? 125 : 250, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static async Task RunOffMonitorConcealerAsync(
-        Process process,
+    private static void EnforceInstallDirectoryGames(
+        string installDirectory,
         ParsecVirtualDisplayMonitor monitor,
-        CancellationToken cancellationToken)
+        IEmulatorHandler handler,
+        bool forceBorderlessReinforcement)
     {
-        for (var attempt = 0; attempt < 400; attempt++)
+        foreach (var processId in EnumerateProcessIdsUnderInstallDirectory(installDirectory))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
+            ConcealProcessWindowsOffMonitor(processId, monitor.Handle);
             try
             {
-                process.Refresh();
-                ConcealProcessWindowsOffMonitor((uint)process.Id, monitor.Handle);
+                using var process = Process.GetProcessById((int)processId);
+                EnforceProcessWindowOnMonitor(process, monitor, handler, forceBorderlessReinforcement);
             }
             catch
             {
-                return;
+                // ignored
             }
+        }
+    }
 
-            await Task.Delay(attempt < 160 ? 5 : 25, cancellationToken).ConfigureAwait(false);
+    private static IEnumerable<uint> EnumerateProcessIdsUnderInstallDirectory(string installDirectory)
+    {
+        var matches = new List<uint>();
+        Process[] processes = [];
+        try
+        {
+            processes = Process.GetProcesses();
+            foreach (var process in processes)
+            {
+                try
+                {
+                    var imagePath = TryGetProcessImagePath(process);
+                    if (string.IsNullOrWhiteSpace(imagePath))
+                        continue;
+
+                    var fullPath = Path.GetFullPath(imagePath);
+                    if (!fullPath.StartsWith(installDirectory, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (IsIgnoredInstallDirectoryProcess(process.ProcessName))
+                        continue;
+
+                    matches.Add((uint)process.Id);
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                try { process.Dispose(); }
+                catch { /* ignored */ }
+            }
+        }
+
+        return matches;
+    }
+
+    private static bool IsIgnoredInstallDirectoryProcess(string processName)
+    {
+        if (string.IsNullOrWhiteSpace(processName))
+            return true;
+
+        return processName.Contains("steamwebhelper", StringComparison.OrdinalIgnoreCase) ||
+               processName.Contains("gameoverlay", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(processName, "steam", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(processName, "steam.exe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryGetProcessImagePath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeInstallDirectory(string? installDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectory))
+            return null;
+
+        try
+        {
+            return Path.GetFullPath(installDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return null;
         }
     }
 

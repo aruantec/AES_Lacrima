@@ -144,6 +144,28 @@ namespace AES_Lacrima.Views
 
         private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
         {
+            if (OperatingSystem.IsWindows())
+            {
+                if (IsCapturePresentationFullscreen)
+                {
+                    MaintainCapturePresentationBounds();
+                    return;
+                }
+
+                if (_desktopDisplayIsolation != null)
+                {
+                    if (DataContext is ViewModels.MainWindowViewModel isolationVm)
+                    {
+                        isolationVm.HasUserResizedWindow = true;
+                        isolationVm.WindowWidth = Width;
+                        isolationVm.WindowHeight = Height;
+                    }
+
+                    MaintainDesktopDisplayIsolation();
+                    return;
+                }
+            }
+
             if (_ignoreSizeChange)
                 return;
 
@@ -167,6 +189,13 @@ namespace AES_Lacrima.Views
                 return;
 
             var currentScale = TopLevel.GetTopLevel(this)?.RenderScaling ?? _lastRenderScale;
+            if (_desktopDisplayIsolation != null)
+            {
+                if (!double.IsNaN(currentScale) && Math.Abs(currentScale - _lastRenderScale) >= 0.01)
+                    RecoverFromDisplayModeChange();
+                return;
+            }
+
             if (double.IsNaN(currentScale) || Math.Abs(currentScale - _lastRenderScale) < 0.01)
                 return;
 

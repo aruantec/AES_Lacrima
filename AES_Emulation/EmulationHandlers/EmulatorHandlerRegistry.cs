@@ -34,8 +34,7 @@ public static class EmulatorHandlerRegistry
             Snes9xHandler.Instance
         };
 
-        if (OperatingSystem.IsLinux())
-            handlers.Add(SteamHandler.Instance);
+        handlers.Add(SteamHandler.Instance);
 
         return handlers.ToArray();
     }

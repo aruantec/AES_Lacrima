@@ -36,27 +36,24 @@ public partial class EmulationViewModel
 
 
 
-    private bool ShouldAttemptWindowsParsecCapture()
+    private bool ShouldAttemptWindowsParsecCapture(IEmulatorHandler? handler = null)
+    {
+        handler ??= CurrentEmulatorHandler;
+        return handler != null
+               && ParsecVddManager.UsesVirtualDisplayCaptureForHandler(handler.HandlerId)
+               && OperatingSystem.IsWindows()
+               && handler.PreferredCaptureMode == EmulatorCaptureMode.DirectComposition;
+    }
 
-        => ParsecVddManager.UseEmulatorVirtualDisplayCapture
-
-           && ParsecVddManager.UseVirtualDisplayCapture
-
-           && OperatingSystem.IsWindows()
-
-           && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition;
-
-
-
-    private bool ShouldUseWindowsParsecCapture()
-
-        => ParsecVddManager.UseEmulatorVirtualDisplayCapture
-
-           && OperatingSystem.IsWindows()
-
-           && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition
-
-           && _windowsParsecMonitor is { Handle: not 0 };
+    private bool ShouldUseWindowsParsecCapture(IEmulatorHandler? handler = null)
+    {
+        handler ??= CurrentEmulatorHandler;
+        return handler != null
+               && ParsecVddManager.UsesVirtualDisplayCaptureForHandler(handler.HandlerId)
+               && OperatingSystem.IsWindows()
+               && SelectedCaptureMode == EmulatorCaptureMode.DirectComposition
+               && _windowsParsecMonitor is { Handle: not 0 };
+    }
 
 
 
@@ -143,8 +140,7 @@ public partial class EmulationViewModel
     {
 
         if (!OperatingSystem.IsWindows()
-            || !ParsecVddManager.UseVirtualDisplayCapture
-            || !ParsecVddManager.UseEmulatorVirtualDisplayCapture)
+            || !ParsecVddManager.UseVirtualDisplayCapture)
 
             return;
 
@@ -182,9 +178,9 @@ public partial class EmulationViewModel
 
     private static bool ShouldPreserveParsecVirtualDisplaySession() =>
 
-        ParsecVddManager.UseEmulatorVirtualDisplayCapture
+        OperatingSystem.IsWindows()
 
-        && OperatingSystem.IsWindows()
+        && ParsecVddManager.UseVirtualDisplayCapture
 
         && ParsecVirtualDisplayLifetime.IsReady;
 
@@ -205,8 +201,10 @@ public partial class EmulationViewModel
         if (!ParsecVddManager.UseVirtualDisplayCapture)
             return "Virtual display: disabled in Settings";
 
-        if (!ParsecVddManager.UseEmulatorVirtualDisplayCapture)
-            return "Virtual display: installed (emulator capture uses HWND)";
+        if (!ParsecVddManager.UseEmulatorVirtualDisplayCapture
+            && IsEmulatorRunning
+            && !ParsecVddManager.UsesVirtualDisplayCaptureForHandler(CurrentEmulatorHandler?.HandlerId))
+            return "Virtual display: not used — HWND capture on desktop";
 
         if (!ParsecVirtualDisplayLifetime.IsReady)
             return "Virtual display: unavailable";
@@ -256,6 +254,46 @@ public partial class EmulationViewModel
 
 
 
+    private bool ShouldContinueParsecCaptureStartup()
+    {
+        if (_isClosingActiveEmulatorForRelaunch)
+            return false;
+
+        if (IsEmulatorRunning)
+            return true;
+
+        return IsSteamRuntimeLikelyStarting();
+    }
+
+    private static IntPtr TryResolvePlacementWindowOnMonitor(
+        Process? process,
+        ParsecVirtualDisplayMonitor monitor,
+        IEmulatorHandler handler)
+    {
+        if (process != null)
+        {
+            try
+            {
+                process.Refresh();
+                if (!process.HasExited)
+                {
+                    var hwnd = ParsecVirtualDisplayLaunchHelper.TryGetWindowOnMonitor(process, monitor, handler);
+                    if (hwnd != IntPtr.Zero)
+                        return hwnd;
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        return ParsecVirtualDisplayLaunchHelper.TryGetWindowFromInstallDirectory(
+            ParsecVirtualDisplayLaunchHelper.ActiveInstallDirectory,
+            monitor,
+            handler);
+    }
+
     private async Task CompleteWindowsParsecCaptureHandoffAsync(Process process, string romPath)
 
     {
@@ -270,88 +308,101 @@ public partial class EmulationViewModel
 
 
 
-            var startupDelayMs = Math.Max(handler.CaptureStartupDelayMs, 250);
-
-            await Task.Delay(startupDelayMs, CancellationToken.None).ConfigureAwait(false);
-
-            // Ensure the emulator window is on the VDD before we start full-monitor capture.
-            try
+            IntPtr placementHwnd = IntPtr.Zero;
+            const int maxPlacementAttempts = 120;
+            for (var attempt = 0; attempt < maxPlacementAttempts; attempt++)
             {
-                process.Refresh();
-                if (!process.HasExited)
-                {
-                    var placementHwnd = await ParsecVirtualDisplayLaunchHelper.TryResolveWindowOnMonitorAsync(
-                        process,
-                        monitor,
-                        handler,
-                        CancellationToken.None).ConfigureAwait(false);
-
-                    if (placementHwnd != IntPtr.Zero)
-                    {
-                        _parsecVirtualDisplayPlacementConfirmed = true;
-                        SLog.Info(
-                            $"Parsec virtual display placement confirmed before capture: " +
-                            $"{ParsecVirtualDisplayLaunchHelper.DescribeCaptureTarget(placementHwnd, monitor)}.");
-                    }
-                    else
-                    {
-                        _parsecVirtualDisplayPlacementConfirmed = false;
-                        SLog.Warn(
-                            $"Parsec virtual display placement not confirmed before capture handoff for pid={process.Id}; " +
-                            $"monitor capture may show the VDD desktop until placement completes.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                SLog.Debug("Parsec virtual display pre-capture placement check failed.", ex);
-            }
-
-
-
-            if (!ReferenceEquals(_activeEmulatorProcess, process))
-
-                return;
-
-
-
-            try
-
-            {
-
-                process.Refresh();
-
-                if (process.HasExited)
-
-                {
-
-                    SLog.Warn($"Parsec virtual display capture handoff skipped because emulator pid={process.Id} exited before monitor capture started.");
-
-                    await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
-
+                if (!ShouldContinueParsecCaptureStartup())
                     return;
 
+                var activeProcess = _activeEmulatorProcess;
+                if (activeProcess == null && !IsSteamRuntimeLikelyStarting())
+                    return;
+
+                if (activeProcess != null)
+                {
+                    try
+                    {
+                        activeProcess.Refresh();
+                        if (activeProcess.HasExited &&
+                            string.IsNullOrWhiteSpace(_activeSteamInstallDirectory) &&
+                            string.IsNullOrWhiteSpace(ParsecVirtualDisplayLaunchHelper.ActiveInstallDirectory) &&
+                            !IsSteamRuntimeLikelyStarting())
+                        {
+                            break;
+                        }
+                    }
+                    catch
+                    {
+                        if (!IsSteamRuntimeLikelyStarting())
+                            break;
+                    }
                 }
 
+                placementHwnd = TryResolvePlacementWindowOnMonitor(activeProcess, monitor, handler);
+                if (placementHwnd != IntPtr.Zero)
+                    break;
+
+                await Task.Delay(250, CancellationToken.None).ConfigureAwait(false);
             }
 
-            catch
-
+            _parsecVirtualDisplayPlacementConfirmed = placementHwnd != IntPtr.Zero;
+            if (placementHwnd != IntPtr.Zero)
             {
+                SLog.Info(
+                    $"Parsec virtual display placement confirmed before capture: " +
+                    $"{ParsecVirtualDisplayLaunchHelper.DescribeCaptureTarget(placementHwnd, monitor)}.");
+            }
+            else
+            {
+                var activePid = _activeEmulatorProcess?.Id ?? process.Id;
+                SLog.Warn(
+                    $"Parsec virtual display placement not confirmed before capture handoff for pid={activePid}; " +
+                    $"monitor capture may show the VDD desktop until placement completes.");
+            }
 
-                await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+            var startupDelayMs = placementHwnd != IntPtr.Zero
+                ? Math.Max(handler.CaptureStartupDelayMs / 4, 250)
+                : Math.Min(Math.Max(handler.CaptureStartupDelayMs / 8, 500), 1500);
+            await Task.Delay(startupDelayMs, CancellationToken.None).ConfigureAwait(false);
 
+            if (!ShouldContinueParsecCaptureStartup())
                 return;
 
+            var handoffProcess = _activeEmulatorProcess;
+            if (handoffProcess != null)
+            {
+                try
+                {
+                    handoffProcess.Refresh();
+                    if (handoffProcess.HasExited && placementHwnd == IntPtr.Zero && !IsSteamRuntimeLikelyStarting())
+                    {
+                        SLog.Warn(
+                            $"Parsec virtual display capture handoff skipped because emulator pid={handoffProcess.Id} exited before monitor capture started.");
+                        await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                        return;
+                    }
+                }
+                catch
+                {
+                    if (!IsSteamRuntimeLikelyStarting())
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                        return;
+                    }
+                }
             }
-
-
+            else if (!IsSteamRuntimeLikelyStarting() && placementHwnd == IntPtr.Zero)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => IsEmulatorLaunchInProgress = false);
+                return;
+            }
 
             await Dispatcher.UIThread.InvokeAsync(() =>
 
             {
 
-                if (!ReferenceEquals(_activeEmulatorProcess, process) || _isClosingActiveEmulatorForRelaunch)
+                if (_isClosingActiveEmulatorForRelaunch)
 
                     return;
 
@@ -368,8 +419,11 @@ public partial class EmulationViewModel
 
 
                 _windowsParsecCaptureHandoffCompleted = true;
+                _awaitingSteamRuntimeRebind = false;
+                IsEmulatorRunning = true;
 
                 IsEmulatorLaunchInProgress = false;
+                BeginDesktopDisplayIsolationIfNeeded(handler);
 
                 SLog.Info(
 
@@ -381,7 +435,8 @@ public partial class EmulationViewModel
 
             }, DispatcherPriority.Background);
 
-            _ = MonitorParsecVirtualDisplayPlacementAsync(process, monitor, handler);
+            if (_activeEmulatorProcess is { } monitorProcess)
+                _ = MonitorParsecVirtualDisplayPlacementAsync(monitorProcess, monitor, handler);
 
         }
 
@@ -404,15 +459,33 @@ public partial class EmulationViewModel
         ParsecVirtualDisplayMonitor monitor,
         IEmulatorHandler handler)
     {
-        while (ReferenceEquals(_activeEmulatorProcess, process) && UsesParsecVirtualDisplayMonitorCapture)
+        while (ShouldContinueParsecCaptureStartup() && UsesParsecVirtualDisplayMonitorCapture)
         {
             try
             {
-                process.Refresh();
-                if (process.HasExited)
-                    break;
+                var activeProcess = _activeEmulatorProcess;
+                if (activeProcess != null)
+                {
+                    activeProcess.Refresh();
+                    if (activeProcess.HasExited &&
+                        string.IsNullOrWhiteSpace(ParsecVirtualDisplayLaunchHelper.ActiveInstallDirectory))
+                    {
+                        break;
+                    }
+                }
 
-                var onVdd = ParsecVirtualDisplayLaunchHelper.TryGetWindowOnMonitor(process, monitor, handler) != IntPtr.Zero;
+                ParsecVirtualDisplayLaunchHelper.EnforceGameOnVirtualDisplay(activeProcess!, monitor, handler);
+
+                var onVdd = activeProcess != null &&
+                            ParsecVirtualDisplayLaunchHelper.TryGetWindowOnMonitor(activeProcess, monitor, handler) != IntPtr.Zero;
+                if (!onVdd)
+                {
+                    onVdd = ParsecVirtualDisplayLaunchHelper.TryGetWindowFromInstallDirectory(
+                        ParsecVirtualDisplayLaunchHelper.ActiveInstallDirectory,
+                        monitor,
+                        handler) != IntPtr.Zero;
+                }
+
                 if (onVdd != _parsecVirtualDisplayPlacementConfirmed)
                 {
                     _parsecVirtualDisplayPlacementConfirmed = onVdd;
@@ -424,7 +497,7 @@ public partial class EmulationViewModel
                 break;
             }
 
-            await Task.Delay(2000, CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -435,7 +508,7 @@ public partial class EmulationViewModel
     {
 
         if (!OperatingSystem.IsWindows()
-            || !ParsecVddManager.UseEmulatorVirtualDisplayCapture
+            || !ParsecVddManager.UseVirtualDisplayCapture
             || !ParsecVirtualDisplayLifetime.IsReady)
 
             return false;
@@ -582,11 +655,33 @@ public partial class EmulationViewModel
 
 
 
-        if ((DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalSeconds > 60)
-
+        if (_awaitingSteamRuntimeRebind)
             return null;
 
+        if ((DateTime.UtcNow - _emulatorLaunchStartedUtc).TotalSeconds > 60)
+            return null;
 
+        if (!string.IsNullOrWhiteSpace(_activeSteamInstallDirectory) &&
+            ParsecVirtualDisplayLaunchHelper.HasRunningProcessInInstallDirectory(_activeSteamInstallDirectory))
+        {
+            return null;
+        }
+
+        if (CurrentEmulatorHandler is SteamHandler steamHandler &&
+            steamHandler.TryResolveActiveWindowsGameProcess(out var activeGame) &&
+            activeGame != null)
+        {
+            try
+            {
+                activeGame.Refresh();
+                if (!activeGame.HasExited)
+                    return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         return "The game exited before Parsec virtual display capture could start.";
 

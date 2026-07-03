@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -23,9 +24,35 @@ public sealed class SteamHandler : EmulatorHandlerBase
     public const string DefaultFlatpakAppId = "com.valvesoftware.Steam";
 
     public static SteamHandler Instance { get; } = new();
+    private string? _lastLaunchedAppId;
+    private string? _lastLaunchedInstallDirectory;
+    private string? _lastLaunchedExecutableFileName;
 
     private SteamHandler()
     {
+    }
+
+    internal bool UsesWindowsLauncherHandoff { get; private set; }
+
+    public void ConfigureWindowsLaunchContext(string installDirectory, string executableFileName)
+    {
+        _lastLaunchedInstallDirectory = installDirectory;
+        _lastLaunchedExecutableFileName = executableFileName;
+        UsesWindowsLauncherHandoff = false;
+    }
+
+    public void SetWindowsLaunchInstallDirectory(string? installDirectory)
+    {
+        _lastLaunchedInstallDirectory = installDirectory;
+    }
+
+    public string? LastLaunchedInstallDirectory => _lastLaunchedInstallDirectory;
+
+    public void ConfigureWindowsApplaunchHandoff()
+    {
+        UsesWindowsLauncherHandoff = true;
+        _lastLaunchedInstallDirectory = null;
+        _lastLaunchedExecutableFileName = null;
     }
 
     public override string HandlerId => "steam";
@@ -105,6 +132,8 @@ public sealed class SteamHandler : EmulatorHandlerBase
         if (string.IsNullOrWhiteSpace(appId))
             throw new InvalidOperationException($"Invalid Steam game path: '{romPath}'.");
 
+        _lastLaunchedAppId = appId;
+
         var executablePath = TryResolveNativeSteamExecutable(launcherPath);
         if (string.IsNullOrWhiteSpace(executablePath))
             throw new InvalidOperationException("Could not locate the Steam executable.");
@@ -132,7 +161,14 @@ public sealed class SteamHandler : EmulatorHandlerBase
         ParsecVirtualDisplayMonitor monitor)
     {
         base.PrepareStartInfoForVirtualDisplay(startInfo, monitorIndex, monitor);
-        // Steam games are positioned on the virtual display after launch; monitor capture is used once ready.
+        ApplyBorderlessLaunchEnvironment(startInfo, monitorIndex);
+    }
+
+    private static void ApplyBorderlessLaunchEnvironment(ProcessStartInfo startInfo, int monitorIndex)
+    {
+        startInfo.Environment["SDL_VIDEO_FULLSCREEN"] = "0";
+        startInfo.Environment["SDL_VIDEO_FULLSCREEN_DISPLAY"] = monitorIndex.ToString(CultureInfo.InvariantCulture);
+        startInfo.Environment["SteamDeck"] = "0";
     }
 
     public override async Task<Process?> ResolveRuntimeProcessAsync(Process process, CancellationToken cancellationToken)
@@ -150,11 +186,28 @@ public sealed class SteamHandler : EmulatorHandlerBase
             if (TryResolveGameProcess(process, out var gameProcess))
                 return gameProcess;
 
+            if (OperatingSystem.IsWindows() &&
+                !string.IsNullOrWhiteSpace(_lastLaunchedAppId) &&
+                TryResolveWindowsGameProcessByAppId(_lastLaunchedAppId, out gameProcess))
+            {
+                return gameProcess;
+            }
+
             await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (OperatingSystem.IsWindows() &&
+            !string.IsNullOrWhiteSpace(_lastLaunchedAppId) &&
+            TryResolveWindowsGameProcessByAppId(_lastLaunchedAppId, out var fallbackProcess))
+        {
+            return fallbackProcess;
         }
 
         return process;
     }
+
+    public static bool UsesLauncherHandoffProcess(IEmulatorHandler handler)
+        => handler is SteamHandler { UsesWindowsLauncherHandoff: true };
 
     public override IntPtr FindPreferredWindowHandle(Process process)
         => FindBestProcessWindowHandle(
@@ -238,7 +291,7 @@ public sealed class SteamHandler : EmulatorHandlerBase
 
         try
         {
-            if (rootProcess.HasExited)
+            if (rootProcess.HasExited && !OperatingSystem.IsWindows())
                 return false;
         }
         catch
@@ -246,27 +299,206 @@ public sealed class SteamHandler : EmulatorHandlerBase
             return false;
         }
 
+        if (!rootProcess.HasExited)
+        {
+            try
+            {
+                var descendants = rootProcess.GetProcessTree().Where(entry => entry.Id != rootProcess.Id);
+                foreach (var candidate in descendants.OrderByDescending(entry => entry.Id))
+                {
+                    if (IsSteamClientProcess(candidate) || IsWineInfrastructureProcess(candidate))
+                        continue;
+
+                    if (IsLikelyGameProcess(candidate))
+                    {
+                        gameProcess = candidate;
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed while resolving Steam game process.", ex);
+            }
+        }
+
+        return false;
+    }
+
+    public bool TryResolveActiveWindowsGameProcess(out Process? gameProcess)
+    {
+        gameProcess = null;
+        if (!OperatingSystem.IsWindows())
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(_lastLaunchedAppId) &&
+            TryResolveWindowsGameProcessByAppId(_lastLaunchedAppId, out gameProcess))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_lastLaunchedInstallDirectory) &&
+            TryResolveWindowsGameProcessByInstallDirectory(_lastLaunchedInstallDirectory, out gameProcess))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool UsesProcessHandoffOnWindows(IEmulatorHandler handler)
+        => handler is SteamHandler;
+
+    private bool TryResolveWindowsGameProcessByAppId(string appId, out Process? gameProcess)
+    {
+        gameProcess = null;
+        if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(appId))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(_lastLaunchedInstallDirectory))
+        {
+            return false;
+        }
+
+        string normalizedInstallDirectory;
         try
         {
-            var descendants = rootProcess.GetProcessTree().Where(entry => entry.Id != rootProcess.Id);
-            foreach (var candidate in descendants.OrderByDescending(entry => entry.Id))
+            normalizedInstallDirectory = Path.GetFullPath(_lastLaunchedInstallDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return false;
+        }
+
+        return TryResolveWindowsGameProcessByInstallDirectory(normalizedInstallDirectory, out gameProcess);
+    }
+
+        private bool TryResolveWindowsGameProcessByInstallDirectory(string installDirectory, out Process? gameProcess)
+    {
+        gameProcess = null;
+        if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(installDirectory))
+            return false;
+
+        string normalizedInstallDirectory;
+        try
+        {
+            normalizedInstallDirectory = Path.GetFullPath(installDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return false;
+        }
+
+        var expectedProcessName = string.IsNullOrWhiteSpace(_lastLaunchedExecutableFileName)
+            ? null
+            : Path.GetFileNameWithoutExtension(_lastLaunchedExecutableFileName);
+        Process? bestCandidate = null;
+        var bestScore = int.MinValue;
+        Process[] processes = [];
+        try
+        {
+            processes = Process.GetProcesses();
+            foreach (var candidate in processes)
             {
                 if (IsSteamClientProcess(candidate) || IsWineInfrastructureProcess(candidate))
                     continue;
 
-                if (IsLikelyGameProcess(candidate))
+                try
                 {
-                    gameProcess = candidate;
-                    return true;
+                    var modulePath = TryGetProcessImagePath(candidate);
+                    if (string.IsNullOrWhiteSpace(modulePath))
+                        continue;
+
+                    var fullModulePath = Path.GetFullPath(modulePath);
+                    if (!fullModulePath.StartsWith(normalizedInstallDirectory, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var score = ScoreInstallDirectoryGameCandidate(candidate, expectedProcessName);
+                    if (score < 0)
+                        continue;
+
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestCandidate = candidate;
+                    }
+                }
+                catch
+                {
+                    // ignored
                 }
             }
         }
         catch (Exception ex)
         {
-            Log.Debug("Failed while resolving Steam game process.", ex);
+            Log.Debug($"Failed while resolving Windows Steam game process under '{installDirectory}'.", ex);
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                try { process.Dispose(); }
+                catch { /* ignored */ }
+            }
         }
 
-        return false;
+        if (bestCandidate == null)
+            return false;
+
+        gameProcess = bestCandidate;
+        return true;
+    }
+
+    private static int ScoreInstallDirectoryGameCandidate(Process candidate, string? expectedProcessName)
+    {
+        var score = 0;
+        if (candidate.MainWindowHandle != IntPtr.Zero)
+            score += 200;
+
+        if (!string.IsNullOrWhiteSpace(candidate.MainWindowTitle) &&
+            !candidate.MainWindowTitle.Contains("Steam", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 80;
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedProcessName) &&
+            string.Equals(candidate.ProcessName, expectedProcessName, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 120;
+        }
+        else if (IsLikelyGameProcess(candidate))
+        {
+            score += 60;
+        }
+        else
+        {
+            return -1;
+        }
+
+        try
+        {
+            score += Math.Min(40, (int)(candidate.WorkingSet64 / (8 * 1024 * 1024)));
+        }
+        catch
+        {
+            // ignored
+        }
+
+        return score;
+    }
+
+    private static string? TryGetProcessImagePath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool IsLikelyGameProcess(Process process)

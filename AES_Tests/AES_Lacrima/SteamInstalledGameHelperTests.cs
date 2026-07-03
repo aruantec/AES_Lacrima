@@ -6,9 +6,9 @@ namespace AES_Tests.AES_Lacrima;
 public sealed class SteamInstalledGameHelperTests
 {
     [Fact]
-    public void GetInstalledGames_returns_empty_on_non_linux()
+    public void GetInstalledGames_returns_empty_off_supported_platforms()
     {
-        if (OperatingSystem.IsLinux())
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
             return;
 
         Assert.Empty(SteamInstalledGameHelper.GetInstalledGames());
@@ -20,15 +20,15 @@ public sealed class SteamInstalledGameHelperTests
         Assert.True(EmulationConsoleCatalog.IsSteamSection("Steam"));
         Assert.True(EmulationConsoleCatalog.IsSteamSection("Steam.png"));
         Assert.True(EmulationConsoleCatalog.UsesAutoLibrarySync("Steam"));
-        Assert.True(EmulationConsoleCatalog.IsLinuxOnlySection("Steam"));
+        Assert.False(EmulationConsoleCatalog.IsLinuxOnlySection("Steam"));
         Assert.False(EmulationConsoleCatalog.IsSteamSection("PlayStation 2"));
     }
 
     [Fact]
-    public void IsConsoleAssetAvailableOnCurrentPlatform_hides_steam_off_linux()
+    public void IsConsoleAssetAvailableOnCurrentPlatform_shows_steam_on_linux_and_windows()
     {
         var steamAsset = "/tmp/Assets/Consoles/Steam.png";
-        if (OperatingSystem.IsLinux())
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
             Assert.True(EmulationConsoleCatalog.IsConsoleAssetAvailableOnCurrentPlatform(steamAsset));
         else
             Assert.False(EmulationConsoleCatalog.IsConsoleAssetAvailableOnCurrentPlatform(steamAsset));

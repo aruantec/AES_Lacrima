@@ -314,10 +314,10 @@ public sealed class EmulationViewModelTests
     }
 
     [Fact]
-    public void EmulatorHandlerRegistry_Steam_IsLinuxOnly()
+    public void EmulatorHandlerRegistry_Steam_IsRegisteredOnLinuxAndWindows()
     {
         var handlers = EmulatorHandlerRegistry.GetHandlersForSection("Steam");
-        if (OperatingSystem.IsLinux())
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
         {
             Assert.Contains(handlers, handler => string.Equals(handler.HandlerId, "steam", StringComparison.OrdinalIgnoreCase));
         }

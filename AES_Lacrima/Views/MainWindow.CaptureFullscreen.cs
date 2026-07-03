@@ -32,6 +32,7 @@ public partial class MainWindow
 
     private double _captureRestoreWidth;
     private double _captureRestoreHeight;
+    private PixelRect _capturePinnedScreenBounds;
 
     internal const int LinuxCompositorFullscreenTransitionMs = 320;
 
@@ -85,6 +86,7 @@ public partial class MainWindow
 
         _captureRestoreWidth = snapshotWidth;
         _captureRestoreHeight = snapshotHeight;
+        _capturePinnedScreenBounds = screenBounds;
 
         IsCapturePresentationFullscreen = true;
         _ignoreSizeChange = true;
@@ -397,5 +399,34 @@ public partial class MainWindow
         // source-to-target propagation is suppressed by a prior local value.
         Width = fsWidth;
         Height = fsHeight;
+    }
+
+    internal void MaintainCapturePresentationBounds()
+    {
+        if (!IsCapturePresentationFullscreen || _capturePinnedScreenBounds.Width <= 0 || _capturePinnedScreenBounds.Height <= 0)
+            return;
+
+        if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        var renderScaling = Math.Max(0.0001, RenderScaling > 0 ? RenderScaling : 1.0);
+        var expectedWidth = Math.Ceiling(_capturePinnedScreenBounds.Width / renderScaling);
+        var expectedHeight = Math.Ceiling(_capturePinnedScreenBounds.Height / renderScaling);
+        var widthDrift = Math.Abs(Width - expectedWidth);
+        var heightDrift = Math.Abs(Height - expectedHeight);
+        var positionDrift =
+            Math.Abs(Position.X - _capturePinnedScreenBounds.X) +
+            Math.Abs(Position.Y - _capturePinnedScreenBounds.Y);
+
+        if (widthDrift < 2 && heightDrift < 2 && positionDrift < 2)
+            return;
+
+        FSLog.Info(
+            $"[CAPTURE-FULLSCREEN] Re-pinning window after display change. " +
+            $"expected=({expectedWidth:0},{expectedHeight:0}) actual=({Width:0},{Height:0}).");
+
+        _ignoreSizeChange = true;
+        ApplyCaptureFullscreenWindowBounds(vm, _capturePinnedScreenBounds);
+        Dispatcher.UIThread.Post(() => _ignoreSizeChange = false, DispatcherPriority.Background);
     }
 }

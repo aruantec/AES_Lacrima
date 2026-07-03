@@ -63,6 +63,9 @@ internal static class SteamClientIpcHelper
 
     public static bool IsSteamClientRunning()
     {
+        if (OperatingSystem.IsWindows())
+            return SteamWindowsLaunchHelper.IsSteamClientRunning();
+
         if (!OperatingSystem.IsLinux())
             return false;
 

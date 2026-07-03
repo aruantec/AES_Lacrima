@@ -1991,6 +1991,12 @@ public partial class EmulationView : UserControl
 
     private static PixelRect GetScreenBounds(Window mainWindow)
     {
+        if (mainWindow is MainWindow chromeWindow &&
+            chromeWindow.TryGetDesktopIsolationPrimaryBounds(out var isolatedBounds))
+        {
+            return isolatedBounds;
+        }
+
         var screen = mainWindow.Screens?.ScreenFromWindow(mainWindow) ?? mainWindow.Screens?.Primary;
         return screen?.Bounds ?? new PixelRect(0, 0, 0, 0);
     }

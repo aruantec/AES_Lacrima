@@ -75,9 +75,12 @@ namespace AES_Lacrima.ViewModels
             }, token);
         }
 
+        private static bool IsSteamLibraryPlatformSupported()
+            => OperatingSystem.IsLinux() || OperatingSystem.IsWindows();
+
         private void FlushDeferredSteamPresentationUpdates()
         {
-            if (!OperatingSystem.IsLinux())
+            if (!IsSteamLibraryPlatformSupported())
                 return;
 
             List<EmulationAlbumItem> pending;
@@ -108,7 +111,7 @@ namespace AES_Lacrima.ViewModels
 
         private async Task SyncSteamLibrariesAfterInitializeAsync()
         {
-            if (!OperatingSystem.IsLinux())
+            if (!IsSteamLibraryPlatformSupported())
                 return;
 
             List<EmulationAlbumItem> steamAlbums;
@@ -135,7 +138,7 @@ namespace AES_Lacrima.ViewModels
             bool forcePresentation = false,
             bool forceRefresh = false)
         {
-            if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
+            if (!IsSteamLibraryPlatformSupported() || !IsSteamAlbum(album))
                 return;
 
             if (!await _steamSyncSemaphore.WaitAsync(forceRefresh || forcePresentation ? Timeout.InfiniteTimeSpan : TimeSpan.Zero)
@@ -347,7 +350,7 @@ namespace AES_Lacrima.ViewModels
         }
 
         public bool ShowSteamLibraryRefreshMenuItem =>
-            OperatingSystem.IsLinux() && IsSteamAlbum(GetBrowseAlbum());
+            IsSteamLibraryPlatformSupported() && IsSteamAlbum(GetBrowseAlbum());
 
         private bool CanRefreshSteamLibrary() => ShowSteamLibraryRefreshMenuItem;
 
@@ -438,7 +441,7 @@ namespace AES_Lacrima.ViewModels
 
         private void StartSteamLibraryWatcher(EmulationAlbumItem album)
         {
-            if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
+            if (!IsSteamLibraryPlatformSupported() || !IsSteamAlbum(album))
                 return;
 
             StopSteamLibraryWatcher();
@@ -539,7 +542,7 @@ namespace AES_Lacrima.ViewModels
 
         private void QueueSteamLibraryResync(EmulationAlbumItem album)
         {
-            if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
+            if (!IsSteamLibraryPlatformSupported() || !IsSteamAlbum(album))
                 return;
 
             try
@@ -672,7 +675,7 @@ namespace AES_Lacrima.ViewModels
 
         private void QueueDeferredSteamLibrarySync(EmulationAlbumItem album)
         {
-            if (!OperatingSystem.IsLinux() || !IsSteamAlbum(album))
+            if (!IsSteamLibraryPlatformSupported() || !IsSteamAlbum(album))
                 return;
 
             try
@@ -709,7 +712,7 @@ namespace AES_Lacrima.ViewModels
 
         private void ManageSteamLibraryWatcher(FolderMediaItem? album)
         {
-            if (!OperatingSystem.IsLinux())
+            if (!IsSteamLibraryPlatformSupported())
             {
                 StopSteamLibraryWatcher();
                 _watchedSteamAlbum = null;

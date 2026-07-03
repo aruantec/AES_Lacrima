@@ -216,8 +216,7 @@ namespace AES_Lacrima.Services
         public static bool UsesAutoLibrarySync(string? consoleName)
             => IsSteamSection(consoleName);
 
-        public static bool IsLinuxOnlySection(string? consoleName)
-            => IsSteamSection(consoleName);
+        public static bool IsLinuxOnlySection(string? consoleName) => false;
 
         public static bool IsSteamSection(string? consoleName)
         {
@@ -240,7 +239,7 @@ namespace AES_Lacrima.Services
             if (!IsSteamConsoleAsset(imagePath))
                 return true;
 
-            return OperatingSystem.IsLinux();
+            return OperatingSystem.IsLinux() || OperatingSystem.IsWindows();
         }
 
         public static bool IsSteamConsoleAsset(string imagePath)

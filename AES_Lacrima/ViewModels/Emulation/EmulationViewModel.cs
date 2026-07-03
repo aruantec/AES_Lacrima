@@ -283,6 +283,9 @@ private bool _isShadPs4PatchesOverlayOpen;
         private bool _linuxCaptureHandoffCompleted;
         private string? _activeSteamLaunchRomPath;
         private string? _activeSteamLaunchTitle;
+        private string? _activeSteamInstallDirectory;
+        private bool _awaitingSteamRuntimeRebind;
+        private CancellationTokenSource? _steamRuntimeWaitCts;
         private bool _appTopmostOverride;
         private bool _appWasTopmostBeforeEmulatorLaunch;
         private IntPtr _appWindowHandleBeforeEmulatorLaunch = IntPtr.Zero;
@@ -786,7 +789,7 @@ private bool _isShadPs4PatchesOverlayOpen;
             if (!string.IsNullOrWhiteSpace(_activeEmulatorGameTitle))
                 hints.Add(_activeEmulatorGameTitle);
 
-            if (OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(_activeSteamLaunchRomPath))
+            if ((OperatingSystem.IsLinux() || OperatingSystem.IsWindows()) && !string.IsNullOrWhiteSpace(_activeSteamLaunchRomPath))
             {
                 var appId = AES_Emulation.Steam.SteamGamePath.GetAppId(_activeSteamLaunchRomPath);
                 if (!string.IsNullOrWhiteSpace(appId))

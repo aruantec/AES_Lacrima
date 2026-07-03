@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
-
+
 using log4net;
 using AES_Core.Logging;
 namespace AES_Emulation.Windows.API
@@ -13,7 +13,10 @@ namespace AES_Emulation.Windows.API
         private const uint INPUT_KEYBOARD = 1;
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const ushort VK_CONTROL = 0x11;
+        private const ushort VK_MENU = 0x12;
+        private const ushort VK_RETURN = 0x0D;
         private const ushort VK_S = 0x53;
+        private static readonly ConcurrentDictionary<IntPtr, long> LastAltEnterTicks = new();
 
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
@@ -49,6 +52,16 @@ namespace AES_Emulation.Windows.API
         private const uint WM_KEYDOWN = 0x0100;
         private const uint WM_KEYUP = 0x0101;
         private const int VK_ESCAPE = 0x1B;
+        private const int DISP_CHANGE_SUCCESSFUL = 0;
+        private const int CDS_RESET = unchecked((int)0x40000000);
+
+        [DllImport("user32.dll", CharSet = CharSet.Ansi)]
+        private static extern int ChangeDisplaySettingsEx(
+            string? lpszDeviceName,
+            IntPtr lpDevMode,
+            IntPtr hwnd,
+            int dwflags,
+            IntPtr lParam);
 
         [DllImport("user32.dll")]
         private static extern bool IsIconic(IntPtr hWnd);
@@ -646,6 +659,60 @@ namespace AES_Emulation.Windows.API
             }
         }
 
+        /// <summary>
+        /// Resets the desktop display mode to the last saved registry settings after DXGI exclusive fullscreen.
+        /// </summary>
+        public static bool TryRestoreDesktopDisplayMode()
+        {
+            try
+            {
+                return ChangeDisplaySettingsEx(null, IntPtr.Zero, IntPtr.Zero, CDS_RESET, IntPtr.Zero) ==
+                       DISP_CHANGE_SUCCESSFUL;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to restore desktop display mode.", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Sends Alt+Enter to toggle many games from exclusive fullscreen into borderless/windowed mode.
+        /// </summary>
+        public static bool TrySendAltEnter(IntPtr targetHwnd, int minIntervalMs = 2000)
+        {
+            if (targetHwnd == IntPtr.Zero)
+                return false;
+
+            var now = Environment.TickCount64;
+            if (LastAltEnterTicks.TryGetValue(targetHwnd, out var last) && now - last < minIntervalMs)
+                return false;
+
+            try
+            {
+                ForceEmulatorFocus(targetHwnd);
+
+                var inputs = new[]
+                {
+                    CreateKeyInput(VK_MENU, 0),
+                    CreateKeyInput(VK_RETURN, 0),
+                    CreateKeyInput(VK_RETURN, KEYEVENTF_KEYUP),
+                    CreateKeyInput(VK_MENU, KEYEVENTF_KEYUP)
+                };
+
+                if (SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>()) != inputs.Length)
+                    return false;
+
+                LastAltEnterTicks[targetHwnd] = now;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to send Alt+Enter to game window.", ex);
+                return false;
+            }
+        }
+
         private static INPUT CreateKeyInput(ushort virtualKey, uint flags)
         {
             return new INPUT
@@ -795,6 +862,43 @@ namespace AES_Emulation.Windows.API
             }
             catch
             {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Forces a borderless windowed surface at an exact monitor rect instead of DXGI exclusive fullscreen.
+        /// </summary>
+        public static bool TryForceBorderlessWindowedOnRect(
+            IntPtr hwnd,
+            int left,
+            int top,
+            int width,
+            int height,
+            IntPtr hWndInsertAfter)
+        {
+            if (hwnd == IntPtr.Zero || width <= 0 || height <= 0)
+                return false;
+
+            try
+            {
+                if (IsIconic(hwnd) || IsZoomed(hwnd))
+                    ShowWindow(hwnd, SW_RESTORE);
+
+                TryExitFullscreenWindow(hwnd);
+                RemoveWindowDecorations(hwnd);
+
+                const uint flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED;
+                SetWindowPos(hwnd, hWndInsertAfter, left, top, width, height, flags);
+                return GetWindowRect(hwnd, out var rect) &&
+                       Math.Abs(rect.Left - left) <= 2 &&
+                       Math.Abs(rect.Top - top) <= 2 &&
+                       Math.Abs((rect.Right - rect.Left) - width) <= 4 &&
+                       Math.Abs((rect.Bottom - rect.Top) - height) <= 4;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to force borderless windowed placement.", ex);
                 return false;
             }
         }

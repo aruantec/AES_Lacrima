@@ -104,6 +104,21 @@ public partial class ParsecVddManager : ObservableObject
     /// </summary>
     public static bool UseEmulatorVirtualDisplayCapture { get; set; }
 
+    /// <summary>
+    /// Returns whether the given handler should launch on and capture from the Parsec virtual display.
+    /// Steam on Windows always uses VDD when <see cref="UseVirtualDisplayCapture"/> is enabled.
+    /// </summary>
+    public static bool UsesVirtualDisplayCaptureForHandler(string? handlerId)
+    {
+        if (!UseVirtualDisplayCapture)
+            return false;
+
+        if (UseEmulatorVirtualDisplayCapture)
+            return true;
+
+        return string.Equals(handlerId, "steam", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string GetDriverStatusMessage()
     {
         if (!IsSupported)
