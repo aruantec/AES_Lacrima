@@ -492,7 +492,7 @@ namespace AES_Lacrima.ViewModels
             _currentSetupLaunchIconExecutablePath = executablePath;
             OnPropertyChanged(nameof(CurrentSectionSetupLaunchIcon));
             OnPropertyChanged(nameof(HasCurrentSectionSetupLaunchIcon));
-            oldIcon?.Dispose();
+            BitmapLifecycleHelper.DisposeAfterRenderPass(oldIcon);
         }
 
         [RelayCommand]

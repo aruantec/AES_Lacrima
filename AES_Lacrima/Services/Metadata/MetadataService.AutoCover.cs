@@ -164,13 +164,22 @@ namespace AES_Lacrima.Services
             if (metadata == null)
                 return;
 
-            foreach (var old in Images)
+            var newModels = CreateTagImageModelsFromMetadata(metadata, OnDeleteImage).ToList();
+            List<TagImageModel> oldImages = [];
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                oldImages = Images.ToList();
+                Images.Clear();
+                foreach (var model in newModels)
+                    Images.Add(model);
+            });
+
+            foreach (var old in oldImages)
                 old.Dispose();
 
-            Images.Clear();
-            foreach (var model in CreateTagImageModelsFromMetadata(metadata, OnDeleteImage))
+            foreach (var model in newModels)
             {
-                Images.Add(model);
                 if (model.Kind == TagImageKind.LiveWallpaper)
                     await LoadImageAsync(model).ConfigureAwait(false);
             }
@@ -263,9 +272,7 @@ namespace AES_Lacrima.Services
 
         private void Close()
         {
-            foreach (var image in Images)
-                image.Dispose();
-
+            var oldImages = Images.ToList();
             Images.Clear();
             IsXbox360Metadata = false;
             Xbox360TitleId = null;
@@ -290,6 +297,9 @@ namespace AES_Lacrima.Services
             PspTitleId = null;
             IsMetadataLoading = false;
             IsMetadataLoaded = false;
+
+            foreach (var image in oldImages)
+                image.Dispose();
         }
 
         private void OnDeleteImage(TagImageModel img)

@@ -1,3 +1,4 @@
+using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -129,25 +130,27 @@ public partial class TagImageModel : ObservableObject, IDisposable
     /// <summary>
     /// Clears cached bitmaps when binary data changes.
     /// </summary>
-    partial void OnDataChanged(byte[] value)
-    {
-        _cachedImage?.Dispose();
-        _cachedImage = null;
-        _cachedPreview?.Dispose();
-        _cachedPreview = null;
-    }
+    partial void OnDataChanged(byte[] value) => ReleaseCachedBitmaps();
 
     /// <summary>
     /// Clears cached bitmaps when the image kind changes.
     /// </summary>
     partial void OnKindChanged(TagImageKind value)
     {
-        _cachedImage?.Dispose();
-        _cachedImage = null;
-        _cachedPreview?.Dispose();
-        _cachedPreview = null;
+        ReleaseCachedBitmaps();
         OnPropertyChanged(nameof(IsActiveFrontCover));
         OnPropertyChanged(nameof(CanPromoteToFrontCover));
+    }
+
+    private void ReleaseCachedBitmaps()
+    {
+        var oldImage = _cachedImage;
+        var oldPreview = _cachedPreview;
+        _cachedImage = null;
+        _cachedPreview = null;
+        OnPropertyChanged(nameof(Image));
+        OnPropertyChanged(nameof(PreviewImage));
+        BitmapLifecycleHelper.DisposeAfterRenderPass(oldImage, oldPreview);
     }
 
     /// <summary>
@@ -213,11 +216,5 @@ public partial class TagImageModel : ObservableObject, IDisposable
     /// <summary>
     /// Disposes cached bitmaps.
     /// </summary>
-    public void Dispose()
-    {
-        _cachedImage?.Dispose();
-        _cachedImage = null;
-        _cachedPreview?.Dispose();
-        _cachedPreview = null;
-    }
+    public void Dispose() => ReleaseCachedBitmaps();
 }

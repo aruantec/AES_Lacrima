@@ -1,5 +1,6 @@
 using System.Net.Http;
 using AES_Code.Models;
+using AES_Controls.Helpers;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -131,8 +132,8 @@ public class CompositionWallpaperBezelPreviewControl : Border
                     return;
                 }
 
-                if (_previewImage.Source is IDisposable old)
-                    old.Dispose();
+                if (_previewImage.Source is Bitmap oldBitmap)
+                    BitmapLifecycleHelper.DisposeAfterRenderPass(oldBitmap);
                 _previewImage.Source = preview;
             });
         }
@@ -145,8 +146,8 @@ public class CompositionWallpaperBezelPreviewControl : Border
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (_previewImage.Source is IDisposable old)
-                        old.Dispose();
+                    if (_previewImage.Source is Bitmap oldBitmap)
+                        BitmapLifecycleHelper.DisposeAfterRenderPass(oldBitmap);
                     _previewImage.Source = null;
                 });
             }

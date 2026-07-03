@@ -226,7 +226,7 @@ public partial class EmulationViewModel
 
             var previous = CaptureLetterboxBitmap;
             CaptureLetterboxBitmap = bitmap;
-            previous?.Dispose();
+            BitmapLifecycleHelper.DisposeAfterRenderPass(previous);
         }, DispatcherPriority.Background);
     }
 }
