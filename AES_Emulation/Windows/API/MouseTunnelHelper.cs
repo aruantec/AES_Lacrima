@@ -32,6 +32,13 @@ namespace AES_Emulation.Windows.API
         /// </summary>
         public Func<Point, bool>? ShouldForwardAtPoint { get; set; }
 
+        /// <summary>
+        /// When set, a second click within the system double-click interval invokes this callback
+        /// instead of forwarding press/release to the target window (e.g. capture fullscreen toggle).
+        /// Return true when the double-click was handled.
+        /// </summary>
+        public Func<Point, bool>? TryHandleDoubleClickAtPoint { get; set; }
+
         // Routed event handler references (kept so we can remove them)
         private readonly EventHandler<PointerEventArgs> _enteredHandler;
         private readonly EventHandler<PointerEventArgs> _exitedHandler;
@@ -43,6 +50,7 @@ namespace AES_Emulation.Windows.API
         // Visual root we attach handlers to
         private bool _handlersAttachedToElement = false;
         private bool _isCurrentlyVisible = true;
+        private bool _suppressNextRelease;
 
         // track property changed subscription
         private EventHandler<AvaloniaPropertyChangedEventArgs>? _propChangedHandler;
@@ -453,12 +461,20 @@ namespace AES_Emulation.Windows.API
 
         private void OnPointerPressed(PointerPressedEventArgs e)
         {
-            // Double-clicks are handled by the host UI (e.g. capture fullscreen toggle).
-            if (e.ClickCount >= 2)
-                return;
-
             if (!TryGetLocalPoint(e, out var local))
                 return;
+
+            if (e.ClickCount >= 2 && TryHandleDoubleClickAtPoint != null)
+            {
+                if (TryHandleDoubleClickAtPoint(local))
+                {
+                    e.Handled = true;
+                    _suppressNextRelease = true;
+                }
+                return;
+            }
+
+            _suppressNextRelease = false;
 
             if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
                 return;
@@ -472,6 +488,12 @@ namespace AES_Emulation.Windows.API
         {
             if (!TryGetLocalPoint(e, out var local))
                 return;
+
+            if (_suppressNextRelease)
+            {
+                _suppressNextRelease = false;
+                return;
+            }
 
             if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
                 return;

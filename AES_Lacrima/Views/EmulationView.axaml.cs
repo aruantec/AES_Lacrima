@@ -291,21 +291,11 @@ public partial class EmulationView : UserControl
         if (TryDismissRenderOptionsOnPointerPressed(e))
             return;
 
-        if (IsCaptureContextMenuPointer(e))
-        {
-            TryOpenCaptureContextMenu();
-            e.Handled = true;
-            return;
-        }
-
-        if (TryHandleCaptureDoubleClick(e))
+        if (!IsCaptureContextMenuPointer(e))
             return;
 
-        if (_isCaptureFullscreen &&
-            DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
-        {
-            ActiveCaptureHost?.ForwardFocusToTarget();
-        }
+        TryOpenCaptureContextMenu();
+        e.Handled = true;
     }
 
     private void OnCaptureContextMenuLayerPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -313,21 +303,15 @@ public partial class EmulationView : UserControl
         if (TryDismissRenderOptionsOnPointerPressed(e))
             return;
 
-        if (IsCaptureContextMenuPointer(e))
-        {
-            if (sender is Border layer)
-                OpenCaptureContextMenu(layer);
-            else
-                TryOpenCaptureContextMenu();
-            e.Handled = true;
-            return;
-        }
-
-        if (TryHandleCaptureDoubleClick(e))
+        if (!IsCaptureContextMenuPointer(e))
             return;
 
-        if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
-            ActiveCaptureHost?.ForwardFocusToTarget();
+        if (sender is Border layer)
+            OpenCaptureContextMenu(layer);
+        else
+            TryOpenCaptureContextMenu();
+
+        e.Handled = true;
     }
 
     private void TryOpenCaptureContextMenu()
@@ -366,13 +350,36 @@ public partial class EmulationView : UserControl
         if (UseInlineCaptureHost)
         {
             EnsureInlineCaptureHost();
-            var layer = this.FindControl<Border>("CaptureContextMenuLayer");
-            _inlineCaptureHost?.ConfigurePointerTunnelSurface(tunnelActive ? layer : null);
+            ConfigureCaptureHostInputRouting(_inlineCaptureHost, tunnelActive);
+            var captureBorder = this.FindControl<Border>("EmulatorCaptureHost");
+            if (captureBorder != null)
+                captureBorder.IsHitTestVisible = tunnelActive;
             return;
         }
 
-        var portalLayer = _portalWindow?.FindControl<Border>("CaptureContextMenuLayer");
-        _portalWindow?.CaptureHostControl?.ConfigurePointerTunnelSurface(tunnelActive ? portalLayer : null);
+        ConfigureCaptureHostInputRouting(_portalWindow?.CaptureHostControl, tunnelActive);
+    }
+
+    private void ConfigureCaptureHostInputRouting(EmulatorCaptureHost? host, bool tunnelActive)
+    {
+        if (host == null)
+            return;
+
+        host.ConfigurePointerTunnelSurface(null);
+        host.CaptureDoubleClickHandler = tunnelActive ? TryHandleCaptureDoubleClickAtPoint : null;
+        host.IsHitTestVisible = tunnelActive;
+    }
+
+    private bool TryHandleCaptureDoubleClickAtPoint(Point _)
+    {
+        if (DataContext is not EmulationViewModel vm)
+            return false;
+
+        if (!vm.IsCompositionCaptureVisible || !vm.IsEmulatorRunning)
+            return false;
+
+        vm.ToggleFullscreenCommand.Execute(null);
+        return true;
     }
 
     private bool TryDismissRenderOptionsOnPointerPressed(PointerPressedEventArgs e)
@@ -414,30 +421,10 @@ public partial class EmulationView : UserControl
         if (IsCaptureContextMenuPointer(e))
             return;
 
-        if (TryHandleCaptureDoubleClick(e))
-            return;
-
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
             return;
 
         ActiveCaptureHost?.ForwardFocusToTarget();
-    }
-
-    private bool TryHandleCaptureDoubleClick(PointerPressedEventArgs e)
-    {
-        if (e.ClickCount < 2)
-            return false;
-
-        e.Handled = true;
-
-        if (DataContext is not EmulationViewModel vm)
-            return true;
-
-        if (!vm.IsCompositionCaptureVisible || !vm.IsEmulatorRunning)
-            return true;
-
-        vm.ToggleFullscreenCommand.Execute(null);
-        return true;
     }
 
     private void OnComboBoxDropDownOpened()
@@ -1043,6 +1030,10 @@ public partial class EmulationView : UserControl
                 EnterCaptureFullscreen(mainWindow);
             else if (!vm.IsFullscreen && _isCaptureFullscreen)
                 ExitCaptureFullscreen();
+        }
+        else if (e.PropertyName == nameof(EmulationViewModel.CaptureChromeRightMargin))
+        {
+            RefreshInlineCaptureLayout();
         }
     }
 

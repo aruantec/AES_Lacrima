@@ -48,7 +48,7 @@
                 Background="Transparent"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
-                IsHitTestVisible="{Binding IsEmulatorViewportVisible}">
+                IsHitTestVisible="False">
             <Border.ContextMenu>
                 <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
                     <MenuItem Header="Edit Metadata"
