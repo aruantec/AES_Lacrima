@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Media;
+using AES_Controls;
 
 namespace AES_Emulation.Windows.API;
 
@@ -10,8 +11,62 @@ namespace AES_Emulation.Windows.API;
 /// </summary>
 public static class CaptureMouseCoordinateMapper
 {
-    public static bool TryMapLocalToTargetClient(
+    public static bool TryMapVisualPointToTargetClient(
         Visual visual,
+        Point layoutPoint,
+        Rect renderDestRect,
+        IntPtr targetHwnd,
+        int frameWidth,
+        int frameHeight,
+        int frameCropLeft,
+        int frameCropRight,
+        int frameCropTop,
+        int frameCropBottom,
+        int clientAreaCropLeft,
+        int clientAreaCropTop,
+        int clientAreaCropRight,
+        int clientAreaCropBottom,
+        out int clientX,
+        out int clientY)
+    {
+        var layoutDestRect = ScaleRenderDestRectToLayout(visual, renderDestRect);
+        return TryMapLocalToTargetClient(
+            visual.Bounds.Size,
+            layoutPoint,
+            layoutDestRect,
+            targetHwnd,
+            frameWidth,
+            frameHeight,
+            frameCropLeft,
+            frameCropRight,
+            frameCropTop,
+            frameCropBottom,
+            clientAreaCropLeft,
+            clientAreaCropTop,
+            clientAreaCropRight,
+            clientAreaCropBottom,
+            out clientX,
+            out clientY);
+    }
+
+    /// <summary>
+    /// Converts a dest rect from composition render space to the control's layout space.
+    /// </summary>
+    public static Rect ScaleRenderDestRectToLayout(Visual visual, Rect renderDestRect)
+    {
+        var scale = ScalableDecorator.GetExclusionRenderScale(visual);
+        if (scale <= 1.001)
+            return renderDestRect;
+
+        return new Rect(
+            renderDestRect.X * scale,
+            renderDestRect.Y * scale,
+            renderDestRect.Width * scale,
+            renderDestRect.Height * scale);
+    }
+
+    public static bool TryMapLocalToTargetClient(
+        Size viewSize,
         Point localPoint,
         Rect localDestRect,
         IntPtr targetHwnd,
@@ -31,10 +86,9 @@ public static class CaptureMouseCoordinateMapper
         clientX = 0;
         clientY = 0;
 
-        if (visual == null || targetHwnd == IntPtr.Zero)
+        if (targetHwnd == IntPtr.Zero)
             return false;
 
-        var viewSize = visual.Bounds.Size;
         if (viewSize.Width <= 0 || viewSize.Height <= 0 || localDestRect.Width <= 0 || localDestRect.Height <= 0)
             return false;
 

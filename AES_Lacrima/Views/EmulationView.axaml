@@ -503,16 +503,14 @@
             </Border>
             <Grid x:Name="EmulatorCaptureOverlay"
                   ZIndex="100"
-                  IsVisible="True">
-            <Grid.IsHitTestVisible>
-                <Binding Path="IsCompositionCaptureVisible"/>
-            </Grid.IsHitTestVisible>
+                  IsVisible="True"
+                  IsHitTestVisible="False">
             <Border x:Name="CaptureContextMenuLayer"
                     Background="Transparent"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     ZIndex="1200"
-                    IsHitTestVisible="{Binding IsEmulatorViewportVisible}">
+                    IsHitTestVisible="False">
                 <Border.ContextMenu>
                     <ContextMenu Background="#AA000000" BorderBrush="#44FFFFFF" BorderThickness="0.5" CornerRadius="8" Padding="0">
                         <MenuItem Header="Edit Metadata"

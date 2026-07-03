@@ -607,7 +607,7 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
                 cropBottom);
         }
 
-        if (!CaptureMouseCoordinateMapper.TryMapLocalToTargetClient(
+        if (!CaptureMouseCoordinateMapper.TryMapVisualPointToTargetClient(
                 this,
                 local,
                 localDestRect,
@@ -1208,6 +1208,18 @@ public class CompositionWgcCaptureControl : Control, IScaleExclusionRenderTarget
     }
 
     public void RefreshExclusionRenderSize() => UpdateHandlerSize();
+
+    /// <summary>
+    /// Re-sync render layout after the capture viewport bounds change (resize, fullscreen, chrome margin).
+    /// </summary>
+    public void RefreshCapturePresentation()
+    {
+        if (!IsWindowsPlatform)
+            return;
+
+        UpdateHandlerSize();
+        InvalidateVisual();
+    }
 
     private void UpdateHandlerSession(bool deferCompositorNotification = false)
     {
@@ -2454,14 +2466,10 @@ public class WgcCaptureVisualHandler : CompositionCustomVisualHandler
         if (_visualSize.X < 1 || _visualSize.Y < 1 || frameWidth < 1 || frameHeight < 1)
             return false;
 
-        var dest = _cachedDestRect;
-        if (_rectDirty)
-        {
-            var contentW = frameWidth - cropLeft - cropRight;
-            dest = ShouldAutoCropPillarboxes
-                ? BuildSnappedFullHeightDestRect(_visualSize.X, _visualSize.Y, contentW, frameHeight)
-                : CalculateAspectRect(_visualSize.X, _visualSize.Y, contentW, frameHeight);
-        }
+        var contentW = frameWidth - cropLeft - cropRight;
+        var dest = ShouldAutoCropPillarboxes
+            ? BuildSnappedFullHeightDestRect(_visualSize.X, _visualSize.Y, contentW, frameHeight)
+            : CalculateAspectRect(_visualSize.X, _visualSize.Y, contentW, frameHeight);
 
         localDestRect = new Rect(dest.Left, dest.Top, dest.Width, dest.Height);
         return localDestRect.Width > 0 && localDestRect.Height > 0;

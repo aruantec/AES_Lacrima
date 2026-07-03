@@ -187,6 +187,22 @@ public class EmulatorCaptureHost : ContentControl
     private LinuxGamescopeInputTunnel? _linuxInputTunnel;
     private InputElement? _pointerTunnelSurface;
 
+    private Func<Point, bool>? _captureDoubleClickHandler;
+
+    /// <summary>
+    /// Invoked on a double-click inside the capture area. Return true when handled (e.g. fullscreen toggle).
+    /// </summary>
+    public Func<Point, bool>? CaptureDoubleClickHandler
+    {
+        get => _captureDoubleClickHandler;
+        set
+        {
+            _captureDoubleClickHandler = value;
+            if (_mouseTunnel != null)
+                _mouseTunnel.TryHandleDoubleClickAtPoint = value;
+        }
+    }
+
     public EmulatorCaptureHost()
     {
         if (OperatingSystem.IsLinux())
@@ -497,7 +513,12 @@ public class EmulatorCaptureHost : ContentControl
 
     public void RefreshCapturePresentation()
     {
-        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+        if (_backend is IScaleExclusionRenderTarget scaleTarget)
+            scaleTarget.RefreshExclusionRenderSize();
+
+        if (_backend is CompositionWgcCaptureControl compositionBackend)
+            compositionBackend.RefreshCapturePresentation();
+        else if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
             linuxCompositionBackend.RefreshCapturePresentation();
     }
 
@@ -571,9 +592,14 @@ public class EmulatorCaptureHost : ContentControl
             return null;
 
         Point backendLocal = hostLocal;
-        if (this is Visual hostVisual)
+        if (this is Visual hostVisual && !ReferenceEquals(_backend, hostVisual))
             backendLocal = hostVisual.TranslatePoint(hostLocal, backendVisual) ?? hostLocal;
 
+        return MapBackendPointToTargetClient(backendLocal);
+    }
+
+    private (int X, int Y)? MapBackendPointToTargetClient(Point backendLocal)
+    {
         if (!OperatingSystem.IsWindows())
             return null;
 
@@ -634,6 +660,9 @@ public class EmulatorCaptureHost : ContentControl
 
         if (change.Property == TargetProcessIdProperty)
             UpdateLinuxInputTunnelTarget();
+
+        if (change.Property == BoundsProperty)
+            RefreshCapturePresentation();
         
         if (change.Property == CaptureModeProperty)
         {
@@ -779,25 +808,28 @@ public class EmulatorCaptureHost : ContentControl
         _mouseTunnel = new MouseTunnelHelper(tunnelElement)
         {
             TunnelMouse = true,
-            MapToTargetClient = local => MapTunnelLocalToTargetClient(local, tunnelElement)
+            MapToTargetClient = local => MapTunnelLocalToTargetClient(local, tunnelElement),
+            TryHandleDoubleClickAtPoint = CaptureDoubleClickHandler
         };
         UpdateMouseTunnelTarget();
     }
 
     private (int X, int Y)? MapTunnelLocalToTargetClient(Point local, InputElement tunnelElement)
     {
-        if (!ReferenceEquals(tunnelElement, this) &&
-            tunnelElement is Visual tunnelVisual &&
-            this is Visual hostVisual)
+        if (_backend is not Visual backendVisual)
+            return null;
+
+        Point backendLocal = local;
+        if (tunnelElement is Visual tunnelVisual && !ReferenceEquals(tunnelVisual, backendVisual))
         {
-            var onHost = tunnelVisual.TranslatePoint(local, hostVisual);
-            if (onHost == null)
+            var translated = tunnelVisual.TranslatePoint(local, backendVisual);
+            if (translated == null)
                 return null;
 
-            return MapLocalToTargetClient(onHost.Value);
+            backendLocal = translated.Value;
         }
 
-        return MapLocalToTargetClient(local);
+        return MapBackendPointToTargetClient(backendLocal);
     }
 
     private Control CreateBackend()

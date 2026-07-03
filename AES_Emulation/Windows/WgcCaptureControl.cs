@@ -1602,7 +1602,7 @@ public class WgcCaptureControl : OpenGlControlBase
             0,
             0);
 
-        if (!CaptureMouseCoordinateMapper.TryMapLocalToTargetClient(
+        if (!CaptureMouseCoordinateMapper.TryMapVisualPointToTargetClient(
                 this,
                 local,
                 localDestRect,

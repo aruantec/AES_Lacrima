@@ -79,6 +79,19 @@ public class ScalableDecorator : Decorator
             Math.Max(1, boundsSize.Height / scale));
     }
 
+    /// <summary>
+    /// Converts a pointer position in layout coordinates to the render coordinate space used
+    /// by exclusion-aware composition visuals (e.g. capture handlers).
+    /// </summary>
+    public static Point ToExclusionAwareRenderPoint(Visual visual, Point layoutPoint)
+    {
+        var scale = GetExclusionRenderScale(visual);
+        if (scale <= 1.001)
+            return layoutPoint;
+
+        return new Point(layoutPoint.X / scale, layoutPoint.Y / scale);
+    }
+
     private static void OnExcludeFromScaleChanged(Visual visual, AvaloniaPropertyChangedEventArgs change)
     {
         if (change.NewValue is bool excluded)
