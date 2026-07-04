@@ -2106,7 +2106,6 @@ public partial class EmulationView : UserControl
         if (DataContext is EmulationViewModel vm)
             vm.CompleteEmulatorLaunchAfterCaptureFrames();
         UpdateCaptureChromeVisibilityFromOpacity();
-        AttachPortalCaptureBindings();
         RefreshPortalCaptureStatsOverlay();
     }
 
