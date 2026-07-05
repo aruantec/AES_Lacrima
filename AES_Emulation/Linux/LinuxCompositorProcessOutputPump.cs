@@ -81,12 +81,13 @@ public sealed partial class LinuxCompositorProcessOutputPump : IDisposable
             if (string.IsNullOrWhiteSpace(diagnostics))
             {
                 SLog.Warn($"gamescope compositor exited early (exitCode={exitCode?.ToString() ?? "unknown"}).");
-                return;
             }
-
-            SLog.Warn(
-                $"gamescope compositor exited early (exitCode={exitCode?.ToString() ?? "unknown"}). " +
-                $"Recent output:{Environment.NewLine}{diagnostics}");
+            else
+            {
+                SLog.Warn(
+                    $"gamescope compositor exited early (exitCode={exitCode?.ToString() ?? "unknown"}). " +
+                    $"Recent output:{Environment.NewLine}{diagnostics}");
+            }
         }
         catch (Exception ex)
         {

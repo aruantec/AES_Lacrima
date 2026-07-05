@@ -10,14 +10,17 @@ using Avalonia.Media.Imaging;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using AES_Controls;
+using AES_Core.Logging;
 using AES_Emulation.Linux.API;
 using AES_Emulation.Services;
+using log4net;
 
 namespace AES_Emulation.Linux;
 
 [SupportedOSPlatform("linux")]
 public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarget
 {
+    private static readonly ILog SLog = LogHelper.For<LinuxCompositionCaptureControl>();
     public static readonly StyledProperty<IntPtr> TargetHwndProperty =
         AvaloniaProperty.Register<LinuxCompositionCaptureControl, IntPtr>(nameof(TargetHwnd));
 
@@ -606,12 +609,49 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         return true;
     }
 
-    private void SuspendPresentation()
+    internal void SuspendRenderingOnly()
     {
         _fallbackRenderTimer?.Stop();
         _handler?.SuspendRendering();
-        if (_capture != IntPtr.Zero)
-            LinuxCaptureBridge.aes_linux_capture_stop(_capture);
+    }
+
+    internal Task SuspendSessionImmediatelyAsync()
+    {
+        SuspendRenderingOnly();
+        return StopNativeCaptureAsync(waitForRenderDrain: true);
+    }
+
+    internal Task AbandonAfterCompositorExitAsync()
+    {
+        SuspendRenderingOnly();
+
+        if (_capture == IntPtr.Zero)
+        {
+            ApplySuspendedPresentationState();
+            return Task.CompletedTask;
+        }
+
+        var capture = _capture;
+        _capture = IntPtr.Zero;
+        ApplySuspendedPresentationState();
+        _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(250));
+
+        return Task.Run(() =>
+        {
+            try
+            {
+                LinuxCaptureBridge.aes_linux_capture_halt_after_compositor_exit(capture);
+                LinuxCaptureBridge.aes_linux_capture_destroy(capture);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to halt Linux composition capture after compositor exit.", ex);
+            }
+        });
+    }
+
+    private void ApplySuspendedPresentationState()
+    {
         _portalSessionRequested = false;
         _lastCompositorProcessId = 0;
         _lastTargetHwnd = IntPtr.Zero;
@@ -621,6 +661,36 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         Fps = 0;
         FrameTimeMs = 0;
         StatusText = "Capture suspended";
+    }
+
+    private void SuspendPresentation()
+        => _ = StopNativeCaptureAsync(waitForRenderDrain: false);
+
+    private Task StopNativeCaptureAsync(bool waitForRenderDrain)
+    {
+        if (_capture == IntPtr.Zero)
+        {
+            ApplySuspendedPresentationState();
+            return Task.CompletedTask;
+        }
+
+        var capture = _capture;
+        _capture = IntPtr.Zero;
+        ApplySuspendedPresentationState();
+
+        return Task.Run(async () =>
+        {
+            try
+            {
+                LinuxCaptureBridge.aes_linux_capture_stop(capture);
+                if (waitForRenderDrain)
+                    await Task.Delay(350).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Debug("Failed to stop Linux composition capture natively.", ex);
+            }
+        });
     }
 
     private void ResetCaptureNative()
@@ -638,6 +708,7 @@ public class LinuxCompositionCaptureControl : Control, IScaleExclusionRenderTarg
         if (LinuxEmulationLifecycle.IsApplicationExitInProgress)
             return;
 
+        _handler?.TryWaitForRenderIdle(TimeSpan.FromMilliseconds(500));
         _ = Task.Run(() => LinuxCaptureBridge.aes_linux_capture_destroy(capture));
     }
 

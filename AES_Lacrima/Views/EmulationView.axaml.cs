@@ -460,6 +460,7 @@ public partial class EmulationView : UserControl
 
         return vm.IsCompositionCaptureVisible &&
                vm.IsEmulatorRunning &&
+               !LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress &&
                (vm.IsRenderOptionsOpen || ComboBoxDropDownOpenTracker.IsAnyOpen);
     }
 
@@ -489,6 +490,9 @@ public partial class EmulationView : UserControl
         if (!OperatingSystem.IsLinux())
             return;
 
+        if (LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress)
+            return;
+
         if (DataContext is not EmulationViewModel { IsCompositionCaptureVisible: true })
             return;
 
@@ -497,12 +501,18 @@ public partial class EmulationView : UserControl
         // Some titles (including Steam games) ignore the first activation attempt.
         Dispatcher.UIThread.Post(() =>
         {
+            if (LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress)
+                return;
+
             if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true })
                 ActiveCaptureHost?.ForwardFocusToTarget();
         }, DispatcherPriority.Background);
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress)
+                return;
+
             if (DataContext is EmulationViewModel { IsCompositionCaptureVisible: true, IsEmulatorRunning: true })
                 ActiveCaptureHost?.ForwardFocusToTarget();
         }, DispatcherPriority.Send);
@@ -890,6 +900,13 @@ public partial class EmulationView : UserControl
             e.PropertyName == nameof(EmulationViewModel.IsEmulatorViewportVisible) ||
             e.PropertyName == nameof(EmulationViewModel.IsEmulatorRunning))
         {
+            if (e.PropertyName == nameof(EmulationViewModel.IsActive) && !vm.IsActive)
+            {
+                RomCover.IsGameplayPreviewVisible = false;
+                RomCover.IsGameplayPreviewVideoVisible = false;
+                RomCover.GameplayPreviewItemIndex = -1;
+            }
+
             if (e.PropertyName == nameof(EmulationViewModel.IsEmulatorRunning) &&
                 !vm.IsEmulatorRunning &&
                 vm.IsFullscreen)

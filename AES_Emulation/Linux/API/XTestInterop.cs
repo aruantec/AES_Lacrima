@@ -25,4 +25,8 @@ internal static class XTestInterop
     /// <summary>Allow this client to inject input even when another client has a grab.</summary>
     [DllImport(libXtst)]
     public static extern void XTestGrabControl(IntPtr display, bool impervious);
+
+    /// <summary>Release a prior XTestGrabControl on this display connection.</summary>
+    [DllImport(libXtst)]
+    public static extern void XTestUngrabControl(IntPtr display);
 }

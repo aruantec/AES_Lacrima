@@ -1172,8 +1172,10 @@ private bool _isShadPs4PatchesOverlayOpen;
             IsCompositionCaptureVisible || !IsAlbumListCollapsed || IsAlbumListLoading || _activeAlbumCoverScans > 0;
         public bool IsSearchOverlayVisible => MetadataService?.IsImageSearchOverlayOpen == true && !IsCompositionCaptureVisible;
         public bool IsSearchBoxVisible => IsCarouselVisible && !(MetadataService?.IsMetadataLoaded == true);
-        public bool IsGameplayPreviewViewportVisible => IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
-        public bool IsGameplayVideoSurfaceVisible => IsGameplayVideoVisible && !IsEmulatorViewportVisible;
+        public bool IsGameplayPreviewViewportVisible =>
+            IsActive && IsGameplayPreviewHostVisible && !IsEmulatorViewportVisible;
+        public bool IsGameplayVideoSurfaceVisible =>
+            IsActive && IsGameplayVideoVisible && !IsEmulatorViewportVisible;
         public bool ForceUseTargetClientAreaCapture => CurrentEmulatorHandler?.ForceUseTargetClientAreaCapture == true;
 
         public bool EnableCapturePillarboxCrop =>
@@ -1450,6 +1452,8 @@ private bool _isShadPs4PatchesOverlayOpen;
                 OnPropertyChanged(nameof(IsCompositionCaptureVisible));
                 OnPropertyChanged(nameof(IsRomCarouselAnimationPaused));
                 OnPropertyChanged(nameof(IsEmulationFolderAnimationPaused));
+                OnPropertyChanged(nameof(IsGameplayPreviewViewportVisible));
+                OnPropertyChanged(nameof(IsGameplayVideoSurfaceVisible));
                 NotifyGameplayRecordingAvailabilityChanged();
 
                 if (IsActive)
@@ -1457,6 +1461,9 @@ private bool _isShadPs4PatchesOverlayOpen;
                     ScheduleDeferredSteamStartupSync();
                     FlushDeferredSteamPresentationUpdates();
                     FlushDeferredAlbumCoverDisplayNotification();
+
+                    if (IsPrepared && !IsEmulatorRunning && IsGameplayPreviewAvailable)
+                        QueueGameplayPreview(HighlightedItem, immediate: true);
                 }
             }
         }

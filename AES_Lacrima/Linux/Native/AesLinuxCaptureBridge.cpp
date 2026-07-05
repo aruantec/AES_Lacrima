@@ -200,6 +200,7 @@ typedef struct
     int                      pw_init_requested; // set by set_target, cleared by render thread
     int                      pw_shutdown_requested; // set by stop; render thread tears down pw_loop
     int                      pw_reconnect_requested; // headless: reconnect stream only (keep pw_loop)
+    int                      pw_abandoned_after_compositor_exit; // skip PipeWire teardown — producer already gone
 
     // ――― EGL context (used by PipeWire backend for DMA-BUF import) ―――
     EGLDisplay               egl_display;
@@ -1636,7 +1637,6 @@ static void ActivatePipeWireStream(LinuxCapture* cap, const char* reason);
 static bool ReconnectGamescopeDirectPipeWireStream(LinuxCapture*);
 static bool ConnectGamescopeDirectPipeWireStream(LinuxCapture*, uint32_t node_id, int registry_found);
 static void StopPipeWireBackend(LinuxCapture*);
-static void DestroyPipeWireBackend(LinuxCapture*);
 static void RenderPipeWireFrame(LinuxCapture*, struct pw_buffer*);
 static uint32_t SpaFormatToDrmFourcc(uint32_t spaFormat);
 static void SampleSourceFrameMetrics(LinuxCapture* cap, uint64_t now);
@@ -3470,7 +3470,9 @@ static void StopPipeWireBackend(LinuxCapture* cap)
         if (cap->pw_stream)
         {
             spa_hook_remove(&cap->pw_stream_hook);
-            pw_stream_disconnect(cap->pw_stream);
+            const enum pw_stream_state stream_state = pw_stream_get_state(cap->pw_stream, nullptr);
+            if (stream_state == PW_STREAM_STATE_STREAMING || stream_state == PW_STREAM_STATE_PAUSED)
+                pw_stream_disconnect(cap->pw_stream);
             pw_stream_destroy(cap->pw_stream);
             cap->pw_stream = nullptr;
         }
@@ -3503,17 +3505,6 @@ static void StopPipeWireBackend(LinuxCapture* cap)
 
     if (cap->headless)
         LogNative("PipeWire: headless shutdown complete");
-}
-
-static void DestroyPipeWireBackend(LinuxCapture* cap)
-{
-    if (!cap)
-        return;
-
-    StopPipeWireBackend(cap);
-
-    pthread_cond_destroy(&cap->pw_frame_cond);
-    pthread_mutex_destroy(&cap->pw_frame_mutex);
 }
 
 static void RenderPipeWireFrame(LinuxCapture* cap, struct pw_buffer* pwbuf)
@@ -4141,14 +4132,13 @@ void aes_linux_capture_destroy(LinuxCapture* cap)
     if (!cap)
         return;
 
-    LogNative("headless capture destroy: begin (headless=%d pw_loop=%p)",
-              cap->headless, cap->pw_loop);
+    LogNative("headless capture destroy: begin (headless=%d pw_loop=%p abandoned=%d)",
+              cap->headless, cap->pw_loop, cap->pw_abandoned_after_compositor_exit);
 
     cap->stop_render_thread = 1;
     cap->pw_shutdown_requested = 0;
     cap->pw_init_requested = 0;
     cap->pw_reconnect_requested = 0;
-    // Wake any waiting PipeWire frame delivery so the render thread can exit
     if (cap->backend_mode == BackendPipeWire || cap->headless)
     {
         pthread_mutex_lock(&cap->pw_frame_mutex);
@@ -4159,14 +4149,35 @@ void aes_linux_capture_destroy(LinuxCapture* cap)
     if (cap->render_thread_started)
         pthread_join(cap->render_thread, nullptr);
 
+    if (cap->pw_abandoned_after_compositor_exit)
+    {
+        if (cap->display)
+        {
+            XCloseDisplay(cap->display);
+            cap->display = nullptr;
+        }
+
+        pthread_mutex_destroy(&cap->mutex);
+        if (cap->headless)
+        {
+            pthread_mutex_destroy(&cap->export_mutex);
+            pthread_cond_destroy(&cap->pw_frame_cond);
+            pthread_mutex_destroy(&cap->pw_frame_mutex);
+        }
+
+        LogNative("headless capture destroy: complete (abandoned compositor exit path)");
+        free(cap);
+        return;
+    }
+
     if (cap->display)
     {
         pthread_mutex_lock(&cap->mutex);
 
-        if (cap->pw_loop)
-            DestroyPipeWireBackend(cap);
+        if (cap->pw_loop || cap->pw_stream || cap->pw_core || cap->pw_ctx)
+            StopPipeWireBackend(cap);
         else if (cap->backend_mode == BackendPipeWire)
-            DestroyPipeWireBackend(cap);
+            StopPipeWireBackend(cap);
 
         if (cap->backend_mode == BackendReparentFallback && cap->target != 0)
         {
@@ -4688,8 +4699,9 @@ void aes_linux_capture_stop(LinuxCapture* cap)
         pthread_mutex_unlock(&cap->pw_frame_mutex);
         cap->pw_init_requested = 0;
         cap->pw_reconnect_requested = 0;
-        // Do not tear down pw_loop here — gamescope exit pauses the stream and full
-        // loop teardown from the render thread is unsafe. Loop cleanup happens in destroy().
+        cap->pw_shutdown_requested = 1;
+        // Tear down pw_loop on the render thread via pw_shutdown_requested.
+        // Full cleanup still happens in destroy() after the thread joins.
     }
     else if (cap->backend_mode == BackendPipeWire)
     {
@@ -4744,6 +4756,60 @@ void aes_linux_capture_stop(LinuxCapture* cap)
     SetStatusText(cap, "Linux capture idle");
 
     pthread_mutex_unlock(&cap->mutex);
+}
+
+void aes_linux_capture_halt_after_compositor_exit(LinuxCapture* cap)
+{
+    if (!cap)
+        return;
+
+    LogNative("headless capture halt after compositor exit (headless=%d pw_loop=%p)",
+              cap->headless, cap->pw_loop);
+
+    cap->stop_render_thread = 1;
+    cap->pw_init_requested = 0;
+    cap->pw_reconnect_requested = 0;
+    cap->pw_shutdown_requested = 0;
+    cap->pw_abandoned_after_compositor_exit = 1;
+
+    if (cap->headless)
+    {
+        pthread_mutex_lock(&cap->export_mutex);
+        ReleaseHeldExportFrameLocked(cap);
+        cap->export_buf = nullptr;
+        cap->export_held = 0;
+        cap->export_acquired_fd = -1;
+        pthread_mutex_unlock(&cap->export_mutex);
+    }
+
+    pthread_mutex_lock(&cap->pw_frame_mutex);
+    cap->pw_active = 0;
+    cap->pw_frame_ready = 0;
+    cap->pw_pending_buf = nullptr;
+    pthread_cond_broadcast(&cap->pw_frame_cond);
+    pthread_mutex_unlock(&cap->pw_frame_mutex);
+
+    if (cap->render_thread_started)
+    {
+        pthread_join(cap->render_thread, nullptr);
+        cap->render_thread_started = 0;
+    }
+
+    // Gamescope already destroyed the PipeWire producer — disconnecting here can crash.
+    // Abandon the handles; destroy() frees the capture without touching PipeWire again.
+    cap->pw_stream = nullptr;
+    cap->pw_loop = nullptr;
+    cap->pw_core = nullptr;
+    cap->pw_ctx = nullptr;
+    cap->pw_fd = -1;
+    CleanupEglContext(cap);
+
+    cap->target = 0;
+    cap->active = 0;
+    cap->initializing = 0;
+    cap->backend_mode = BackendNone;
+    SetStatusText(cap, "Linux capture halted");
+    LogNative("headless capture halt after compositor exit complete");
 }
 
 void aes_linux_capture_forward_focus(LinuxCapture* cap)

@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.Versioning;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -694,6 +695,41 @@ public class EmulatorCaptureHost : ContentControl
             PropagateStopSessionMac();
         else if (OperatingSystem.IsWindows())
             PropagateStopSessionWindows();
+    }
+
+    public Task SuspendNativeCaptureAsync()
+    {
+        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            return linuxCompositionBackend.SuspendSessionImmediatelyAsync();
+
+        PropagateStopSession();
+        return Task.CompletedTask;
+    }
+
+    public Task AbandonCaptureAfterCompositorExitAsync()
+    {
+        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            return linuxCompositionBackend.AbandonAfterCompositorExitAsync();
+
+        PropagateStopSession();
+        return Task.CompletedTask;
+    }
+
+    public void SuspendCaptureSessionPresentation()
+    {
+        ReleaseLinuxInputImmediately();
+
+        if (OperatingSystem.IsLinux() && _backend is LinuxCompositionCaptureControl linuxCompositionBackend)
+            linuxCompositionBackend.SuspendRenderingOnly();
+    }
+
+    internal void ReleaseLinuxInputImmediately()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        _linuxInputTunnel?.Dispose();
+        _linuxInputTunnel = null;
     }
 
     [SupportedOSPlatform("linux")]

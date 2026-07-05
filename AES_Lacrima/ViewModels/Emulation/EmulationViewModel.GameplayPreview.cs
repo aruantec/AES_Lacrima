@@ -63,6 +63,7 @@ namespace AES_Lacrima.ViewModels
         }
 
         private bool CanPlayGameplayPreviewFor(MediaItem? item) =>
+            IsActive &&
             IsGameplayAutoplayEnabled &&
             !IsEmulatorRunning &&
             (IsYtDlpInstalled || EmulationPreviewCacheHelper.HasPreview(item?.FileName));
@@ -129,7 +130,7 @@ namespace AES_Lacrima.ViewModels
 
         private void PinGameplayPreviewVisualsToActivePlayback()
         {
-            if (!_isGameplayPreviewActive)
+            if (!IsActive || !_isGameplayPreviewActive)
                 return;
 
             int activeIndex = ResolveActiveGameplayPreviewCoverIndex();
@@ -171,7 +172,10 @@ namespace AES_Lacrima.ViewModels
 
         private void StartGameplayPreviewLoad(MediaItem? item, bool immediate = false)
         {
-            if (!CanPlayGameplayPreviewFor(item) || item == null || string.IsNullOrWhiteSpace(item.FileName))
+            if (!IsActive ||
+                !CanPlayGameplayPreviewFor(item) ||
+                item == null ||
+                string.IsNullOrWhiteSpace(item.FileName))
                 return;
 
             if (HighlightedItem == null ||
@@ -227,13 +231,13 @@ namespace AES_Lacrima.ViewModels
                 if (!immediate)
                     await Task.Delay(GameplayPreviewHoverDelayMs, cancellationToken);
 
-                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                     return;
 
                 var previewSource = earlyResolveTask != null
                     ? await earlyResolveTask.ConfigureAwait(false)
                     : await ResolveGameplayPreviewSourceAsync(item, cancellationToken).ConfigureAwait(false);
-                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                     return;
 
                 if (previewSource == null)
@@ -247,7 +251,7 @@ namespace AES_Lacrima.ViewModels
                 }
 
                 await Dispatcher.UIThread.InvokeAsync(EnsureGameplayAudioPlayer, DispatcherPriority.Background);
-                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                     return;
 
                 var player = AudioPlayer;
@@ -255,6 +259,7 @@ namespace AES_Lacrima.ViewModels
                     return;
 
                 bool stillHighlighted = await Dispatcher.UIThread.InvokeAsync(() =>
+                        IsActive &&
                         HighlightedItem != null &&
                         string.Equals(HighlightedItem.FileName, item.FileName, StringComparison.OrdinalIgnoreCase),
                     DispatcherPriority.Background);
@@ -263,16 +268,22 @@ namespace AES_Lacrima.ViewModels
 
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                        return;
+
                     GameplayPreviewItemIndex = ResolveGameplayPreviewItemIndex(item);
                     IsGameplayPreviewHostVisible = true;
                     IsGameplayVideoVisible = true;
                 }, DispatcherPriority.Background);
 
+                if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                    return;
+
                 await player.PlayFile(previewSource.PreviewItem, video: true, enableMediaAnalysis: false).ConfigureAwait(false);
                 player.SetPreviewMuted(false);
 
                 await WaitForPreviewPlaybackReadyAsync(player, cancellationToken).ConfigureAwait(false);
-                if (requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
                 {
                     try
                     {
@@ -291,13 +302,16 @@ namespace AES_Lacrima.ViewModels
                 _pendingGameplayPreviewItemPath = null;
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    if (!IsActive || requestVersion != Interlocked.Read(ref _gameplayPreviewRequestVersion))
+                        return;
+
                     GameplayPreviewItemIndex = ResolveGameplayPreviewItemIndex(item);
                     IsGameplayPreviewHostVisible = true;
                     IsGameplayVideoVisible = true;
                     ScheduleGameplayPreviewPresentationRefresh();
                 }, DispatcherPriority.Background);
             }
-            catch (OperationCanceledException logEx) { SLog.Warn("Non-critical error", logEx); }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 SLog.Warn($"Failed to autoplay gameplay preview for '{item.Title}'.", ex);
@@ -573,7 +587,12 @@ namespace AES_Lacrima.ViewModels
         internal event EventHandler? GameplayPreviewPresentationRefreshRequested;
 
         private void NotifyGameplayPreviewPresentationRefresh()
-            => GameplayPreviewPresentationRefreshRequested?.Invoke(this, EventArgs.Empty);
+        {
+            if (!IsActive)
+                return;
+
+            GameplayPreviewPresentationRefreshRequested?.Invoke(this, EventArgs.Empty);
+        }
 
         private void EnsureGameplayAudioPlayer()
         {

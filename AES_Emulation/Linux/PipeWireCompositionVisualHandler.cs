@@ -818,12 +818,17 @@ internal sealed class PipeWireCompositionVisualHandler : CompositionCustomVisual
 
     internal bool TryAdvanceFrame()
     {
-        if (_renderSuspended || _visualSize.X < 1 || _visualSize.Y < 1)
+        if (_renderSuspended ||
+            LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress ||
+            _visualSize.X < 1 ||
+            _visualSize.Y < 1)
             return false;
 
         lock (_renderLock)
         {
-            if (_renderSuspended || _capture == nint.Zero)
+            if (_renderSuspended ||
+                LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress ||
+                _capture == nint.Zero)
                 return false;
 
             if (LinuxCaptureBridge.aes_linux_capture_try_acquire_frame(_capture, out var frame) == 0)

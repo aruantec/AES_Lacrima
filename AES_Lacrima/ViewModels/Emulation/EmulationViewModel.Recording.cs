@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Threading.Tasks;
 
 namespace AES_Lacrima.ViewModels;
 
@@ -336,4 +337,10 @@ public partial class EmulationViewModel
         ReloadArcadeLockedCropOnCaptureHost();
         NotifyArcadePillarboxCropCommandsChanged();
     }
+
+    internal Task SuspendActiveCaptureSessionAsync()
+        => _activeCaptureHost?.SuspendNativeCaptureAsync() ?? Task.CompletedTask;
+
+    internal Task AbandonActiveCaptureAfterCompositorExitAsync()
+        => _activeCaptureHost?.AbandonCaptureAfterCompositorExitAsync() ?? Task.CompletedTask;
 }

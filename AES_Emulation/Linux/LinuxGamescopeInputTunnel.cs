@@ -68,7 +68,10 @@ public sealed class LinuxGamescopeInputTunnel : IDisposable
                 return;
 
             _compositorPid = value;
-            ResetConnection();
+            if (value <= 0)
+                AbandonDisplay();
+            else
+                ResetConnection();
         }
     }
 
@@ -117,9 +120,16 @@ public sealed class LinuxGamescopeInputTunnel : IDisposable
         _displayName = null;
     }
 
+    private void AbandonDisplay()
+    {
+        _display = IntPtr.Zero;
+        _targetWindow = IntPtr.Zero;
+        _displayName = null;
+    }
+
     private bool EnsureConnected(bool forceRetarget = false)
     {
-        if (_compositorPid <= 0)
+        if (_disposed || _compositorPid <= 0)
             return false;
 
         if (_display == IntPtr.Zero)
@@ -177,16 +187,30 @@ public sealed class LinuxGamescopeInputTunnel : IDisposable
         if (_display == IntPtr.Zero)
             return;
 
-        try
+        var compositorAlive = _compositorPid > 0 && System.IO.Directory.Exists($"/proc/{_compositorPid}");
+        if (compositorAlive)
         {
-            X11Interop.XCloseDisplay(_display);
-        }
-        catch
-        {
-            // ignored
+            try
+            {
+                XTestInterop.XTestUngrabControl(_display);
+            }
+            catch
+            {
+                // ignored
+            }
+
+            try
+            {
+                X11Interop.XCloseDisplay(_display);
+            }
+            catch
+            {
+                // ignored
+            }
         }
 
         _display = IntPtr.Zero;
+        _targetWindow = IntPtr.Zero;
     }
 
     private static IntPtr ResolveTargetWindow(IntPtr display)

@@ -949,15 +949,19 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         _visualDragActive = true;
         PointedItemIndex = -1;
         _visual?.SendHandlerMessage(new AlbumRowHoveredIndexMessage(-1));
+        _visual?.SendHandlerMessage(new AlbumRowDirectScrollFollowMessage(true));
         _visual?.SendHandlerMessage(new AlbumRowDragStateMessage(_draggingIndex, true));
         _visual?.SendHandlerMessage(new AlbumRowDropTargetMessage(_draggingIndex));
         _lastSentDropTargetIndex = _draggingIndex;
         UpdateDragInteraction(_prevPoint);
     }
 
+    private Point GetDragVisualPoint(Point pointerPoint) =>
+        new(pointerPoint.X + _dragPointerOffset.X, pointerPoint.Y + _dragPointerOffset.Y);
+
     private void UpdateDragInteraction(Point pointerPoint)
     {
-        var dragPoint = new Point(pointerPoint.X + _dragPointerOffset.X, pointerPoint.Y + _dragPointerOffset.Y);
+        var dragPoint = GetDragVisualPoint(pointerPoint);
         _visual?.SendHandlerMessage(new AlbumRowDragPositionMessage(new Vector2((float)dragPoint.X, (float)dragPoint.Y)));
 
         int targetIndex = _hasDragMoved ? GetDragTargetIndex(pointerPoint) : _dragStartIndex;
@@ -974,18 +978,29 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
         if (!_visualDragActive || Bounds.Width <= 0)
             return;
 
-        const double zone = 80;
-        const double maxSpeed = 900;
-        double scrollSpeed = 0;
-        if (pointerPoint.X < zone)
-            scrollSpeed = -maxSpeed * (1 - pointerPoint.X / zone);
-        else if (pointerPoint.X > Bounds.Width - zone)
-            scrollSpeed = maxSpeed * (1 - (Bounds.Width - pointerPoint.X) / zone);
-
-        if (Math.Abs(scrollSpeed) < 1)
+        var dragPoint = GetDragVisualPoint(pointerPoint);
+        double maxScroll = GetMaxScrollX();
+        if (maxScroll <= 1)
             return;
 
-        double next = Math.Clamp(_knownScrollX + scrollSpeed * (DragAutoScrollMs / 1000.0), 0, GetMaxScrollX());
+        double w = Bounds.Width;
+        double zone = Math.Clamp(w * 0.16, 64, 140);
+        double scrollDelta = 0;
+        if (dragPoint.X < zone)
+            scrollDelta = -Math.Pow((zone - dragPoint.X) / zone, 2);
+        else if (dragPoint.X > w - zone)
+            scrollDelta = Math.Pow((dragPoint.X - (w - zone)) / zone, 2);
+
+        if (Math.Abs(scrollDelta) < 0.02)
+            return;
+
+        // Scroll faster when there is still a long distance to traverse.
+        double remaining = scrollDelta < 0 ? _knownScrollX : maxScroll - _knownScrollX;
+        double distanceBoost = 1.0 + Math.Min(2.5, remaining / 1800.0);
+        const double scrollSpeed = 780.0;
+        double step = scrollDelta * scrollSpeed * distanceBoost * (DragAutoScrollMs / 1000.0);
+
+        double next = Math.Clamp(_knownScrollX + step, 0, maxScroll);
         if (Math.Abs(next - _knownScrollX) < 0.25)
             return;
 
@@ -996,7 +1011,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
 
     private int GetDragTargetIndex(Point pointerPoint)
     {
-        var dragCenter = new Point(pointerPoint.X + _dragPointerOffset.X, pointerPoint.Y + _dragPointerOffset.Y);
+        var dragCenter = GetDragVisualPoint(pointerPoint);
         return AlbumRowLayoutHelper.FindNearestDropTargetIndex(
             dragCenter,
             _knownScrollX,

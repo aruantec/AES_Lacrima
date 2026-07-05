@@ -76,6 +76,9 @@ internal static class LinuxCaptureBridge
     public static extern void aes_linux_capture_stop(IntPtr capture);
 
     [DllImport(LibraryName)]
+    public static extern void aes_linux_capture_halt_after_compositor_exit(IntPtr capture);
+
+    [DllImport(LibraryName)]
     public static extern void aes_linux_capture_forward_focus(IntPtr capture);
 
     [DllImport(LibraryName)]

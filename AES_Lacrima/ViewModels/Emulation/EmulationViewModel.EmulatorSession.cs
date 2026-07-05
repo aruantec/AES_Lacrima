@@ -774,10 +774,18 @@ namespace AES_Lacrima.ViewModels
             {
                 if (OperatingSystem.IsLinux())
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() => EmulatorTargetProcessId = 0, DispatcherPriority.Background)
+                    LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress = true;
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        _activeCaptureHost?.SuspendCaptureSessionPresentation();
+                        EmulatorTargetProcessId = 0;
+                    }, DispatcherPriority.Send)
                         .GetTask()
                         .ConfigureAwait(false);
 
+                    await SuspendActiveCaptureSessionAsync().ConfigureAwait(false);
+                    await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
                     await Task.Run(() => TeardownLinuxGamescopeSession(waitForProcessExit: true)).ConfigureAwait(false);
                 }
                 else
@@ -808,6 +816,7 @@ namespace AES_Lacrima.ViewModels
                     DetachTrackedEmulatorProcess();
                     IsEmulatorRunning = false;
                     IsEmulatorPaused = false;
+                    LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress = false;
 
                     TryLaunchPendingEmulatorRequest();
                 }, DispatcherPriority.Background);
@@ -1221,6 +1230,10 @@ namespace AES_Lacrima.ViewModels
                 return;
             }
 
+            SLog.Info(
+                $"EmulationViewModel detected emulator exit. pid={process.Id}, " +
+                $"handler={currentHandler?.HandlerId ?? "unknown"}.");
+
             if (string.Equals(currentHandler?.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(_activeRpcs3SessionTitleId) &&
                 !string.IsNullOrWhiteSpace(_activeRpcs3SessionEmulatorDirectory))
@@ -1234,16 +1247,75 @@ namespace AES_Lacrima.ViewModels
             _activeRpcs3SessionEmulatorDirectory = null;
 
             var earlyLaunchFailureDetails = TryBuildEarlyLinuxLaunchFailureDetails(process, currentHandler);
+
+            if (OperatingSystem.IsLinux() && !_isClosingActiveEmulatorForRelaunch)
+            {
+                LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress = true;
+                RestoreTargetWindowOnStop = false;
+                _activeEmulatorWatchdogCts?.Cancel();
+                _activeCaptureHost?.SuspendCaptureSessionPresentation();
+                EmulatorTargetProcessId = 0;
+                _ = FinishTrackedEmulatorExitAfterCaptureDrainAsync(process, currentHandler, earlyLaunchFailureDetails);
+                return;
+            }
+
+            PrepareEmulatorShutdownCapture();
+            _activeEmulatorWatchdogCts?.Cancel();
+            EmulatorTargetProcessId = 0;
+            IsEmulatorRunning = false;
+            IsEmulatorPaused = false;
+
             if (OperatingSystem.IsLinux())
                 TeardownLinuxGamescopeSession();
 
-            DetachTrackedEmulatorProcess();
-            IsEmulatorRunning = false;
-            IsEmulatorPaused = false;
-            EmulatorTargetProcessId = 0;
+            FinishTrackedEmulatorExitUiCleanup(process, currentHandler, earlyLaunchFailureDetails);
+        }
 
-            if (!_isClosingActiveEmulatorForRelaunch)
-                RequestStopEmulatorCapture = true;
+        private async Task FinishTrackedEmulatorExitAfterCaptureDrainAsync(
+            Process process,
+            IEmulatorHandler? currentHandler,
+            string? earlyLaunchFailureDetails)
+        {
+            try
+            {
+                SLog.Info($"EmulationViewModel draining capture after emulator exit. pid={process.Id}.");
+                await Task.Run(() => TeardownLinuxGamescopeSession()).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed while tearing down gamescope after emulator exit.", ex);
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                IsEmulatorRunning = false;
+                IsEmulatorPaused = false;
+                FinishTrackedEmulatorExitUiCleanup(process, currentHandler, earlyLaunchFailureDetails);
+            }, DispatcherPriority.Normal);
+
+            try
+            {
+                await AbandonActiveCaptureAfterCompositorExitAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SLog.Warn("Failed while abandoning capture after emulator exit.", ex);
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                ResetEmulatorShutdownCaptureState();
+                LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress = false;
+            }, DispatcherPriority.Normal);
+        }
+
+        private void FinishTrackedEmulatorExitUiCleanup(
+            Process process,
+            IEmulatorHandler? currentHandler,
+            string? earlyLaunchFailureDetails)
+        {
+            DetachTrackedEmulatorProcess();
+
             if (currentHandler is CemuHandler cemuHandler)
                 cemuHandler.RestoreFullscreenScalingWorkaround(currentHandler.LauncherPath ?? string.Empty);
             RestoreAppTopMost();
@@ -1269,6 +1341,8 @@ namespace AES_Lacrima.ViewModels
 
             _activeSteamLaunchRomPath = null;
             _activeSteamLaunchTitle = null;
+
+            SLog.Info($"EmulationViewModel finished natural emulator exit cleanup. pid={process.Id}.");
         }
 
         private string? TryBuildEarlyLinuxLaunchFailureDetails(Process process, IEmulatorHandler? handler)
