@@ -723,6 +723,12 @@ namespace AES_Lacrima.ViewModels
         private void PrepareEmulatorShutdownCapture()
         {
             RestoreTargetWindowOnStop = false;
+            // Linux gamescope capture must outlive compositor teardown so we can call
+            // halt_after_compositor_exit + destroy. RequestStopSession only stops PipeWire
+            // without destroying native state and has caused crashes when gamescope exits.
+            if (OperatingSystem.IsLinux())
+                return;
+
             if (!RequestStopEmulatorCapture)
                 RequestStopEmulatorCapture = true;
         }
@@ -784,9 +790,24 @@ namespace AES_Lacrima.ViewModels
                         .GetTask()
                         .ConfigureAwait(false);
 
-                    await SuspendActiveCaptureSessionAsync().ConfigureAwait(false);
-                    await WaitForCaptureStopBeforeClosingProcessAsync().ConfigureAwait(false);
-                    await Task.Run(() => TeardownLinuxGamescopeSession(waitForProcessExit: true)).ConfigureAwait(false);
+                    try
+                    {
+                        await Task.Run(() => TeardownLinuxGamescopeSession(waitForProcessExit: true))
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn("Failed while tearing down gamescope during user emulator close.", ex);
+                    }
+
+                    try
+                    {
+                        await AbandonActiveCaptureAfterCompositorExitAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        SLog.Warn("Failed while abandoning capture during user emulator close.", ex);
+                    }
                 }
                 else
                 {

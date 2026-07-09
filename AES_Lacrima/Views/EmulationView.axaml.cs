@@ -469,6 +469,13 @@ public partial class EmulationView : UserControl
         if (!OperatingSystem.IsLinux())
             return;
 
+        if (LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress)
+        {
+            _gamescopeFocusKeeper?.Dispose();
+            _gamescopeFocusKeeper = null;
+            return;
+        }
+
         EnsureGamescopeFocusKeeper();
 
         // Keep gamescope focus while the overlay or a ComboBox is open, but do not block

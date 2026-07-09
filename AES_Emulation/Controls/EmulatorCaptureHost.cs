@@ -533,6 +533,9 @@ public class EmulatorCaptureHost : ContentControl
     {
         if (OperatingSystem.IsLinux())
         {
+            if (LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress)
+                return;
+
             // gamescope runs on an isolated X11 display; host-display focus calls steal input
             // from the compositor and can pause Steam titles mid-capture.
             if (_linuxInputTunnel != null && TargetProcessId > 0)

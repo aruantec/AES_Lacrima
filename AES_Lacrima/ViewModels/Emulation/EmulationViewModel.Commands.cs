@@ -681,7 +681,10 @@ namespace AES_Lacrima.ViewModels
 
             PrepareEmulatorShutdownCapture();
             if (OperatingSystem.IsLinux())
+            {
                 TeardownLinuxGamescopeSession();
+                _ = AbandonActiveCaptureAfterCompositorExitAsync();
+            }
             EmulatorTargetHwnd = IntPtr.Zero;
             EmulatorTargetProcessId = 0;
             IsEmulatorRunning = false;

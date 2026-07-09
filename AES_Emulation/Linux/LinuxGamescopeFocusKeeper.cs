@@ -68,7 +68,7 @@ public sealed class LinuxGamescopeFocusKeeper : IDisposable
 
     private void OnTick(object? sender, EventArgs e)
     {
-        if (!_shouldKeepFocus())
+        if (LinuxEmulationLifecycle.IsEmulatorSessionShutdownInProgress || !_shouldKeepFocus())
         {
             StopTimer();
             return;
