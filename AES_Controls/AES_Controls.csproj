@@ -22,11 +22,11 @@
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.0" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.0.0" />
-    <PackageReference Include="Avalonia.Skia" Version="12.0.0" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.0" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.0" />
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Skia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="FFmpeg.AutoGen" Version="8.0.0" />
     <!-- Switched from NuGet package to project reference for local development. -->
@@ -35,9 +35,9 @@
     <PackageReference Include="NWaves" Version="0.9.6" />
     <PackageReference Include="SharpCompress" Version="0.48.0" />
     <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
-    <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="12.0.0-rc1" />
+    <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="$(SvgControlsSkiaAvaloniaVersion)" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
-    <PackageReference Include="Xaml.Behaviors" Version="12.0.0-rc1" />
+    <PackageReference Include="Xaml.Behaviors" Version="$(XamlBehaviorsVersion)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AES_Core\AES_Core.csproj" />

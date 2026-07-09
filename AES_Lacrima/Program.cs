@@ -367,23 +367,54 @@ namespace AES_Lacrima
         // Avalonia configuration, don't remove; also used by visual designer.
         public static AppBuilder BuildAvaloniaApp()
         {
-            var builder = AppBuilder.Configure<App>()
-                .UsePlatformDetect()
+            var builder = AppBuilder.Configure<App>();
+
+            if (OperatingSystem.IsLinux() && ShouldUseNativeWayland())
+            {
+                // Avalonia 12.1: experimental native Wayland backend (not picked up by UsePlatformDetect).
+                builder = builder.UseWayland();
+            }
+            else
+            {
+                builder = builder.UsePlatformDetect();
+            }
+
+            builder = builder
+                .UseSkia()
+                .UseHarfBuzz()
                 .WithInterFont()
                 .With(new SkiaOptions() { MaxGpuResourceSizeBytes = 256000000 })
-                .With(new AvaloniaNativePlatformOptions() {  RenderingMode = [AvaloniaNativeRenderingMode.OpenGl] });
+                .With(new AvaloniaNativePlatformOptions() { RenderingMode = [AvaloniaNativeRenderingMode.OpenGl] });
 
             if (OperatingSystem.IsLinux())
             {
-                // Work around IBus services that don't implement Destroy on shutdown.
-                builder = builder.With(new X11PlatformOptions
+                if (ShouldUseNativeWayland())
                 {
-                    EnableIme = false,
-                    EnableSessionManagement = false
-                });
+                    builder = builder.With(new WaylandPlatformOptions());
+                }
+                else
+                {
+                    // Work around IBus services that don't implement Destroy on shutdown.
+                    builder = builder.With(new X11PlatformOptions
+                    {
+                        EnableIme = false,
+                        EnableSessionManagement = false
+                    });
+                }
             }
 
             return builder;
+        }
+
+        private static bool ShouldUseNativeWayland()
+        {
+            var flag = Environment.GetEnvironmentVariable("AES_LACRIMA_USE_WAYLAND");
+            if (flag is "0" or "false" or "FALSE")
+                return false;
+            if (flag is "1" or "true" or "TRUE")
+                return true;
+
+            return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
         }
     }
 }

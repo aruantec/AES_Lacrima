@@ -29,7 +29,7 @@ public readonly record struct MprisState(
 /// <summary>
 /// Minimal MPRIS 2.2 service exposed on Linux through D-Bus.
 /// </summary>
-public sealed class MprisService : IMethodHandler, IDisposable
+public sealed class MprisService : IPathMethodHandler, IDisposable
 {
     private static readonly ILog Log = AES_Core.Logging.LogHelper.For<MprisService>();
 
@@ -136,7 +136,7 @@ public sealed class MprisService : IMethodHandler, IDisposable
     private readonly Action? _raiseRequested;
     private readonly Action? _quitRequested;
 
-    private readonly Connection _connection = Connection.Session;
+    private readonly DBusConnection _connection = DBusConnection.Session;
     private bool _started;
     private bool _disposed;
 
@@ -176,7 +176,7 @@ public sealed class MprisService : IMethodHandler, IDisposable
 
     public string Path => ObjectPathValue;
 
-    public bool RunMethodHandlerSynchronously(Message message) => false;
+    public bool HandlesChildPaths => false;
 
     public async Task StartAsync()
     {

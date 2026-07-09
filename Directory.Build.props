@@ -1,5 +1,8 @@
 <Project>
   <PropertyGroup>
+    <AvaloniaVersion>12.1.0</AvaloniaVersion>
+    <SvgControlsSkiaAvaloniaVersion>12.0.0.13</SvgControlsSkiaAvaloniaVersion>
+    <XamlBehaviorsVersion>12.0.5</XamlBehaviorsVersion>
     <!-- Ensure linker incremental linking is enabled for Debug builds -->
     <LinkIncremental>true</LinkIncremental>
     <!-- Ignore missing optional machine-local NuGet feeds during restore. -->
