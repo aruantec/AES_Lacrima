@@ -1252,7 +1252,7 @@ namespace AES_Lacrima.ViewModels
             }
 
             SLog.Info(
-                $"EmulationViewModel detected emulator exit. pid={process.Id}, " +
+                $"EmulationViewModel detected emulator exit. pid={TryGetProcessId(process)}, " +
                 $"handler={currentHandler?.HandlerId ?? "unknown"}.");
 
             if (string.Equals(currentHandler?.HandlerId, Rpcs3Handler.Instance.HandlerId, StringComparison.OrdinalIgnoreCase) &&
@@ -1299,7 +1299,7 @@ namespace AES_Lacrima.ViewModels
         {
             try
             {
-                SLog.Info($"EmulationViewModel draining capture after emulator exit. pid={process.Id}.");
+                SLog.Info($"EmulationViewModel draining capture after emulator exit. pid={TryGetProcessId(process)}.");
                 await Task.Run(() => TeardownLinuxGamescopeSession()).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -1335,6 +1335,8 @@ namespace AES_Lacrima.ViewModels
             IEmulatorHandler? currentHandler,
             string? earlyLaunchFailureDetails)
         {
+            var processId = TryGetProcessId(process);
+
             DetachTrackedEmulatorProcess();
 
             if (currentHandler is CemuHandler cemuHandler)
@@ -1363,7 +1365,29 @@ namespace AES_Lacrima.ViewModels
             _activeSteamLaunchRomPath = null;
             _activeSteamLaunchTitle = null;
 
-            SLog.Info($"EmulationViewModel finished natural emulator exit cleanup. pid={process.Id}.");
+            SLog.Info(
+                processId > 0
+                    ? $"EmulationViewModel finished natural emulator exit cleanup. pid={processId}."
+                    : "EmulationViewModel finished natural emulator exit cleanup.");
+        }
+
+        private static int TryGetProcessId(Process? process)
+        {
+            if (process == null)
+                return 0;
+
+            try
+            {
+                return process.Id;
+            }
+            catch (InvalidOperationException)
+            {
+                return 0;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
         }
 
         private string? TryBuildEarlyLinuxLaunchFailureDetails(Process process, IEmulatorHandler? handler)

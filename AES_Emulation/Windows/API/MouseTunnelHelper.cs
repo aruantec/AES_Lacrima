@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using System;
 using System.Runtime.InteropServices;
@@ -51,9 +52,16 @@ namespace AES_Emulation.Windows.API
         private bool _handlersAttachedToElement = false;
         private bool _isCurrentlyVisible = true;
         private bool _suppressNextRelease;
+        private DateTime _lastPressUtc;
+        private Point _lastPressLocal;
+        private bool _hasLastPress;
+
+        private static readonly TimeSpan ManualDoubleClickInterval = TimeSpan.FromMilliseconds(500);
+        private const double ManualDoubleClickMaxDistance = 8.0;
 
         // track property changed subscription
         private EventHandler<AvaloniaPropertyChangedEventArgs>? _propChangedHandler;
+        private readonly EventHandler<PointerPressedEventArgs> _pressedTunnelHandler;
 
         private const uint WM_MOUSEMOVE = 0x0200;
         private const uint WM_LBUTTONDOWN = 0x0201;
@@ -213,6 +221,7 @@ namespace AES_Emulation.Windows.API
             _exitedHandler = (s, e) => OnPointerExited(e);
             _movedHandler = (s, e) => OnPointerMoved(e);
             _pressedHandler = (s, e) => OnPointerPressed(e);
+            _pressedTunnelHandler = (s, e) => OnPointerPressedTunnel(e);
             _releasedHandler = (s, e) => OnPointerReleased(e);
             _wheelHandler = (s, e) => OnPointerWheelChanged(e);
 
@@ -459,22 +468,59 @@ namespace AES_Emulation.Windows.API
             SendMessage(TargetHwnd, WM_MOUSEMOVE, new IntPtr(flags), MakeLParam(clientX, clientY));
         }
 
-        private void OnPointerPressed(PointerPressedEventArgs e)
+        private void OnPointerPressedTunnel(PointerPressedEventArgs e)
         {
+            // Run in the tunnel phase so double-click can exit fullscreen before the capture
+            // backend steals Win32 focus (which resets Avalonia ClickCount).
+            if (TryHandleDoubleClickAtPoint == null)
+                return;
+
             if (!TryGetLocalPoint(e, out var local))
                 return;
 
-            if (e.ClickCount >= 2 && TryHandleDoubleClickAtPoint != null)
+            var now = DateTime.UtcNow;
+            var isDoubleClick = e.ClickCount >= 2 || IsManualDoubleClick(local, now);
+            if (!isDoubleClick)
             {
-                if (TryHandleDoubleClickAtPoint(local))
-                {
-                    e.Handled = true;
-                    _suppressNextRelease = true;
-                }
+                _hasLastPress = true;
+                _lastPressUtc = now;
+                _lastPressLocal = local;
                 return;
             }
 
-            _suppressNextRelease = false;
+            if (!TryHandleDoubleClickAtPoint(local))
+            {
+                _hasLastPress = true;
+                _lastPressUtc = now;
+                _lastPressLocal = local;
+                return;
+            }
+
+            e.Handled = true;
+            _suppressNextRelease = true;
+            _hasLastPress = false;
+        }
+
+        private bool IsManualDoubleClick(Point local, DateTime now)
+        {
+            if (!_hasLastPress)
+                return false;
+
+            if (now - _lastPressUtc > ManualDoubleClickInterval)
+                return false;
+
+            var dx = local.X - _lastPressLocal.X;
+            var dy = local.Y - _lastPressLocal.Y;
+            return (dx * dx) + (dy * dy) <= ManualDoubleClickMaxDistance * ManualDoubleClickMaxDistance;
+        }
+
+        private void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            if (_suppressNextRelease)
+                return;
+
+            if (!TryGetLocalPoint(e, out var local))
+                return;
 
             if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
                 return;
@@ -486,14 +532,14 @@ namespace AES_Emulation.Windows.API
 
         private void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            if (!TryGetLocalPoint(e, out var local))
-                return;
-
             if (_suppressNextRelease)
             {
                 _suppressNextRelease = false;
                 return;
             }
+
+            if (!TryGetLocalPoint(e, out var local))
+                return;
 
             if (!TryResolveTargetClientPoint(local, out var clientX, out var clientY))
                 return;
@@ -550,6 +596,11 @@ namespace AES_Emulation.Windows.API
                 _element.PointerEntered += _enteredHandler;
                 _element.PointerExited += _exitedHandler;
                 _element.PointerMoved += _movedHandler;
+                _element.AddHandler(
+                    InputElement.PointerPressedEvent,
+                    _pressedTunnelHandler,
+                    RoutingStrategies.Tunnel,
+                    handledEventsToo: true);
                 _element.PointerPressed += _pressedHandler;
                 _element.PointerReleased += _releasedHandler;
                 _element.PointerWheelChanged += _wheelHandler;
@@ -571,6 +622,7 @@ namespace AES_Emulation.Windows.API
                 _element.PointerEntered -= _enteredHandler;
                 _element.PointerExited -= _exitedHandler;
                 _element.PointerMoved -= _movedHandler;
+                _element.RemoveHandler(InputElement.PointerPressedEvent, _pressedTunnelHandler);
                 _element.PointerPressed -= _pressedHandler;
                 _element.PointerReleased -= _releasedHandler;
                 _element.PointerWheelChanged -= _wheelHandler;

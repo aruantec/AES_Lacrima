@@ -11,11 +11,13 @@ namespace AES_Emulation.Windows.API;
 /// Hides the mouse cursor after a period of inactivity while fullscreen, and restores it on movement.
 /// Uses Win32 cursor polling on Windows and X11 pointer polling + XFixes on Linux so hiding works
 /// over native capture surfaces (airspace).
+/// Also polls Escape / left-button double-click on Windows because emulator focus steals Avalonia input.
 /// </summary>
 public sealed class FullscreenCursorAutoHideHelper : IDisposable
 {
     private static readonly TimeSpan IdleDuration = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan DoubleClickInterval = TimeSpan.FromMilliseconds(500);
 
     private readonly InputElement? _cursorScope;
     private readonly TopLevel? _topLevel;
@@ -27,7 +29,14 @@ public sealed class FullscreenCursorAutoHideHelper : IDisposable
     private DateTime _lastMovementUtc;
     private bool _isHidden;
     private bool _didHideSystemCursor;
+    private bool _escapeWasDown;
+    private bool _leftButtonWasDown;
+    private bool _hasPendingClick;
+    private DateTime _pendingClickUtc;
     private LinuxFullscreenCursorSupport? _linuxCursorSupport;
+
+    public event EventHandler? EscapePressed;
+    public event EventHandler? DoubleClicked;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint
@@ -41,6 +50,12 @@ public sealed class FullscreenCursorAutoHideHelper : IDisposable
 
     [DllImport("user32.dll")]
     private static extern int ShowCursor(bool bShow);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    private const int VK_ESCAPE = 0x1B;
+    private const int VK_LBUTTON = 0x01;
 
     public FullscreenCursorAutoHideHelper(InputElement? cursorScope = null)
     {
@@ -56,6 +71,9 @@ public sealed class FullscreenCursorAutoHideHelper : IDisposable
         _lastMovementUtc = DateTime.UtcNow;
         _isHidden = false;
         _didHideSystemCursor = false;
+        _escapeWasDown = false;
+        _leftButtonWasDown = false;
+        _hasPendingClick = false;
         _savedScopeCursor = null;
         _savedTopLevelCursor = null;
 
@@ -91,6 +109,7 @@ public sealed class FullscreenCursorAutoHideHelper : IDisposable
         }
 
         ShowCursorNow();
+        _hasPendingClick = false;
 
         if (OperatingSystem.IsLinux())
         {
@@ -103,11 +122,76 @@ public sealed class FullscreenCursorAutoHideHelper : IDisposable
 
     private void OnPollTick(object? sender, EventArgs e)
     {
+        PollEscapeKey();
+        PollLeftButtonDoubleClick();
+
         if (TryPollPointerMovement())
             return;
 
         if (!_isHidden && DateTime.UtcNow - _lastMovementUtc >= IdleDuration)
             HideCursorNow();
+    }
+
+    private void PollEscapeKey()
+    {
+        // Emulator focus steals Avalonia KeyDown; poll Escape while capture fullscreen is active.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var isDown = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
+        if (isDown && !_escapeWasDown)
+            EscapePressed?.Invoke(this, EventArgs.Empty);
+
+        _escapeWasDown = isDown;
+    }
+
+    private void PollLeftButtonDoubleClick()
+    {
+        // Emulator foreground can steal Avalonia pointer events; poll left-button edges instead.
+        if (!OperatingSystem.IsWindows() || DoubleClicked == null)
+            return;
+
+        var isDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        if (isDown && !_leftButtonWasDown && IsCursorOverTopLevel())
+        {
+            var now = DateTime.UtcNow;
+            if (_hasPendingClick && now - _pendingClickUtc <= DoubleClickInterval)
+            {
+                _hasPendingClick = false;
+                DoubleClicked.Invoke(this, EventArgs.Empty);
+            }
+            else
+            {
+                _hasPendingClick = true;
+                _pendingClickUtc = now;
+            }
+        }
+
+        _leftButtonWasDown = isDown;
+
+        if (_hasPendingClick && DateTime.UtcNow - _pendingClickUtc > DoubleClickInterval)
+            _hasPendingClick = false;
+    }
+
+    private bool IsCursorOverTopLevel()
+    {
+        if (_topLevel is not Window window)
+            return true;
+
+        if (!GetCursorPos(out var pos))
+            return false;
+
+        var scaling = Math.Max(0.0001, window.RenderScaling);
+        var width = (int)Math.Round(window.ClientSize.Width * scaling);
+        var height = (int)Math.Round(window.ClientSize.Height * scaling);
+        if (width <= 0 || height <= 0)
+            return false;
+
+        var origin = window.Position;
+        return pos.X >= origin.X &&
+               pos.Y >= origin.Y &&
+               pos.X < origin.X + width &&
+               pos.Y < origin.Y + height;
     }
 
     private bool TryPollPointerMovement()

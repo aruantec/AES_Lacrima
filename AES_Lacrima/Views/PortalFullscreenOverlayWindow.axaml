@@ -8,7 +8,7 @@
         CanResize="False"
         ShowInTaskbar="False"
         Topmost="True"
-        TransparencyLevelHint="None"
+        TransparencyLevelHint="Transparent"
         WindowStartupLocation="Manual">
     <Grid Background="Transparent">
         <views:PortalCaptureStatsOverlay x:Name="StatsOverlay"

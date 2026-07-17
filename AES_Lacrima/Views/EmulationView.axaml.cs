@@ -1797,12 +1797,21 @@ public partial class EmulationView : UserControl
             if (cancellationToken.IsCancellationRequested || !_isCaptureFullscreen)
                 return;
 
+            // Windows: keep stats/double-click on the inline capture surface.
+            // A separate topmost overlay window (even when "transparent") can paint opaque
+            // and black out the live WGC presentation underneath.
+            if (OperatingSystem.IsWindows())
+            {
+                ShowInlineFullscreenStatsOverlay();
+                RefreshInlineCaptureLayout();
+                return;
+            }
+
             ShowFullscreenStatsOverlay(mainWindow, bounds);
             if (_portalFullscreenOverlayWindow != null)
             {
                 _portalFullscreenOverlayWindow.Topmost = true;
                 _portalFullscreenOverlayWindow.Show();
-                _portalFullscreenOverlayWindow.Activate();
             }
 
             RefreshInlineCaptureLayout();
@@ -1844,18 +1853,40 @@ public partial class EmulationView : UserControl
             return;
 
         _fullscreenCursorAutoHide = new FullscreenCursorAutoHideHelper(this);
+        _fullscreenCursorAutoHide.EscapePressed += OnFullscreenEscapePressed;
+        _fullscreenCursorAutoHide.DoubleClicked += OnFullscreenDoubleClicked;
         _fullscreenCursorAutoHide.Start();
     }
 
     private void StopFullscreenCursorAutoHide()
     {
-        _fullscreenCursorAutoHide?.Stop();
-        _fullscreenCursorAutoHide = null;
+        if (_fullscreenCursorAutoHide != null)
+        {
+            _fullscreenCursorAutoHide.EscapePressed -= OnFullscreenEscapePressed;
+            _fullscreenCursorAutoHide.DoubleClicked -= OnFullscreenDoubleClicked;
+            _fullscreenCursorAutoHide.Stop();
+            _fullscreenCursorAutoHide = null;
+        }
 
         if (TopLevel.GetTopLevel(this) is Window mainWindow)
             mainWindow.Cursor = Cursor.Default;
 
         Cursor = Cursor.Default;
+    }
+
+    private void OnFullscreenEscapePressed(object? sender, EventArgs e)
+        => ExitCaptureFullscreenFromInput();
+
+    private void OnFullscreenDoubleClicked(object? sender, EventArgs e)
+        => ExitCaptureFullscreenFromInput();
+
+    private void ExitCaptureFullscreenFromInput()
+    {
+        if (!_isCaptureFullscreen)
+            return;
+
+        if (DataContext is EmulationViewModel { IsFullscreen: true } vm)
+            vm.IsFullscreen = false;
     }
 
     private void OnFullscreenCursorPointerActivity(object? sender, PointerEventArgs e)
@@ -1974,6 +2005,25 @@ public partial class EmulationView : UserControl
         }
     }
 
+    private void ShowInlineFullscreenStatsOverlay()
+    {
+        if (this.FindControl<PortalCaptureStatsOverlay>("CaptureStatsOverlay") is not { } overlay)
+            return;
+
+        // Override the !IsFullscreen binding for the duration of inline fullscreen.
+        overlay.IsVisible = true;
+        RefreshPortalCaptureStatsOverlay();
+    }
+
+    private void RestoreInlineFullscreenStatsOverlayVisibility()
+    {
+        if (this.FindControl<PortalCaptureStatsOverlay>("CaptureStatsOverlay") is not { } overlay)
+            return;
+
+        // Restore the XAML !IsFullscreen binding after Windows inline fullscreen.
+        overlay.ClearValue(Visual.IsVisibleProperty);
+    }
+
     private void HideFullscreenStatsOverlay()
     {
         if (_portalFullscreenOverlayWindow != null && OperatingSystem.IsLinux())
@@ -1985,6 +2035,8 @@ public partial class EmulationView : UserControl
             statsOverlay.CaptureHost = null;
             statsOverlay.Settings = null;
         }
+
+        RestoreInlineFullscreenStatsOverlayVisibility();
     }
 
     private void OnCaptureFullscreenExitRequested(object? sender, EventArgs e)
