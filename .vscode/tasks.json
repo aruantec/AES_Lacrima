@@ -3,8 +3,16 @@
     "tasks": [
         {
             "label": "build",
-            "type": "shell",
-            "command": "for attempt in 1 2 3; do dotnet build \"${workspaceFolder}/AES_Lacrima/AES_Lacrima.csproj\" /property:GenerateFullPaths=true /property:RunAnalyzers=false /m:1 /nodeReuse:false && exit 0; echo \"Build attempt ${attempt} failed, retrying...\"; sleep 1; done; exit 1",
+            "type": "process",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/AES_Lacrima/AES_Lacrima.csproj",
+                "/property:GenerateFullPaths=true",
+                "/property:RunAnalyzers=false",
+                "/m:1",
+                "/nodeReuse:false"
+            ],
             "options": {
                 "env": {
                     "DOTNET_GCDynamicAdaptationMode": "0",
@@ -25,7 +33,16 @@
             "args": [
                 "Run"
             ],
-            "problemMatcher": []
+            "problemMatcher": [],
+            "windows": {
+                "command": "dotnet",
+                "args": [
+                    "run",
+                    "--project",
+                    "${workspaceFolder}/AES_Lacrima/AES_Lacrima.csproj",
+                    "--no-build"
+                ]
+            }
         }
     ]
 }

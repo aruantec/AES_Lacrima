@@ -3,6 +3,8 @@ using AES_Core.IO;
 using AES_Mpv.Native;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SharpCompress.Archives;
+using SharpCompress.Archives.SevenZip;
+using SharpCompress.Readers;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -10,7 +12,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using log4net;
-
+
 using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 
@@ -587,25 +589,9 @@ public partial class MpvLibraryManager : ObservableObject
             
             var response = await Client.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/tags/{tagName}");
             using var doc = JsonDocument.Parse(response);
-            
-            JsonElement? found = null;
-            var assets = doc.RootElement.GetProperty("assets").EnumerateArray().ToList();
-            
-            // Re-use same robust strategy for assets as in DownloadWindowsLgplAsync
-            found = assets.FirstOrDefault(a => {
-                var name = a.GetProperty("name").GetString() ?? "";
-                return name.Contains("mpv-dev-lgpl-x86_64") && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase);
-            });
 
-            if (found == null)
-            {
-                found = assets.FirstOrDefault(a => {
-                    var name = a.GetProperty("name").GetString() ?? "";
-                    return (name.Contains("mpv-dev-x86_64") || name.Contains("x86_64-v1") || name.Contains("x86_64-v3") || (name.Contains("mpv-") && name.Contains("x86_64"))) 
-                           && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)
-                           && !name.Contains("debug");
-                });
-            }
+            var assets = doc.RootElement.GetProperty("assets").EnumerateArray().ToList();
+            var found = FindPreferredWindowsMpvAsset(assets);
 
             if (found == null || !found.Value.TryGetProperty("browser_download_url", out var urlProp))
             {
@@ -706,28 +692,10 @@ public partial class MpvLibraryManager : ObservableObject
 
         using var doc = JsonDocument.Parse(json);
 
-        JsonElement? found = null;
         var assets = doc.RootElement.GetProperty("assets").EnumerateArray().ToList();
-
         Log.Debug($"Found {assets.Count} assets in latest release. Searching for suitable build...");
 
-        // Strategy 1: Look for LGPL/Dev builds (shinchiro style)
-        found = assets.FirstOrDefault(a => {
-            var name = a.GetProperty("name").GetString() ?? "";
-            return name.Contains("mpv-dev-lgpl-x86_64") && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase);
-        });
-
-        // Strategy 2: If no LGPL build, look for generic x86_64 dev builds or common release packages (zhongfly style)
-        if (found == null)
-        {
-            found = assets.FirstOrDefault(a => {
-                var name = a.GetProperty("name").GetString() ?? "";
-                return (name.Contains("mpv-dev-x86_64") || name.Contains("x86_64-v1") || name.Contains("x86_64-v3") || (name.Contains("mpv-") && name.Contains("x86_64"))) 
-                       && name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase)
-                       && !name.Contains("debug"); // avoid debug symbols
-            });
-        }
-
+        var found = FindPreferredWindowsMpvAsset(assets);
         if (found == null)
         {
             throw new InvalidOperationException($"No suitable libmpv build (x86_64 .7z) was found in the latest release assets of {Repo}.");
@@ -749,6 +717,56 @@ public partial class MpvLibraryManager : ObservableObject
         await DownloadWithProgressAsync(url, libName);
     }
 
+    private static JsonElement? FindPreferredWindowsMpvAsset(IReadOnlyList<JsonElement> assets)
+    {
+        static bool TryMatch(JsonElement asset, Func<string, bool> predicate, out JsonElement matched)
+        {
+            matched = default;
+            if (!asset.TryGetProperty("name", out var nameProp))
+                return false;
+
+            var name = nameProp.GetString() ?? "";
+            if (!predicate(name))
+                return false;
+
+            matched = asset;
+            return true;
+        }
+
+        foreach (var asset in assets)
+        {
+            if (TryMatch(asset, name =>
+                    name.Contains("mpv-dev-lgpl-x86_64", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("x86_64-v3", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("aarch64", StringComparison.OrdinalIgnoreCase) &&
+                    name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase), out var match))
+                return match;
+        }
+
+        foreach (var asset in assets)
+        {
+            if (TryMatch(asset, name =>
+                    name.Contains("mpv-dev-lgpl-x86_64", StringComparison.OrdinalIgnoreCase) &&
+                    name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase), out var match))
+                return match;
+        }
+
+        foreach (var asset in assets)
+        {
+            if (TryMatch(asset, name =>
+                    (name.Contains("mpv-dev-x86_64", StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains("x86_64-v1", StringComparison.OrdinalIgnoreCase) ||
+                     (name.Contains("mpv-", StringComparison.OrdinalIgnoreCase) && name.Contains("x86_64", StringComparison.OrdinalIgnoreCase))) &&
+                    !name.Contains("x86_64-v3", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("aarch64", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("debug", StringComparison.OrdinalIgnoreCase) &&
+                    name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase), out var match))
+                return match;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Downloads the file at <paramref name="url"/> to a temporary location
     /// while reporting progress to <see cref="DownloadProgress"/>, then
@@ -761,9 +779,11 @@ public partial class MpvLibraryManager : ObservableObject
         if (string.IsNullOrEmpty(url)) return;
 
         using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
 
-        string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        // Keep a .7z extension so extractors can identify the archive format.
+        string tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".7z");
 
         using (var destinationStream = File.Create(tempFile))
         using (var sourceStream = await response.Content.ReadAsStreamAsync())
@@ -786,8 +806,8 @@ public partial class MpvLibraryManager : ObservableObject
             }
         }
 
-        // Extraction Logic
-        System.IO.Compression.ZipFile.ExtractToDirectory(tempFile, _destFolder, true);
+        Status = $"Extracting {libName} from archive...";
+        ExtractLibraryFromArchive(tempFile, libName);
 
         // On macOS some consumers expect the SONAME/lib name to be 'libmpv.2.dylib'.
         // If we just extracted 'libmpv.dylib', create a copy named 'libmpv.2.dylib' so
@@ -812,6 +832,68 @@ public partial class MpvLibraryManager : ObservableObject
 
         IsPendingRestart = true;
         try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch (Exception ex) { Log.Warn($"Failed to delete temporary mpv archive: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Extracts <paramref name="libName"/> from a downloaded mpv-dev .7z archive into the tools folder.
+    /// </summary>
+    private void ExtractLibraryFromArchive(string archivePath, string libName)
+    {
+        Directory.CreateDirectory(_destFolder);
+
+        using var archive = SevenZipArchive.OpenArchive(archivePath, ReaderOptions.ForFilePath);
+        var entry = archive.Entries.FirstOrDefault(e =>
+            !e.IsDirectory &&
+            !string.IsNullOrWhiteSpace(e.Key) &&
+            e.Key.EndsWith(libName, StringComparison.OrdinalIgnoreCase));
+
+        if (entry == null)
+        {
+            var available = string.Join(", ",
+                archive.Entries
+                    .Where(e => !e.IsDirectory && !string.IsNullOrWhiteSpace(e.Key))
+                    .Select(e => Path.GetFileName(e.Key!))
+                    .Where(name => name.Contains("mpv", StringComparison.OrdinalIgnoreCase) ||
+                                   name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                                   name.EndsWith(".dylib", StringComparison.OrdinalIgnoreCase) ||
+                                   name.EndsWith(".so", StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(20));
+            throw new InvalidOperationException(
+                $"Archive did not contain '{libName}'. Found: {(string.IsNullOrWhiteSpace(available) ? "(none)" : available)}");
+        }
+
+        var targetPath = Path.Combine(_destFolder, libName);
+
+        // If the currently loaded DLL is locked on Windows, stage as .update for restart apply.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && File.Exists(targetPath) && !TryDeleteFile(targetPath))
+        {
+            var updatePath = targetPath + ".update";
+            try
+            {
+                if (File.Exists(updatePath))
+                    File.Delete(updatePath);
+
+                using (var entryStream = entry.OpenEntryStream())
+                using (var fs = File.Create(updatePath))
+                    entryStream.CopyTo(fs);
+
+                IsPendingRestart = true;
+                Status = "The update is staged as .update and will be applied on the next application restart.";
+                Log.Info(Status);
+                return;
+            }
+            catch (Exception ex)
+            {
+                throw new IOException($"Could not prepare update: {ex.Message}. Please try restarting the app first.", ex);
+            }
+        }
+
+        using (var entryStream = entry.OpenEntryStream())
+        using (var fs = File.Create(targetPath))
+            entryStream.CopyTo(fs);
+
+        Log.Info($"Extracted {libName} to {targetPath}");
     }
 
     /// <summary>
