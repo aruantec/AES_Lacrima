@@ -32,6 +32,7 @@ public class GlShaderToyControl : OpenGlControlBase
     private bool _coverTextureDirty = true;
     private PixelSize _coverTextureSize;
     private readonly Stopwatch _st = Stopwatch.StartNew();
+    private int _iFrame;
     private bool _isDirty = true;
     private float _fadeAlpha;
     private bool _isInErrorState;
@@ -292,7 +293,7 @@ public class GlShaderToyControl : OpenGlControlBase
         // and any `main()` implementation. Keep functions like `mainImage`.
         var lines = content.Replace("\r\n", "\n").Split('\n');
         var keep = new List<string>();
-        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_tertiary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4", "u_disc" };
+        var forbiddenUniformNames = new[] { "iResolution", "iTime", "iFrame", "iMouse", "u_fade", "iChannel0", "iChannel1", "iChannel1Size", "u_primary", "u_secondary", "u_tertiary", "u_grad0", "u_grad1", "u_grad2", "u_grad3", "u_grad4", "u_disc" };
 
         foreach (var raw in lines)
         {
@@ -549,6 +550,7 @@ public class GlShaderToyControl : OpenGlControlBase
         {
             if (_program != 0) gl.DeleteProgram(_program);
             _program = loadedPrg;
+            _iFrame = 0;
             return;
         }
 
@@ -558,7 +560,7 @@ public class GlShaderToyControl : OpenGlControlBase
             in vec2 a_pos; void main() {{ gl_Position = vec4(a_pos, 0.0, 1.0); }}";
         string fs = $@"{shaderInfo.Item1}
             precision highp float;
-            uniform vec3 iResolution; uniform float iTime; uniform vec4 iMouse;
+            uniform vec3 iResolution; uniform float iTime; uniform int iFrame; uniform vec4 iMouse;
             uniform float u_fade; uniform sampler2D iChannel0;
             uniform sampler2D iChannel1; uniform vec2 iChannel1Size;
             uniform vec3 u_primary; uniform vec3 u_secondary; uniform vec3 u_tertiary;
@@ -593,6 +595,7 @@ public class GlShaderToyControl : OpenGlControlBase
         }
         else
         {
+            _iFrame = 0;
             GlProgramBinaryCache.SaveProgram(gl, _program, GlProgramBinaryCache.ShaderToyCategory, hash);
         }
     }
@@ -601,6 +604,8 @@ public class GlShaderToyControl : OpenGlControlBase
     {
         SetUniform3F(gl, _program, "iResolution", width, height, 1.0f);
         SetUniform1F(gl, _program, "iTime", (float)_st.Elapsed.TotalSeconds);
+        SetUniform1I(gl, _program, "iFrame", _iFrame);
+        _iFrame++;
 
         float targetPrimaryR = DefaultGray, targetPrimaryG = DefaultGray, targetPrimaryB = DefaultGray;
         float targetSecondaryR;
