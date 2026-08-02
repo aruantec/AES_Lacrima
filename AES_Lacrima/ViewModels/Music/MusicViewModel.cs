@@ -362,10 +362,14 @@ namespace AES_Lacrima.ViewModels
             // Sync taskbar progress indicator on Windows
             if (AudioPlayer != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                var hwnd = GetCurrentWindowHandle();
-                if (_taskbarButtons == null || _taskbarHwnd != hwnd)
+                // Only the music VM owns the thumb-bar registration (see InitializeTaskbarButtons).
+                if (!IsVideoMode)
                 {
-                    InitializeTaskbarButtons();
+                    var hwnd = GetCurrentWindowHandle();
+                    if (_taskbarButtons == null || _taskbarHwnd != hwnd)
+                    {
+                        InitializeTaskbarButtons();
+                    }
                 }
 
                 if (e.PropertyName == nameof(AudioPlayer.Position) || e.PropertyName == nameof(AudioPlayer.Duration))
@@ -374,7 +378,8 @@ namespace AES_Lacrima.ViewModels
                 }
                 else if (e.PropertyName == nameof(AudioPlayer.IsPlaying))
                 {
-                    UpdateTaskbarButtons();
+                    if (!IsVideoMode)
+                        UpdateTaskbarButtons();
 
                     if (AudioPlayer.IsPlaying)
                         TaskbarProgressHelper.SetProgressState(TaskbarProgressBarState.Normal);
@@ -429,6 +434,13 @@ namespace AES_Lacrima.ViewModels
         public void InitializeTaskbarButtons()
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
+            // VideoViewModel inherits this type and also creates an AudioPlayer. If it
+            // registers the thumb-bar on the same HWND, HookWindow replaces the click
+            // callback with the video session — which typically has an empty queue, so
+            // play/prev/next appear to do nothing. Only the music VM owns the toolbar;
+            // clicks are routed to MediaPlaybackCoordinator.PlaybackViewModel below.
+            if (IsVideoMode) return;
 
             if (Application.Current?.ApplicationLifetime is not Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop || desktop.MainWindow == null)
                 return;
@@ -490,11 +502,14 @@ namespace AES_Lacrima.ViewModels
                         TaskbarAction.Invoke(id);
                         return;
                     }
+
+                    // Prefer the session that currently owns playback (music or video).
+                    var target = _mediaPlaybackCoordinator?.PlaybackViewModel ?? this;
                     switch (id)
                     {
-                        case TaskbarButtonId.Previous: PlayPreviousCommand.Execute(null); break;
-                        case TaskbarButtonId.PlayPause: TogglePlayCommand.Execute(null); break;
-                        case TaskbarButtonId.Next: PlayNextCommand.Execute(null); break;
+                        case TaskbarButtonId.Previous: target.PlayPreviousCommand.Execute(null); break;
+                        case TaskbarButtonId.PlayPause: target.TogglePlayCommand.Execute(null); break;
+                        case TaskbarButtonId.Next: target.PlayNextCommand.Execute(null); break;
                     }
                 });
             }
