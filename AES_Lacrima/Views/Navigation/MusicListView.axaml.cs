@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using AES_Controls.Composition;
+using AES_Controls.Helpers;
 using AES_Controls.Player.Models;
 using Avalonia;
 using Avalonia.Controls;
@@ -14,6 +15,8 @@ public partial class MusicListView : UserControl
     private ViewModels.MusicViewModel? _viewModel;
     private FolderMediaItem? _renamingAlbum;
     private int _renameOverlayLayoutRetries;
+    private ContextMenu? _backgroundContextMenu;
+    private ContextMenu? _albumRowContextMenu;
 
     public MusicListView()
     {
@@ -55,6 +58,16 @@ public partial class MusicListView : UserControl
         {
             _albumList.LayoutUpdated += OnAlbumListLayoutUpdated;
             _albumList.RenameOverlayLayoutRequested += OnAlbumListRenameOverlayLayoutRequested;
+            _albumRowContextMenu = _albumList.ContextMenu;
+            if (_albumRowContextMenu != null)
+                _albumRowContextMenu.Opening += OnAlbumListContextMenuOpening;
+        }
+
+        if (Content is Grid grid)
+        {
+            _backgroundContextMenu = grid.ContextMenu;
+            if (_backgroundContextMenu != null)
+                _backgroundContextMenu.Opening += OnAlbumListContextMenuOpening;
         }
 
         RefreshAlbumTileCovers();
@@ -69,9 +82,25 @@ public partial class MusicListView : UserControl
             _albumList.LayoutUpdated -= OnAlbumListLayoutUpdated;
             _albumList.RenameOverlayLayoutRequested -= OnAlbumListRenameOverlayLayoutRequested;
         }
+
+        if (_albumRowContextMenu != null)
+            _albumRowContextMenu.Opening -= OnAlbumListContextMenuOpening;
+        if (_backgroundContextMenu != null)
+            _backgroundContextMenu.Opening -= OnAlbumListContextMenuOpening;
+
         SubscribeRenamingAlbum(null);
         _albumList = null;
         _renameTextBox = null;
+        _albumRowContextMenu = null;
+        _backgroundContextMenu = null;
+    }
+
+    private void OnAlbumListContextMenuOpening(object? sender, CancelEventArgs e)
+    {
+        // Avalonia's light-dismiss does not reliably close programmatically-opened
+        // menus from the cover/items area; close siblings before this one opens.
+        if (sender is ContextMenu opening)
+            ContextMenuHelper.CloseOpenContextMenus(this, except: opening);
     }
 
     private void UnsubscribeViewModel()

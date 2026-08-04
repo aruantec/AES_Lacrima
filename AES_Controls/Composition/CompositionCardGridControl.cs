@@ -2137,7 +2137,7 @@ public class CompositionCardGridControl : Control, IScaleExclusionRenderTarget
         Control? menuHost = this.FindAncestorOfType<CompositionCoverControl>();
         menuHost ??= this;
         if (menuHost.ContextMenu is { } menu)
-            menu.Open(menuHost);
+            ContextMenuHelper.OpenExclusive(menu, menuHost);
     }
 
     private void PublishSelectedIndex(double index, bool force = false)

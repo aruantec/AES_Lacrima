@@ -115,6 +115,7 @@ namespace AES_Lacrima.ViewModels
         private AvaloniaList<MediaItem> _coverItems = new AvaloniaList<MediaItem>();
 
         [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(ExportOnlinePlaylistCommand))]
         private FolderMediaItem? _selectedAlbum;
 
         [ObservableProperty]
@@ -123,6 +124,7 @@ namespace AES_Lacrima.ViewModels
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(AddItemsCommand))]
         [NotifyCanExecuteChangedFor(nameof(AddUrlCommand))]
+        [NotifyCanExecuteChangedFor(nameof(AddPlaylistCommand))]
         private FolderMediaItem? _loadedAlbum;
 
         [ObservableProperty]

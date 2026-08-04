@@ -457,6 +457,7 @@ namespace AES_Lacrima.ViewModels
             OnPropertyChanged(nameof(EmptyLoadedAlbumMessage));
             OnPropertyChanged(nameof(IsCarouselTitleOverlayVisible));
             ClearAlbumCommand.NotifyCanExecuteChanged();
+            ExportOnlinePlaylistCommand.NotifyCanExecuteChanged();
         }
 
         private void RefreshAlbumListState()

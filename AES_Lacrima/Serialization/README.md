@@ -26,6 +26,7 @@ All contexts in this folder are `internal` to `AES_Lacrima`. Other projects use 
 | `EmulatorUpdateJsonContext` | GitHub release-list HTTP cache for updater services | `EmulatorReleaseCachePersistence` |
 | `FlycastUpdateJsonContext` | Flycast updater cache (`Payload` holds JSON or nightly XML) | `FlycastReleaseCachePersistence` |
 | `HasheousJsonContext` | Hasheous hash lookup API request/response | `HasheousLookupService` |
+| `AplPlaylistJsonContext` | Online playlist export/import (`.apl`) | `MusicViewModel` playlist file I/O |
 
 ## Emulator update caches
 

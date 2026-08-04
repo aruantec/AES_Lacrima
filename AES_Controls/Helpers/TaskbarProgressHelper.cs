@@ -5,7 +5,8 @@ using Avalonia.Media.Imaging;
 using log4net;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
-
+
+
 using AES_Core.Logging;
 namespace AES_Controls.Helpers;
 

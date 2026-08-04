@@ -201,12 +201,7 @@ namespace AES_Lacrima.ViewModels
         {
             if (DefaultFolderCover == null) DefaultFolderCover = GenerateDefaultFolderCover();
             var baseName = "New Album";
-            var uniqueName = baseName;
-            int counter = 1;
-            while (AlbumList.Any(a => string.Equals(a.Title, uniqueName, StringComparison.OrdinalIgnoreCase)))
-            {
-                uniqueName = $"{baseName} ({counter++})";
-            }
+            var uniqueName = CreateUniqueAlbumTitle(baseName);
 
             var newAlbum = new FolderMediaItem
             {

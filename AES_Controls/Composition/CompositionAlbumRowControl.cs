@@ -413,7 +413,7 @@ public class CompositionAlbumRowControl : ItemsControl, IScaleExclusionRenderTar
             if (hit >= 0)
                 PublishSelectedIndex(hit, force: true);
             if (ContextMenu is { } menu)
-                menu.Open(this);
+                ContextMenuHelper.OpenExclusive(menu, this);
             e.Handled = true;
             return;
         }

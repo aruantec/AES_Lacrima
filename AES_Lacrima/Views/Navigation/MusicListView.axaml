@@ -107,6 +107,29 @@
 								  Stretch="Uniform"/>
 						</MenuItem.Icon>
 					</MenuItem>
+					<Separator/>
+					<MenuItem Header="Export Online Playlist" CornerRadius="8" Command="{Binding ExportOnlinePlaylistCommand}">
+						<MenuItem.Icon>
+							<Viewbox Width="32" Height="32" Stretch="Uniform">
+								<Canvas Width="100" Height="100">
+									<Path Data="M50,18 L50,62" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+									<Path Data="M34,46 L50,62 L66,46" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" Fill="Transparent" />
+									<Path Data="M22,78 L78,78" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+								</Canvas>
+							</Viewbox>
+						</MenuItem.Icon>
+					</MenuItem>
+					<MenuItem Header="Import Online Playlist" CornerRadius="8" Command="{Binding ImportOnlinePlaylistCommand}">
+						<MenuItem.Icon>
+							<Viewbox Width="32" Height="32" Stretch="Uniform">
+								<Canvas Width="100" Height="100">
+									<Path Data="M50,62 L50,18" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+									<Path Data="M34,34 L50,18 L66,34" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" Fill="Transparent" />
+									<Path Data="M22,78 L78,78" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+								</Canvas>
+							</Viewbox>
+						</MenuItem.Icon>
+					</MenuItem>
 				</ContextMenu>
 			</composition:CompositionAlbumRowControl.ContextMenu>
 		</composition:CompositionAlbumRowControl>
@@ -322,6 +345,29 @@
 								<!-- Search glass (simplified) -->
 								<Ellipse Canvas.Left="50" Canvas.Top="45" Width="25" Height="25" Stroke="#CCFFFFFF" StrokeThickness="5" Fill="Transparent" />
 								<Line StartPoint="72,67" EndPoint="85,80" Stroke="#CCFFFFFF" StrokeThickness="5" StrokeLineCap="Round" />
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
+				<Separator/>
+				<MenuItem Header="Export Online Playlist" CornerRadius="8" Command="{Binding ExportOnlinePlaylistCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<Path Data="M50,18 L50,62" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+								<Path Data="M34,46 L50,62 L66,46" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" Fill="Transparent" />
+								<Path Data="M22,78 L78,78" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+							</Canvas>
+						</Viewbox>
+					</MenuItem.Icon>
+				</MenuItem>
+				<MenuItem Header="Import Online Playlist" CornerRadius="8" Command="{Binding ImportOnlinePlaylistCommand}">
+					<MenuItem.Icon>
+						<Viewbox Width="32" Height="32" Stretch="Uniform">
+							<Canvas Width="100" Height="100">
+								<Path Data="M50,62 L50,18" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
+								<Path Data="M34,34 L50,18 L66,34" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" Fill="Transparent" />
+								<Path Data="M22,78 L78,78" Stroke="#CCFFFFFF" StrokeThickness="8" StrokeLineCap="Round" />
 							</Canvas>
 						</Viewbox>
 					</MenuItem.Icon>

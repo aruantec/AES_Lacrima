@@ -1843,7 +1843,7 @@ namespace AES_Controls.Composition
             Control? menuHost = this.FindAncestorOfType<CompositionCoverControl>();
             menuHost ??= this;
             if (menuHost.ContextMenu is { } menu)
-                menu.Open(menuHost);
+                ContextMenuHelper.OpenExclusive(menu, menuHost);
         }
 
         private void ApplyVisualTargetIndex(double clamped)
