@@ -25,7 +25,6 @@
 		<composition:CompositionAlbumRowControl x:Name="AlbumList"
 												ItemsSource="{Binding FilteredAlbumList}"
 												SelectedIndex="{Binding SelectedAlbumIndex, Mode=TwoWay}"
-												ItemSelectedCommand="{Binding OpenSelectedFolderCommand}"
 												ItemDoubleClickedCommand="{Binding OpenSelectedFolderCommand}"
 												DropCommand="{Binding DropCommand}"
 												Background="{Binding SettingsViewModel.CardGridBackgroundColor, Converter={StaticResource ColorToBrushConverter}}"

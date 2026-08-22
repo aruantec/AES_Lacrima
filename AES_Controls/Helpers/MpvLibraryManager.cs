@@ -913,10 +913,12 @@ public partial class MpvLibraryManager : ObservableObject
         // Common search paths where package managers install shared libraries
         string[] searchPaths = {
         "/usr/lib",
+        "/usr/lib64",                            // Fedora / some Arch layouts
         "/usr/local/lib",
         "/opt/homebrew/lib",                      // macOS (Homebrew ARM)
         "/usr/lib/x86_64-linux-gnu",              // Ubuntu/Debian x64
         "/usr/lib/aarch64-linux-gnu",             // Ubuntu/Debian ARM
+        "/usr/lib/arm-linux-gnueabihf",
         "/Applications/IINA.app/Contents/Frameworks" // macOS (Fallback if IINA is installed)
     };
 

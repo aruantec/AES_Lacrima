@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <AvaloniaVersion>12.1.0</AvaloniaVersion>
+    <AvaloniaVersion>12.1.1</AvaloniaVersion>
     <SvgControlsSkiaAvaloniaVersion>12.0.0.13</SvgControlsSkiaAvaloniaVersion>
     <XamlBehaviorsVersion>12.0.5</XamlBehaviorsVersion>
     <!-- Ensure linker incremental linking is enabled for Debug builds -->

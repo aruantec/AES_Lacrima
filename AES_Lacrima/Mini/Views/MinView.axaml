@@ -196,9 +196,9 @@
                     <Viewbox Stretch="Uniform">
                         <Canvas Width="100" Height="100">
                             <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
-                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
-                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying}" />
-                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !MusicViewModel.AudioPlayer.IsPlaying}" />
+                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying, FallbackValue=False, TargetNullValue=False}" />
+                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding MusicViewModel.AudioPlayer.IsPlaying, FallbackValue=False, TargetNullValue=False}" />
+                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !MusicViewModel.AudioPlayer.IsPlaying, FallbackValue=True, TargetNullValue=True}" />
                         </Canvas>
                     </Viewbox>
                 </Button>

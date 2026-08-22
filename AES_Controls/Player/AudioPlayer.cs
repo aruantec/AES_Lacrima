@@ -1194,7 +1194,8 @@ public sealed partial class AudioPlayer : AesMpvPlayer, IMediaInterface, INotify
             }
             else
             {
-                SetProperty("ao", "pulse,alsa");
+                // Prefer PipeWire on modern Arch/CachyOS desktops, then Pulse compatibility, then ALSA.
+                SetProperty("ao", "pipewire,pulse,alsa");
             }
 
             SetProperty("keep-open", "always");

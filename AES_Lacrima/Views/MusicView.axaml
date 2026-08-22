@@ -630,10 +630,10 @@
                             <!-- Outer circle -->
                             <Ellipse Canvas.Left="4" Canvas.Top="4" Width="92" Height="92" Stroke="White" StrokeThickness="7" />
                             <!-- Pause icon (two bars) -->
-                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding AudioPlayer.IsPlaying}" />
-                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding AudioPlayer.IsPlaying}" />
+                            <Rectangle Canvas.Left="35" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding AudioPlayer.IsPlaying, FallbackValue=False, TargetNullValue=False}" />
+                            <Rectangle Canvas.Left="55" Canvas.Top="30" Width="10" Height="40" RadiusX="4" RadiusY="4" Fill="White" IsVisible="{Binding AudioPlayer.IsPlaying, FallbackValue=False, TargetNullValue=False}" />
                             <!-- Play icon (triangle) -->
-                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !AudioPlayer.IsPlaying}" />
+                            <Path Data="M 38,30 L 72,50 L 38,70 Z" Fill="White" IsVisible="{Binding !AudioPlayer.IsPlaying, FallbackValue=True, TargetNullValue=True}" />
                         </Canvas>
                     </Viewbox>
                 </Button>

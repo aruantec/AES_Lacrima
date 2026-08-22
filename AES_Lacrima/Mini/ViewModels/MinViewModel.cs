@@ -342,31 +342,35 @@ namespace AES_Lacrima.Mini.ViewModels
 
             var oldWindow = AppLifetime.MainWindow;
 
-            if (App.CachedMainWindow is { } cachedMain)
-            {
-                App.CachedMainWindow = null;
-                AppLifetime.MainWindow = cachedMain;
-                if (Application.Current is App app)
-                    app.ConfigureDesktopMainWindow(cachedMain);
+            // Always create a fresh MainWindow. Re-showing a previously Hidden window
+            // can fail to remap on Avalonia Wayland (and left mini→AES transitions stuck).
+            App.SkipNextMediaViewWarmup = true;
 
-                cachedMain.ResumeFromMiniMode();
-                cachedMain.Show();
-                cachedMain.Activate();
+            var newWindow = new AES_Lacrima.Views.MainWindow();
+            if (Application.Current is App app)
+            {
+                app.CloseCachedMainWindow();
+                AppLifetime.MainWindow = newWindow;
+                app.ConfigureDesktopMainWindow(newWindow);
             }
             else
             {
-                App.SkipNextMediaViewWarmup = true;
-
-                var newWindow = new AES_Lacrima.Views.MainWindow();
+                App.CachedMainWindow = null;
                 AppLifetime.MainWindow = newWindow;
-                if (Application.Current is App app)
-                    app.ConfigureDesktopMainWindow(newWindow);
-
-                newWindow.ResumeFromMiniMode();
-                newWindow.Show();
             }
 
-            oldWindow?.Close();
+            newWindow.ResumeFromMiniMode();
+            if (newWindow.WindowState == Avalonia.Controls.WindowState.Minimized)
+                newWindow.WindowState = Avalonia.Controls.WindowState.Normal;
+            newWindow.Show();
+            newWindow.Activate();
+
+            if (oldWindow != null && !ReferenceEquals(oldWindow, newWindow))
+            {
+                try { oldWindow.Close(); }
+                catch (Exception ex) { Log.Warn("Failed to close mini window during mode switch", ex); }
+            }
+
             App.IsSwitchingMode = false;
         }
 

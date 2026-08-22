@@ -177,11 +177,24 @@ namespace AES_Lacrima.ViewModels
             var ffmpegManager = DiLocator.ResolveViewModel<FFmpegManager>();
             var mpvManager = DiLocator.ResolveViewModel<MpvLibraryManager>();
 
-            //AES_Mpv.Native.MpvNativeLibrary.SearchDirectory = "/home/aruan/Dokumente/Test/";
-            AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager)
+            try
             {
-                AutoSkipTrailingSilence = true
-            };
+                //AES_Mpv.Native.MpvNativeLibrary.SearchDirectory = "/home/aruan/Dokumente/Test/";
+                AudioPlayer = new AudioPlayer(ffmpegManager, mpvManager)
+                {
+                    AutoSkipTrailingSilence = true
+                };
+            }
+            catch (Exception ex)
+            {
+                // Keep the shell usable when libmpv is missing/unloadable (common on fresh
+                // Arch/CachyOS installs until mpv/libmpv is present). Failed bindings would
+                // otherwise leave both play and pause glyphs visible in the transport controls.
+                Log.Error("Failed to create AudioPlayer; media playback will be unavailable until libmpv is installed.", ex);
+                AudioPlayer = null;
+                return;
+            }
+
             // Re-subscribe to events
             AudioPlayer.PropertyChanged += AudioPlayer_PropertyChanged;
             

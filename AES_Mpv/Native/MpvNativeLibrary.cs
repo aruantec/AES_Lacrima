@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace AES_Mpv.Native;
 
@@ -11,6 +12,13 @@ public static class MpvNativeLibrary
     public static string LinuxFileName { get; set; } = "libmpv.so";
     public static string AndroidFileName { get; set; } = "libmpv.so";
     public static string MacFileName { get; set; } = "libmpv.2.dylib";
+
+    private static readonly string[] LinuxSonames =
+    [
+        "libmpv.so",
+        "libmpv.so.2",
+        "libmpv.so.1"
+    ];
 
     internal static void RegisterResolver()
     {
@@ -49,8 +57,36 @@ public static class MpvNativeLibrary
         }
 
         if (OperatingSystem.IsLinux())
-            return NativeLibrary.Load(ResolvePath(LinuxFileName), assembly, searchPath);
+            return ResolveLinuxLibrary(assembly, searchPath);
 
+        return IntPtr.Zero;
+    }
+
+    private static IntPtr ResolveLinuxLibrary(Assembly assembly, DllImportSearchPath? searchPath)
+    {
+        // 1) Prefer a copy staged under Tools / SearchDirectory.
+        if (!string.IsNullOrWhiteSpace(SearchDirectory))
+        {
+            foreach (var soname in LinuxSonames)
+            {
+                var candidate = Path.Combine(SearchDirectory, soname);
+                if (File.Exists(candidate) &&
+                    NativeLibrary.TryLoad(candidate, assembly, searchPath, out var handle))
+                {
+                    return handle;
+                }
+            }
+        }
+
+        // 2) Fall back to the dynamic linker (distro packages on Arch/CachyOS/Ubuntu).
+        //    Arch-based distros often ship only the versioned soname until -dev is installed.
+        foreach (var soname in LinuxSonames)
+        {
+            if (NativeLibrary.TryLoad(soname, assembly, searchPath, out var handle))
+                return handle;
+        }
+
+        // Let the runtime continue with its default resolution path.
         return IntPtr.Zero;
     }
 }

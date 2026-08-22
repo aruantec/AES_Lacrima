@@ -390,7 +390,18 @@ namespace AES_Lacrima
             {
                 if (ShouldUseNativeWayland())
                 {
-                    builder = builder.With(new WaylandPlatformOptions());
+                    // Avalonia's Wayland backend is experimental. Compositors that prefer
+                    // server-side decorations (notably KWin on CachyOS/Plasma) can ignore
+                    // WindowDecorations=None and keep drawing a system title bar on top of
+                    // our custom chrome. Suppress SSD negotiation so client undecorated
+                    // mode is respected. See Avalonia WaylandPlatformOptions.ForceDrawnDecorations.
+#pragma warning disable AVALONIA_WAYLAND_FORCE_CSD
+                    builder = builder.With(new WaylandPlatformOptions
+                    {
+                        ForceDrawnDecorations = true
+                    });
+#pragma warning restore AVALONIA_WAYLAND_FORCE_CSD
+                    Log.Info("Using Avalonia native Wayland backend with ForceDrawnDecorations=true.");
                 }
                 else
                 {
@@ -400,6 +411,7 @@ namespace AES_Lacrima
                         EnableIme = false,
                         EnableSessionManagement = false
                     });
+                    Log.Info("Using Avalonia X11 backend (PlatformDetect / XWayland).");
                 }
             }
 
@@ -408,13 +420,12 @@ namespace AES_Lacrima
 
         private static bool ShouldUseNativeWayland()
         {
+            // Native Wayland remains opt-in until Avalonia supports window icons and
+            // remaining compositor gaps (KDE SSD, etc.). Default to X11/XWayland so
+            // the AES icon and custom undecorated chrome work reliably.
+            // Enable with: AES_LACRIMA_USE_WAYLAND=1
             var flag = Environment.GetEnvironmentVariable("AES_LACRIMA_USE_WAYLAND");
-            if (flag is "0" or "false" or "FALSE")
-                return false;
-            if (flag is "1" or "true" or "TRUE")
-                return true;
-
-            return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+            return flag is "1" or "true" or "TRUE";
         }
     }
 }

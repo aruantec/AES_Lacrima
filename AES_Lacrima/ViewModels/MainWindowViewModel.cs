@@ -490,20 +490,29 @@ namespace AES_Lacrima.ViewModels
             var newWindow = new Mini.Views.CustomWindow();
 
             var oldWindow = AppLifetime.MainWindow;
-            if (oldWindow is Views.MainWindow mainWindow)
+            // Close rather than Hide+cache. Avalonia 12.1 native Wayland (and some
+            // compositors) fail to remap a window after Hide()/Show(), which left
+            // users stuck when returning from mini mode. ViewModels stay alive via DI.
+            if (Avalonia.Application.Current is App app)
             {
-                App.CachedMainWindow = mainWindow;
-                mainWindow.Hide();
+                app.CloseCachedMainWindow();
+                AppLifetime.MainWindow = newWindow;
+                app.ConfigureDesktopMainWindow(newWindow);
             }
             else
             {
-                oldWindow?.Close();
+                App.CachedMainWindow = null;
+                AppLifetime.MainWindow = newWindow;
             }
 
-            AppLifetime.MainWindow = newWindow;
-            if (Avalonia.Application.Current is App app)
-                app.ConfigureDesktopMainWindow(newWindow);
             newWindow.Show();
+            newWindow.Activate();
+
+            if (oldWindow != null && !ReferenceEquals(oldWindow, newWindow))
+            {
+                try { oldWindow.Close(); }
+                catch (Exception ex) { Log.Warn("Failed to close main window during mode switch", ex); }
+            }
 
             // refresh the taskbar buttons for the music view-model so that thumbnail
             // buttons are re‑added to the new window handle.
