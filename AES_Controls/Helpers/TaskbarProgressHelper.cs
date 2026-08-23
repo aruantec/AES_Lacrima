@@ -401,53 +401,67 @@ public static class TaskbarProgressHelper
     {
         if (!_isSupported) return IntPtr.Zero;
 
-        try
+        foreach (var family in new[] { fontFamily, "Segoe Fluent Icons", "Segoe MDL2 Assets" }.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            // Use larger size for better quality then icon will be scaled by Windows
-            using var rtb = new RenderTargetBitmap(new PixelSize(size, size));
-            using (var ctx = rtb.CreateDrawingContext())
+            try
             {
-                var glyphTypeface = new Typeface(fontFamily);
-                var formattedText = new FormattedText(
-                    character,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight,
-                    glyphTypeface,
-                    size * 0.8, // Slightly larger
-                    new SolidColorBrush(color));
+                using var rtb = new RenderTargetBitmap(new PixelSize(size, size), new Vector(96, 96));
+                using (var ctx = rtb.CreateDrawingContext())
+                {
+                    var glyphTypeface = new Typeface(family);
+                    var formattedText = new FormattedText(
+                        character,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        FlowDirection.LeftToRight,
+                        glyphTypeface,
+                        size * 0.8,
+                        new SolidColorBrush(color));
 
-                var origin = new Point((size - formattedText.Width) / 2, (size - formattedText.Height) / 2);
-                ctx.DrawText(formattedText, origin);
+                    // Skip empty/missing glyphs (font fallback can produce zero-sized text).
+                    if (formattedText.Width <= 1 || formattedText.Height <= 1)
+                        continue;
+
+                    var origin = new Point((size - formattedText.Width) / 2, (size - formattedText.Height) / 2);
+                    ctx.DrawText(formattedText, origin);
+                }
+
+                var icon = CreateHIconFromBitmap(rtb);
+                if (icon != IntPtr.Zero)
+                    return icon;
             }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed to create HICON from character with font '{family}'", ex);
+            }
+        }
 
-            return CreateHIconFromBitmap(rtb);
-        }
-        catch (Exception ex)
-        {
-            Log.Debug("Failed to create HICON from character", ex);
-            return IntPtr.Zero;
-        }
+        return IntPtr.Zero;
     }
 
     /// <summary>
     /// Creates an HICON from an Avalonia Bitmap.
+    /// Uses a top-down 32-bpp DIB so the alpha channel is preserved for the
+    /// Windows thumbnail toolbar (plain CreateBitmap DDBs often drop alpha).
     /// </summary>
     public static unsafe IntPtr CreateHIconFromBitmap(Bitmap bitmap)
     {
         if (!_isSupported) return IntPtr.Zero;
 
         var size = bitmap.PixelSize;
-        var pixels = new byte[size.Width * size.Height * 4];
+        if (size.Width <= 0 || size.Height <= 0)
+            return IntPtr.Zero;
 
+        var pixels = new byte[size.Width * size.Height * 4];
         fixed (byte* p = pixels)
         {
             bitmap.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), (IntPtr)p, pixels.Length, size.Width * 4);
         }
 
-        IntPtr hBitmap = CreateNativeBitmap(size.Width, size.Height, pixels, 32);
-        // Mask must be 1-bit monochrome. For 32-bit ARGB, the mask is often ignored or used inversely.
-        // We provide a full-size dummy mask (all zeros usually means opaque but it depends on fIcon and bit depth).
-        // Actually, for hbmMask in ICONINFO: 0 = opaque, 1 = transparent.
+        IntPtr hBitmap = CreateAlphaBitmap(size.Width, size.Height, pixels);
+        if (hBitmap == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        // 1-bit mask: all zeros => rely on the color bitmap's alpha channel.
         byte[] maskBytes = new byte[((size.Width + 15) / 16 * 2) * size.Height];
         IntPtr hMask = CreateNativeBitmap(size.Width, size.Height, maskBytes, 1);
 
@@ -466,6 +480,35 @@ public static class TaskbarProgressHelper
         return hIcon;
     }
 
+    private static unsafe IntPtr CreateAlphaBitmap(int width, int height, byte[] bgraPixels)
+    {
+        var bmi = new BITMAPINFO();
+        bmi.bmiHeader.biSize = (uint)sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = width;
+        // Negative height = top-down DIB matching Avalonia's CopyPixels order.
+        bmi.bmiHeader.biHeight = -height;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = 0; // BI_RGB
+
+        IntPtr bits;
+        IntPtr hdc = GetDC(IntPtr.Zero);
+        try
+        {
+            IntPtr hBitmap = CreateDIBSection(hdc, ref bmi, 0, out bits, IntPtr.Zero, 0);
+            if (hBitmap == IntPtr.Zero || bits == IntPtr.Zero)
+                return IntPtr.Zero;
+
+            Marshal.Copy(bgraPixels, 0, bits, bgraPixels.Length);
+            return hBitmap;
+        }
+        finally
+        {
+            if (hdc != IntPtr.Zero)
+                ReleaseDC(IntPtr.Zero, hdc);
+        }
+    }
+
     private static IntPtr CreateNativeBitmap(int width, int height, byte[] pixels, uint bitsPerPixel)
     {
         GCHandle handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
@@ -480,6 +523,29 @@ public static class TaskbarProgressHelper
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFO
+    {
+        public BITMAPINFOHEADER bmiHeader;
+        public uint bmiColors;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct ICONINFO
     {
         public bool fIcon;
@@ -491,6 +557,15 @@ public static class TaskbarProgressHelper
 
     [DllImport("user32.dll")]
     private static extern IntPtr CreateIconIndirect(ref ICONINFO piconinfo);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFO pbmi, uint iUsage, out IntPtr ppvBits, IntPtr hSection, uint dwOffset);
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, IntPtr lpvBits);

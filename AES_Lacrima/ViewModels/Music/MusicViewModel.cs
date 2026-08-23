@@ -456,44 +456,26 @@ namespace AES_Lacrima.ViewModels
             {
                 _taskbarHwnd = hwnd;
 
-                // Re-create icons to ensure handles are fresh for the new window handle.
-                const string prevChar = "\xE892";
-                const string playChar = "\xE768";
-                const string pauseChar = "\xE769";
-                const string nextChar = "\xE893";
+                // Geometry icons (not Segoe MDL2 glyphs): Avalonia 12.1.x font fallback can
+                // yield blank glyphs, which makes ThumbBarAddButtons succeed with invisible buttons.
+                _playIcon = CreateTaskbarMediaIcon(TaskbarMediaIcon.Play);
+                _pauseIcon = CreateTaskbarMediaIcon(TaskbarMediaIcon.Pause);
+                var prevIcon = CreateTaskbarMediaIcon(TaskbarMediaIcon.Previous);
+                var nextIcon = CreateTaskbarMediaIcon(TaskbarMediaIcon.Next);
 
-                _playIcon = TaskbarProgressHelper.CreateHIconFromCharacter(playChar, Colors.White);
-                _pauseIcon = TaskbarProgressHelper.CreateHIconFromCharacter(pauseChar, Colors.White);
+                Log.Info($"Taskbar icons: prev=0x{prevIcon:X} play=0x{_playIcon:X} pause=0x{_pauseIcon:X} next=0x{nextIcon:X}");
 
                 _taskbarButtons =
                 [
-                    new TaskbarButton { Id = TaskbarButtonId.Previous, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(prevChar, Colors.White), Tooltip = "Previous", Flags = THUMBBUTTONFLAGS.Enabled },
+                    new TaskbarButton { Id = TaskbarButtonId.Previous, HIcon = prevIcon, Tooltip = "Previous", Flags = THUMBBUTTONFLAGS.Enabled },
                     new TaskbarButton { Id = TaskbarButtonId.PlayPause, HIcon = AudioPlayer?.IsPlaying == true ? _pauseIcon : _playIcon, Tooltip = AudioPlayer?.IsPlaying == true ? "Pause" : "Play", Flags = THUMBBUTTONFLAGS.Enabled },
-                    new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = TaskbarProgressHelper.CreateHIconFromCharacter(nextChar, Colors.White), Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
+                    new TaskbarButton { Id = TaskbarButtonId.Next, HIcon = nextIcon, Tooltip = "Next", Flags = THUMBBUTTONFLAGS.Enabled }
                 ];
 
-                if (desktop.MainWindow is Window window && window.WindowDecorations == Avalonia.Controls.WindowDecorations.None)
-                {
-                    // For borderless windows, Windows requires WS_CAPTION or WS_THICKFRAME to show thumbnail toolbar.
-                    const int GWL_STYLE = -16;
-                    const uint WS_CAPTION = 0x00C00000;
-                    const uint WS_THICKFRAME = 0x00040000;
-                    const uint WS_MINIMIZEBOX = 0x00020000;
-                    const uint WS_MAXIMIZEBOX = 0x00010000;
-                    const uint WS_SYSMENU = 0x00080000;
-
-                    var style = (uint)GetWindowLongPtr(hwnd, GWL_STYLE).ToInt64();
-                    // We need a caption and a sysmenu/minimize/maximize for the shell to treat it as a top-level app window
-                    SetWindowLongPtr(hwnd, GWL_STYLE, new IntPtr(style | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME));
-
-                    // Force a frame change update
-                    const uint SWP_FRAMECHANGED = 0x0020;
-                    const uint SWP_NOMOVE = 0x0002;
-                    const uint SWP_NOSIZE = 0x0001;
-                    const uint SWP_NOZORDER = 0x0004;
-                    const uint SWP_NOACTIVATE = 0x0010;
-                    SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-                }
+                // Windows only shows the thumbnail toolbar when the HWND has caption/frame
+                // styles. Avalonia WindowDecorations=None clears those; we re-inject them.
+                // Avalonia 12.1.x can re-apply styles after Opened, so we also reassert deferred.
+                EnsureThumbnailToolbarWindowStyles(hwnd);
 
                 TaskbarProgressHelper.SetThumbnailButtons(_taskbarButtons);
 
@@ -514,7 +496,99 @@ namespace AES_Lacrima.ViewModels
                         case TaskbarButtonId.Next: target.PlayNextCommand.Execute(null); break;
                     }
                 });
+
+                // Avalonia can re-apply borderless styles after Opened; reassert after settle.
+                Avalonia.Threading.Dispatcher.UIThread.Post(
+                    () => EnsureThumbnailToolbarStylesDeferred(hwnd),
+                    Avalonia.Threading.DispatcherPriority.Background);
             }
+        }
+
+        private async void EnsureThumbnailToolbarStylesDeferred(IntPtr hwnd)
+        {
+            try
+            {
+                await Task.Delay(250).ConfigureAwait(true);
+                if (_taskbarHwnd != hwnd)
+                    return;
+
+                EnsureThumbnailToolbarWindowStyles(hwnd);
+                if (_taskbarButtons != null)
+                    TaskbarProgressHelper.UpdateThumbnailButtons(_taskbarButtons);
+
+                await Task.Delay(750).ConfigureAwait(true);
+                if (_taskbarHwnd != hwnd)
+                    return;
+
+                EnsureThumbnailToolbarWindowStyles(hwnd);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Deferred thumbnail toolbar style reassert failed", ex);
+            }
+        }
+
+        private enum TaskbarMediaIcon
+        {
+            Previous,
+            Play,
+            Pause,
+            Next
+        }
+
+        private static IntPtr CreateTaskbarMediaIcon(TaskbarMediaIcon kind)
+        {
+            // Coordinates in a 100x100 design space; CreateHIconFromGeometry scales to fit.
+            Geometry geometry = kind switch
+            {
+                TaskbarMediaIcon.Previous => Geometry.Parse("M 72,18 L 38,50 L 72,82 Z M 32,18 H 22 V 82 H 32 Z"),
+                TaskbarMediaIcon.Play => Geometry.Parse("M 30,18 L 82,50 L 30,82 Z"),
+                TaskbarMediaIcon.Pause => Geometry.Parse("M 28,18 H 44 V 82 H 28 Z M 56,18 H 72 V 82 H 56 Z"),
+                TaskbarMediaIcon.Next => Geometry.Parse("M 28,18 L 62,50 L 28,82 Z M 68,18 H 78 V 82 H 68 Z"),
+                _ => Geometry.Parse("M 30,18 L 82,50 L 30,82 Z")
+            };
+
+            var icon = TaskbarProgressHelper.CreateHIconFromGeometry(geometry, Colors.White, size: 64);
+            if (icon != IntPtr.Zero)
+                return icon;
+
+            // Fallback to MDL2 glyphs if geometry rendering fails for any reason.
+            string glyph = kind switch
+            {
+                TaskbarMediaIcon.Previous => "\xE892",
+                TaskbarMediaIcon.Play => "\xE768",
+                TaskbarMediaIcon.Pause => "\xE769",
+                TaskbarMediaIcon.Next => "\xE893",
+                _ => "\xE768"
+            };
+            return TaskbarProgressHelper.CreateHIconFromCharacter(glyph, Colors.White);
+        }
+
+        private static void EnsureThumbnailToolbarWindowStyles(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            const int GWL_STYLE = -16;
+            const uint WS_CAPTION = 0x00C00000;
+            const uint WS_THICKFRAME = 0x00040000;
+            const uint WS_MINIMIZEBOX = 0x00020000;
+            const uint WS_MAXIMIZEBOX = 0x00010000;
+            const uint WS_SYSMENU = 0x00080000;
+
+            var style = (uint)GetWindowLongPtr(hwnd, GWL_STYLE).ToInt64();
+            var required = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+            if ((style & required) == required)
+                return;
+
+            SetWindowLongPtr(hwnd, GWL_STYLE, new IntPtr(style | required));
+
+            const uint SWP_FRAMECHANGED = 0x0020;
+            const uint SWP_NOMOVE = 0x0002;
+            const uint SWP_NOSIZE = 0x0001;
+            const uint SWP_NOZORDER = 0x0004;
+            const uint SWP_NOACTIVATE = 0x0010;
+            SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
         private void UpdateTaskbarButtons()
